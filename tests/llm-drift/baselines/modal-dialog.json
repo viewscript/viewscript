@@ -1,0 +1,20 @@
+{
+  "name": "modal-dialog",
+  "prompt": "Create a modal dialog centered on the screen with a title, body text, and two buttons (Cancel and Confirm) at the bottom right.",
+  "expectedSteps": 7,
+  "expectedTools": [
+    "vsc_api_search",
+    "vsc_add_entity",
+    "vsc_add_entity",
+    "vsc_add_entity",
+    "vsc_add_entity",
+    "vsc_add_constraint",
+    "vsc_add_constraint"
+  ],
+  "expectedAstHash": "baseline_pending",
+  "tolerance": {
+    "steps": 2,
+    "tools": 0.7,
+    "ast": "flexible"
+  }
+}

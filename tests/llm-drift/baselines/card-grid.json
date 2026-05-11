@@ -1,0 +1,23 @@
+{
+  "name": "card-grid",
+  "prompt": "Create a 3x2 grid of cards. Each card should have equal width with 16px spacing between them. The grid should be centered in the viewport.",
+  "expectedSteps": 10,
+  "expectedTools": [
+    "vsc_api_search",
+    "vsc_add_entity",
+    "vsc_add_entity",
+    "vsc_add_entity",
+    "vsc_add_entity",
+    "vsc_add_entity",
+    "vsc_add_entity",
+    "vsc_add_constraint",
+    "vsc_add_constraint",
+    "vsc_add_constraint"
+  ],
+  "expectedAstHash": "baseline_pending",
+  "tolerance": {
+    "steps": 4,
+    "tools": 0.6,
+    "ast": "flexible"
+  }
+}

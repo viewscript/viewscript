@@ -1,0 +1,152 @@
+name: LLM Prompt Drift Check
+
+on:
+  # Weekly scheduled run
+  schedule:
+    - cron: '0 9 * * 1'  # Every Monday at 9 AM UTC
+
+  # Manual trigger with options
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: 'Specific scenario to test (or "all")'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - nav-bar
+          - modal-dialog
+          - card-grid
+          - form-layout
+          - dashboard
+      provider:
+        description: 'LLM provider to test'
+        required: false
+        default: 'anthropic'
+        type: choice
+        options:
+          - anthropic
+          - openai
+          - both
+
+env:
+  NODE_VERSION: '20'
+  DRIFT_THRESHOLD: '0.2'
+
+jobs:
+  drift-check:
+    name: Check LLM Drift (${{ matrix.provider }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        provider: ${{ github.event.inputs.provider == 'both' && fromJSON('["anthropic", "openai"]') || fromJSON(format('["{0}"]', github.event.inputs.provider || 'anthropic')) }}
+      fail-fast: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: tests/llm-drift
+
+      - name: Setup Rust (for vsc CLI)
+        uses: dtolnay/rust-action@stable
+        with:
+          targets: wasm32-wasip1
+
+      - name: Build vsc CLI
+        run: cargo build -p vsc-cli --release
+
+      - name: Run drift check
+        id: drift
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LLM_PROVIDER: ${{ matrix.provider }}
+          TEST_SCENARIO: ${{ github.event.inputs.scenario || 'all' }}
+        run: |
+          npx tsx tests/llm-drift/run-drift-check.ts \
+            --provider=$LLM_PROVIDER \
+            --scenario=$TEST_SCENARIO \
+            --threshold=$DRIFT_THRESHOLD \
+            --output=drift-report.json
+
+      - name: Upload drift report
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-report-${{ matrix.provider }}
+          path: drift-report.json
+
+      - name: Check drift threshold
+        run: |
+          SCORE=$(jq '.maxComposite' drift-report.json)
+          echo "Max composite drift score: $SCORE"
+          if (( $(echo "$SCORE >= $DRIFT_THRESHOLD" | bc -l) )); then
+            echo "::error::Prompt drift detected! Score $SCORE exceeds threshold $DRIFT_THRESHOLD"
+            exit 1
+          else
+            echo "Drift check passed. Score $SCORE is within threshold."
+          fi
+
+      - name: Post results to PR (if applicable)
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync('drift-report.json', 'utf8'));
+
+            const body = `## LLM Drift Check Results
+
+            **Provider:** ${{ matrix.provider }}
+            **Max Drift Score:** ${(report.maxComposite * 100).toFixed(1)}%
+            **Threshold:** ${(parseFloat(process.env.DRIFT_THRESHOLD) * 100).toFixed(1)}%
+            **Status:** ${report.passed ? '✅ Passed' : '❌ Failed'}
+
+            ### Scenario Results
+            ${report.scenarios.map(s =>
+              `- **${s.name}**: ${(s.composite * 100).toFixed(1)}% ${s.passed ? '✅' : '❌'}`
+            ).join('\n')}
+            `;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
+
+  notify:
+    name: Notify on drift detection
+    runs-on: ubuntu-latest
+    needs: drift-check
+    if: failure()
+
+    steps:
+      - name: Send Slack notification
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "⚠️ LLM Prompt Drift Detected",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*ViewScript LLM Drift Alert*\n\nPrompt drift detected in weekly check. LLM behavior may have changed.\n\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Details>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

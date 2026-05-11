@@ -1,0 +1,21 @@
+{
+  "name": "nav-bar",
+  "prompt": "Create a responsive navigation bar with a logo on the left, navigation links in the center, and a user profile button on the right. The navbar should be fixed at the top of the viewport.",
+  "expectedSteps": 8,
+  "expectedTools": [
+    "vsc_api_search",
+    "vsc_add_entity",
+    "vsc_add_entity",
+    "vsc_add_entity",
+    "vsc_add_entity",
+    "vsc_add_constraint",
+    "vsc_add_constraint",
+    "vsc_add_constraint"
+  ],
+  "expectedAstHash": "baseline_pending",
+  "tolerance": {
+    "steps": 3,
+    "tools": 0.7,
+    "ast": "flexible"
+  }
+}

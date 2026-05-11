@@ -1,0 +1,1066 @@
+openapi: 3.1.0
+info:
+  title: ViewScript CLI API
+  version: 0.1.0
+  description: |
+    OpenAPI specification for the ViewScript CLI (`vsc`).
+
+    This specification models CLI commands as REST API endpoints for seamless
+    integration with LLM function calling / tool use capabilities.
+
+    ## Design Philosophy
+
+    ### Verify Before Mutate
+    All mutation operations (add-constraint, apply-layout) are preceded by
+    verification steps. The CLI rejects operations that would create:
+    - Circular references (A.x < B.x < A.x)
+    - Overconstrained topology (exceeds Laman bound)
+    - Direct contradictions (A.x = 100 AND A.x = 200)
+
+    ### P-Dimension Exactness
+    All numeric values in the constraint system use exact rational arithmetic
+    (`Rational` type) to prevent floating-point accumulation errors.
+
+    ### Soft/Hard Constraint Priority
+    - `Hard` constraints cannot be overridden (structural integrity)
+    - `Soft` constraints can be shadowed by parent scope (customization)
+
+    ### Event-Sourced Ledger
+    All operations are recorded in `.vsbuildinfo` as an append-only event log,
+    enabling full auditability and rollback capabilities.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: cli://localhost
+    description: Local CLI execution (conceptual)
+
+tags:
+  - name: Query
+    description: Read-only operations for verification and search
+  - name: Entity
+    description: Entity creation and management
+  - name: Constraint
+    description: Constraint creation and removal
+  - name: Layout
+    description: Higher-order layout combinators
+  - name: Optimization
+    description: Constraint graph optimization
+  - name: Schema
+    description: API introspection
+
+paths:
+  /api-search:
+    get:
+      operationId: apiSearch
+      summary: Search API functions by natural language query
+      description: |
+        Semantic search over available CLI commands and their capabilities.
+        Use this before attempting a mutation to find the correct command.
+
+        **Verify Before Mutate**: Always search for the appropriate API
+        before issuing mutation commands.
+      tags:
+        - Query
+      parameters:
+        - name: query
+          in: query
+          required: true
+          description: Natural language query describing the desired operation
+          schema:
+            type: string
+          example: "center a rectangle on the screen"
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of results to return
+          schema:
+            type: integer
+            default: 5
+            minimum: 1
+            maximum: 20
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSearchResponse'
+
+  /check/where-fit:
+    get:
+      operationId: checkWhereFit
+      summary: Check where an entity can be placed without collision
+      description: |
+        Verifies spatial placement constraints for an entity.
+        Returns available regions where the entity can be positioned
+        without violating existing constraints.
+
+        **Verify Before Mutate**: Call this before `add-constraint` to
+        ensure the target position is valid.
+      tags:
+        - Query
+      parameters:
+        - name: entity_id
+          in: query
+          required: true
+          description: Entity ID to check placement for
+          schema:
+            $ref: '#/components/schemas/EntityId'
+      responses:
+        '200':
+          description: Available placement regions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WhereFitResponse'
+
+  /status:
+    get:
+      operationId: getStatus
+      summary: Get current project status
+      description: |
+        Returns the current state of the ViewScript project including:
+        - Entity count
+        - Constraint count
+        - Pending text metrics
+        - Layout macro count
+      tags:
+        - Query
+      responses:
+        '200':
+          description: Project status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+
+  /entities:
+    post:
+      operationId: addEntity
+      summary: Add a new entity to the constraint graph
+      description: |
+        Creates a new entity with associated control points.
+
+        For `text` entities, this creates:
+        - 1 text entity ID
+        - 4 corner control points (TL, TR, BL, BR)
+
+        After creation, call `update-metrics` with measured dimensions
+        from the Renderer to complete the Q-to-P dimension bridge.
+      tags:
+        - Entity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddEntityRequest'
+      responses:
+        '200':
+          description: Entity created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddEntityResponse'
+        '400':
+          description: Invalid entity type or parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConstraintCollisionError'
+
+  /entities/{id}/metrics:
+    put:
+      operationId: updateMetrics
+      summary: Update text metrics from Renderer measurement
+      description: |
+        **Q-to-P Dimension Bridge**
+
+        Called by the Renderer after measuring actual text dimensions
+        using CanvasKit or DOM APIs. Updates the constraints that define
+        the text bounding box.
+
+        This bridges the non-deterministic Q-dimension (browser font rendering)
+        to the exact P-dimension (rational constraint space).
+      tags:
+        - Entity
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Text entity ID
+          schema:
+            $ref: '#/components/schemas/EntityId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMetricsRequest'
+      responses:
+        '200':
+          description: Metrics updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateMetricsResponse'
+        '404':
+          description: Entity not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConstraintCollisionError'
+
+  /constraints:
+    post:
+      operationId: addConstraint
+      summary: Add a constraint between entities
+      description: |
+        Creates a new constraint in the P-dimension constraint graph.
+
+        **Verify Before Mutate**: The CLI automatically verifies:
+        1. No circular references are created
+        2. The topology remains within Laman bounds
+        3. No direct contradictions exist
+
+        If verification fails, returns a `ConstraintCollisionError` with
+        `repair_suggestions` ranked by mathematical distance.
+
+        **Constraint Priority**:
+        - Default is `hard` (cannot be shadowed)
+        - Use `soft` for constraints that can be overridden by parent scope
+      tags:
+        - Constraint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddConstraintRequest'
+      responses:
+        '200':
+          description: Constraint added successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddConstraintResponse'
+        '400':
+          description: Constraint collision detected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConstraintCollisionError'
+
+  /constraints/{id}:
+    delete:
+      operationId: removeConstraint
+      summary: Remove a constraint or layout macro
+      description: |
+        Removes a constraint by ID, or if the ID matches a layout macro
+        sequence number, removes all constraints generated by that macro.
+
+        **Atomic Rollback**: Layout macro removal is transactional -
+        all expanded constraints are deleted together.
+
+        **Protection**: Individual constraints within a layout macro
+        cannot be removed directly. The entire macro must be removed.
+      tags:
+        - Constraint
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Constraint ID or layout macro sequence number
+          schema:
+            type: integer
+            format: uint64
+        - name: intent
+          in: query
+          required: false
+          description: Natural language intent for audit trail
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Constraint(s) removed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemoveConstraintResponse'
+        '400':
+          description: Cannot remove (e.g., part of layout macro)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConstraintCollisionError'
+
+  /layouts/apply:
+    post:
+      operationId: applyLayout
+      summary: Apply a layout combinator to arrange instances
+      description: |
+        **Higher-Order Layout Constraint**
+
+        Generates multiple constraints to arrange instances according to
+        a layout pattern. This is a macro operation that expands into
+        individual `Soft` constraints.
+
+        For `stack_vertical` with N instances:
+        - Origin constraint(s): 1-2 (if origin specified)
+        - Adjacency constraints: N-1 (inst[i].y = inst[i-1].y + gap)
+        - Alignment constraints: N-1 (inst[i].x = inst[0].x)
+
+        **Total**: 2N-1 constraints (with origin) or 2N-2 (without)
+
+        All generated constraints have:
+        - `priority: "soft"` (can be shadowed by Hard constraints)
+        - `source_scope: "layout_macro:{seq}"` (for rollback tracking)
+
+        **Hierarchical Shadowing**: A subsequent `Hard` constraint on
+        any instance will shadow the `Soft` layout constraint, allowing
+        per-instance customization without removing the entire layout.
+      tags:
+        - Layout
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplyLayoutRequest'
+      responses:
+        '200':
+          description: Layout applied successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplyLayoutResponse'
+        '400':
+          description: Invalid layout parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConstraintCollisionError'
+
+  /optimize:
+    post:
+      operationId: optimize
+      summary: Optimize the constraint graph
+      description: |
+        Performs constraint graph optimization:
+        - Removes redundant constraints
+        - Snaps floating-point boundaries to exact rationals
+        - Detects and reports structural singularities
+
+        **Dry Run**: Use `dry_run: true` to preview changes without applying.
+
+        **Singularity Detection**: If the Jacobian analysis detects
+        geometrically singular configurations (e.g., collinear points),
+        warnings are included in the response.
+      tags:
+        - Optimization
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OptimizeRequest'
+      responses:
+        '200':
+          description: Optimization complete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OptimizeResponse'
+
+  /schema:
+    get:
+      operationId: exportSchema
+      summary: Export this OpenAPI schema
+      description: |
+        Returns the complete OpenAPI 3.1.0 specification for this CLI.
+
+        Use this for LLM agent initialization to dynamically load
+        the latest API capabilities.
+      tags:
+        - Schema
+      parameters:
+        - name: format
+          in: query
+          required: false
+          description: Output format
+          schema:
+            type: string
+            enum: [yaml, json]
+            default: yaml
+      responses:
+        '200':
+          description: OpenAPI schema
+          content:
+            application/x-yaml:
+              schema:
+                type: string
+            application/json:
+              schema:
+                type: object
+
+components:
+  schemas:
+    # ==========================================================================
+    # Primitive Types
+    # ==========================================================================
+
+    Rational:
+      type: object
+      description: |
+        Exact rational number for P-dimension arithmetic.
+        Represented as numerator/denominator to prevent floating-point errors.
+      required:
+        - numer
+        - denom
+      properties:
+        numer:
+          type: integer
+          format: int64
+          description: Numerator
+        denom:
+          type: integer
+          format: int64
+          description: Denominator (must be non-zero)
+          minimum: 1
+      example:
+        numer: 100
+        denom: 1
+
+    RationalString:
+      type: string
+      description: |
+        Rational number as string. Formats:
+        - Integer: "100"
+        - Fraction: "100/3"
+      pattern: '^-?\d+(/\d+)?$'
+      example: "100/1"
+
+    EntityId:
+      type: integer
+      format: uint64
+      description: Unique identifier for an entity or control point
+      example: 1001
+
+    VectorComponent:
+      type: string
+      enum: [x, y, z, t]
+      description: |
+        Component of a vector in P-dimension space:
+        - `x`: Horizontal position
+        - `y`: Vertical position
+        - `z`: Depth (for 3D)
+        - `t`: Time (for animation)
+
+    RelationType:
+      type: string
+      enum: [eq, lt, le, gt, ge]
+      description: |
+        Constraint relation type:
+        - `eq`: Equal to (=)
+        - `lt`: Less than (<)
+        - `le`: Less than or equal (<=)
+        - `gt`: Greater than (>)
+        - `ge`: Greater than or equal (>=)
+
+    ConstraintPriority:
+      type: string
+      enum: [hard, soft]
+      default: hard
+      description: |
+        Constraint priority for hierarchical shadowing:
+        - `hard`: Cannot be overridden (structural integrity)
+        - `soft`: Can be shadowed by parent scope constraints
+
+    LayoutType:
+      type: string
+      enum: [stack_vertical, stack_horizontal]
+      description: |
+        Layout combinator type:
+        - `stack_vertical`: Arrange items top-to-bottom
+        - `stack_horizontal`: Arrange items left-to-right
+
+    LayoutAnchor:
+      type: string
+      enum: [TL, TR, BL, BR]
+      default: TL
+      description: |
+        Anchor point for layout alignment:
+        - `TL`: Top-left corner
+        - `TR`: Top-right corner
+        - `BL`: Bottom-left corner
+        - `BR`: Bottom-right corner
+
+    # ==========================================================================
+    # Constraint Term Types
+    # ==========================================================================
+
+    ConstraintTermConst:
+      type: object
+      description: Constant value constraint term
+      required:
+        - type
+        - value
+      properties:
+        type:
+          type: string
+          const: const
+        value:
+          $ref: '#/components/schemas/RationalString'
+      example:
+        type: const
+        value: "100/1"
+
+    ConstraintTermRef:
+      type: object
+      description: Reference to another entity's component
+      required:
+        - type
+        - entity_id
+        - component
+      properties:
+        type:
+          type: string
+          const: ref
+        entity_id:
+          $ref: '#/components/schemas/EntityId'
+        component:
+          $ref: '#/components/schemas/VectorComponent'
+      example:
+        type: ref
+        entity_id: 1002
+        component: x
+
+    ConstraintTermLinear:
+      type: object
+      description: Linear transformation of another entity's component
+      required:
+        - type
+        - entity_id
+        - component
+        - coefficient
+        - offset
+      properties:
+        type:
+          type: string
+          const: linear
+        entity_id:
+          $ref: '#/components/schemas/EntityId'
+        component:
+          $ref: '#/components/schemas/VectorComponent'
+        coefficient:
+          $ref: '#/components/schemas/Rational'
+        offset:
+          $ref: '#/components/schemas/Rational'
+      example:
+        type: linear
+        entity_id: 1002
+        component: y
+        coefficient:
+          numer: 1
+          denom: 1
+        offset:
+          numer: 16
+          denom: 1
+
+    ConstraintTerm:
+      oneOf:
+        - $ref: '#/components/schemas/ConstraintTermConst'
+        - $ref: '#/components/schemas/ConstraintTermRef'
+        - $ref: '#/components/schemas/ConstraintTermLinear'
+      discriminator:
+        propertyName: type
+        mapping:
+          const: '#/components/schemas/ConstraintTermConst'
+          ref: '#/components/schemas/ConstraintTermRef'
+          linear: '#/components/schemas/ConstraintTermLinear'
+
+    # ==========================================================================
+    # Request Schemas
+    # ==========================================================================
+
+    AddEntityRequest:
+      type: object
+      required:
+        - entity_type
+      properties:
+        entity_type:
+          type: string
+          enum: [text]
+          description: Type of entity to create
+        content:
+          type: string
+          description: Text content (for text entities)
+        font_family:
+          type: string
+          default: sans-serif
+          description: Font family name
+        font_size:
+          $ref: '#/components/schemas/RationalString'
+        x:
+          $ref: '#/components/schemas/RationalString'
+        y:
+          $ref: '#/components/schemas/RationalString'
+      example:
+        entity_type: text
+        content: "Hello, World!"
+        font_family: monospace
+        font_size: "16"
+        x: "100"
+        y: "50"
+
+    UpdateMetricsRequest:
+      type: object
+      required:
+        - width
+        - height
+      properties:
+        width:
+          $ref: '#/components/schemas/RationalString'
+        height:
+          $ref: '#/components/schemas/RationalString'
+      example:
+        width: "120"
+        height: "24"
+
+    AddConstraintRequest:
+      type: object
+      required:
+        - target
+        - component
+        - relation
+        - term
+      properties:
+        target:
+          $ref: '#/components/schemas/EntityId'
+        component:
+          $ref: '#/components/schemas/VectorComponent'
+        relation:
+          $ref: '#/components/schemas/RelationType'
+        term:
+          $ref: '#/components/schemas/ConstraintTerm'
+        priority:
+          $ref: '#/components/schemas/ConstraintPriority'
+        intent:
+          type: string
+          description: Natural language intent for audit trail
+      example:
+        target: 1001
+        component: x
+        relation: eq
+        term:
+          type: const
+          value: "100/1"
+        intent: "Position button at x=100"
+
+    ApplyLayoutRequest:
+      type: object
+      required:
+        - layout_type
+        - instances
+      properties:
+        layout_type:
+          $ref: '#/components/schemas/LayoutType'
+        instances:
+          type: array
+          items:
+            $ref: '#/components/schemas/EntityId'
+          minItems: 2
+          description: Ordered array of instance IDs to arrange
+        anchor:
+          $ref: '#/components/schemas/LayoutAnchor'
+        gap:
+          $ref: '#/components/schemas/RationalString'
+        origin_x:
+          $ref: '#/components/schemas/RationalString'
+        origin_y:
+          $ref: '#/components/schemas/RationalString'
+        intent:
+          type: string
+          description: Natural language intent for audit trail
+      example:
+        layout_type: stack_vertical
+        instances: [1001, 1002, 1003]
+        anchor: TL
+        gap: "16"
+        origin_y: "100"
+        intent: "Vertical menu layout"
+
+    OptimizeRequest:
+      type: object
+      properties:
+        dry_run:
+          type: boolean
+          default: false
+          description: Preview changes without applying
+
+    # ==========================================================================
+    # Response Schemas
+    # ==========================================================================
+
+    ApiSearchResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [success]
+        query:
+          type: string
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              function:
+                type: string
+              signature:
+                type: string
+              description:
+                type: string
+              relevance:
+                type: number
+                format: float
+
+    WhereFitResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [success]
+        available_regions:
+          type: array
+          items:
+            type: object
+            description: Bounding box of available region
+
+    StatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [success]
+        entity_count:
+          type: integer
+        constraint_count:
+          type: integer
+        layout_macro_count:
+          type: integer
+        pending_metrics:
+          type: array
+          items:
+            $ref: '#/components/schemas/EntityId'
+
+    AddEntityResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [success]
+        entity_type:
+          type: string
+        entity_id:
+          $ref: '#/components/schemas/EntityId'
+        corner_tl:
+          $ref: '#/components/schemas/EntityId'
+        corner_tr:
+          $ref: '#/components/schemas/EntityId'
+        corner_bl:
+          $ref: '#/components/schemas/EntityId'
+        corner_br:
+          $ref: '#/components/schemas/EntityId'
+        metrics_pending:
+          type: boolean
+        message:
+          type: string
+
+    UpdateMetricsResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [success]
+        entity_id:
+          $ref: '#/components/schemas/EntityId'
+        width:
+          type: string
+        height:
+          type: string
+        constraints_added:
+          type: integer
+        message:
+          type: string
+
+    AddConstraintResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [success]
+        constraint_id:
+          type: integer
+          format: uint64
+
+    RemoveConstraintResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [success]
+        removed_type:
+          type: string
+          enum: [constraint, layout_macro]
+        constraint_id:
+          type: integer
+          format: uint64
+          description: Present if removed_type is constraint
+        macro_seq:
+          type: integer
+          format: uint64
+          description: Present if removed_type is layout_macro
+        constraints_removed:
+          type: array
+          items:
+            type: integer
+            format: uint64
+          description: List of removed constraint IDs (for layout_macro)
+        message:
+          type: string
+
+    ApplyLayoutResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [success]
+        macro_seq:
+          type: integer
+          format: uint64
+          description: Sequence number for rollback reference
+        layout_type:
+          $ref: '#/components/schemas/LayoutType'
+        instances:
+          type: array
+          items:
+            $ref: '#/components/schemas/EntityId'
+        expanded_constraints:
+          type: array
+          items:
+            type: integer
+            format: uint64
+          description: IDs of generated constraints
+        constraints_added:
+          type: integer
+        message:
+          type: string
+
+    OptimizeResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [success]
+        constraints_removed:
+          type: integer
+        constraints_merged:
+          type: integer
+        boundaries_snapped:
+          type: integer
+        dry_run:
+          type: boolean
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/SingularityWarning'
+
+    SingularityWarning:
+      type: object
+      properties:
+        type:
+          type: string
+          const: STRUCTURAL_SINGULARITY
+        message:
+          type: string
+        affected_constraints:
+          type: array
+          items:
+            type: integer
+            format: uint64
+        rank:
+          type: integer
+        max_rank:
+          type: integer
+
+    # ==========================================================================
+    # Error Schemas
+    # ==========================================================================
+
+    CollisionErrorType:
+      type: string
+      enum:
+        - circular_reference
+        - direct_contradiction
+        - relation_mismatch
+        - overdetermined
+        - self_reference
+      description: |
+        Type of constraint collision:
+        - `circular_reference`: A.x < B.x < A.x cycle detected
+        - `direct_contradiction`: A.x = 100 AND A.x = 200
+        - `relation_mismatch`: Incompatible relation types
+        - `overdetermined`: Topology exceeds Laman bound
+        - `self_reference`: Entity references itself
+
+    MathematicalDistance:
+      type: object
+      description: |
+        Weighted metric for ranking repair suggestions.
+        Lower composite_score indicates preferred repair.
+      properties:
+        deletions:
+          type: integer
+          description: Number of constraints to delete
+        constant_modifications:
+          type: integer
+          description: Number of constant values to change
+        relative_error:
+          $ref: '#/components/schemas/RationalString'
+        reference_scale:
+          $ref: '#/components/schemas/RationalString'
+        relation_changes:
+          type: integer
+          description: Number of relation types to change
+        composite_score:
+          $ref: '#/components/schemas/RationalString'
+
+    RepairAction:
+      oneOf:
+        - type: object
+          properties:
+            type:
+              type: string
+              const: reject_incoming
+        - type: object
+          properties:
+            type:
+              type: string
+              const: delete_existing
+            constraint_ids:
+              type: array
+              items:
+                type: integer
+                format: uint64
+        - type: object
+          properties:
+            type:
+              type: string
+              const: modify_constant
+            constraint_id:
+              type: integer
+              format: uint64
+            new_value:
+              $ref: '#/components/schemas/Rational'
+        - type: object
+          properties:
+            type:
+              type: string
+              const: change_relation
+            constraint_id:
+              type: integer
+              format: uint64
+            new_relation:
+              $ref: '#/components/schemas/RelationType'
+
+    RepairSuggestion:
+      type: object
+      description: |
+        A suggested repair action to resolve a constraint collision.
+        Suggestions are ranked by mathematical_distance (lower is better).
+      properties:
+        suggestion_id:
+          type: integer
+        mathematical_distance:
+          $ref: '#/components/schemas/MathematicalDistance'
+        action:
+          $ref: '#/components/schemas/RepairAction'
+        explanation:
+          type: string
+        affected_constraints:
+          type: array
+          items:
+            type: integer
+            format: uint64
+
+    ConstraintSnapshot:
+      type: object
+      properties:
+        constraint:
+          type: object
+          description: Full constraint data
+        buildinfo_index:
+          type: integer
+          format: uint64
+        added_at:
+          type: string
+          format: date-time
+        intent:
+          type: string
+
+    CollisionAnalysis:
+      type: object
+      properties:
+        cycle_path:
+          type: array
+          items:
+            $ref: '#/components/schemas/EntityId'
+          description: Entity IDs forming the cycle (for circular_reference)
+        constraints_analyzed:
+          type: integer
+          format: uint64
+        analysis_time_us:
+          type: integer
+          format: uint64
+        hideable_in_viewport:
+          type: boolean
+        hiding_viewport:
+          type: object
+          nullable: true
+
+    ConstraintCollisionError:
+      type: object
+      description: |
+        Error returned when a constraint operation would create an invalid state.
+        Includes repair_suggestions ranked by mathematical distance.
+      required:
+        - error_type
+        - message
+        - incoming_constraint
+        - conflicting_constraints
+        - repair_suggestions
+        - analysis
+      properties:
+        error_type:
+          $ref: '#/components/schemas/CollisionErrorType'
+        message:
+          type: string
+          description: Human-readable error description
+        incoming_constraint:
+          $ref: '#/components/schemas/ConstraintSnapshot'
+        conflicting_constraints:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConstraintSnapshot'
+        repair_suggestions:
+          type: array
+          items:
+            $ref: '#/components/schemas/RepairSuggestion'
+          description: |
+            Ordered list of repair options, ranked by mathematical_distance.
+            The first suggestion has the lowest cost.
+        analysis:
+          $ref: '#/components/schemas/CollisionAnalysis'

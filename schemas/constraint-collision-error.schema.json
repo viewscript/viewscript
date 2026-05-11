@@ -1,0 +1,217 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://viewscript.dev/schemas/constraint-collision-error.json",
+  "title": "ConstraintCollisionError",
+  "description": "JSON output when vsc detects a constraint collision (Exit Code 1)",
+  "type": "object",
+  "required": ["error_type", "message", "incoming_constraint", "conflicting_constraints", "repair_suggestions", "analysis"],
+  "properties": {
+    "error_type": {
+      "type": "string",
+      "enum": ["circular_reference", "direct_contradiction", "relation_mismatch", "overdetermined", "self_reference"],
+      "description": "Classification of the collision type"
+    },
+    "message": {
+      "type": "string",
+      "description": "Human-readable summary of the collision"
+    },
+    "incoming_constraint": {
+      "$ref": "#/$defs/ConstraintSnapshot",
+      "description": "The newly added constraint that caused the collision"
+    },
+    "conflicting_constraints": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ConstraintSnapshot" },
+      "description": "Existing constraints that conflict with the incoming one"
+    },
+    "repair_suggestions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/RepairSuggestion" },
+      "description": "Repair suggestions ordered by mathematical distance (ascending)"
+    },
+    "analysis": {
+      "$ref": "#/$defs/CollisionAnalysis",
+      "description": "Metadata about the collision analysis"
+    }
+  },
+  "$defs": {
+    "EntityId": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "VectorComponent": {
+      "type": "string",
+      "enum": ["x", "y", "z", "t"]
+    },
+    "RelationType": {
+      "type": "string",
+      "enum": ["eq", "lt", "le", "gt", "ge"]
+    },
+    "ConstraintTerm": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "value"],
+          "properties": {
+            "type": { "const": "const" },
+            "value": { "type": "number" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "entity_id", "component"],
+          "properties": {
+            "type": { "const": "ref" },
+            "entity_id": { "$ref": "#/$defs/EntityId" },
+            "component": { "$ref": "#/$defs/VectorComponent" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "coefficient", "entity_id", "component", "offset"],
+          "properties": {
+            "type": { "const": "linear" },
+            "coefficient": { "type": "number" },
+            "entity_id": { "$ref": "#/$defs/EntityId" },
+            "component": { "$ref": "#/$defs/VectorComponent" },
+            "offset": { "type": "number" }
+          }
+        }
+      ]
+    },
+    "Constraint": {
+      "type": "object",
+      "required": ["id", "target", "component", "relation", "term"],
+      "properties": {
+        "id": { "type": "integer", "minimum": 0 },
+        "target": { "$ref": "#/$defs/EntityId" },
+        "component": { "$ref": "#/$defs/VectorComponent" },
+        "relation": { "$ref": "#/$defs/RelationType" },
+        "term": { "$ref": "#/$defs/ConstraintTerm" }
+      }
+    },
+    "ConstraintSnapshot": {
+      "type": "object",
+      "required": ["constraint", "buildinfo_index", "added_at"],
+      "properties": {
+        "constraint": { "$ref": "#/$defs/Constraint" },
+        "buildinfo_index": { "type": "integer", "minimum": 0 },
+        "added_at": { "type": "string", "format": "date-time" },
+        "intent": { "type": "string" }
+      }
+    },
+    "MathematicalDistance": {
+      "type": "object",
+      "required": ["deletions", "constant_modifications", "constant_delta_l1", "relation_changes", "composite_score"],
+      "properties": {
+        "deletions": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of constraints that must be deleted"
+        },
+        "constant_modifications": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of constraint constants that must be changed"
+        },
+        "constant_delta_l1": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Total absolute change in constant values (L1 norm)"
+        },
+        "relation_changes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of relation types that must be changed"
+        },
+        "composite_score": {
+          "type": "number",
+          "description": "Weighted composite: deletions*1000 + relation_changes*100 + constant_modifications*10 + min(constant_delta_l1, 9.999)"
+        }
+      }
+    },
+    "RepairAction": {
+      "oneOf": [
+        { "type": "object", "required": ["type"], "properties": { "type": { "const": "reject_incoming" } } },
+        {
+          "type": "object",
+          "required": ["type", "constraint_ids"],
+          "properties": {
+            "type": { "const": "delete_existing" },
+            "constraint_ids": { "type": "array", "items": { "type": "integer" } }
+          }
+        },
+        { "type": "object", "required": ["type"], "properties": { "type": { "const": "modify_constants" } } },
+        {
+          "type": "object",
+          "required": ["type", "constraint_ids", "new_relations"],
+          "properties": {
+            "type": { "const": "relax_relations" },
+            "constraint_ids": { "type": "array", "items": { "type": "integer" } },
+            "new_relations": { "type": "array", "items": { "$ref": "#/$defs/RelationType" } }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "constraint_to_modify", "new_term"],
+          "properties": {
+            "type": { "const": "break_cycle" },
+            "constraint_to_modify": { "type": "integer" },
+            "new_term": { "$ref": "#/$defs/ConstraintTerm" }
+          }
+        }
+      ]
+    },
+    "ConstraintModification": {
+      "type": "object",
+      "required": ["constraint_id", "current_value", "suggested_value", "delta"],
+      "properties": {
+        "constraint_id": { "type": "integer" },
+        "current_value": { "type": "number" },
+        "suggested_value": { "type": "number" },
+        "delta": { "type": "number", "minimum": 0 }
+      }
+    },
+    "RepairSuggestion": {
+      "type": "object",
+      "required": ["suggestion_id", "mathematical_distance", "action", "explanation", "affected_constraints"],
+      "properties": {
+        "suggestion_id": { "type": "integer", "minimum": 1 },
+        "mathematical_distance": { "$ref": "#/$defs/MathematicalDistance" },
+        "action": { "$ref": "#/$defs/RepairAction" },
+        "explanation": { "type": "string" },
+        "affected_constraints": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ConstraintModification" }
+        }
+      }
+    },
+    "ViewportBounds": {
+      "type": "object",
+      "required": ["x_min", "x_max", "y_min", "y_max", "t_start", "t_end"],
+      "properties": {
+        "x_min": { "type": "number" },
+        "x_max": { "type": "number" },
+        "y_min": { "type": "number" },
+        "y_max": { "type": "number" },
+        "t_start": { "type": "number" },
+        "t_end": { "type": "number" }
+      }
+    },
+    "CollisionAnalysis": {
+      "type": "object",
+      "required": ["constraints_analyzed", "analysis_time_us", "hideable_in_viewport"],
+      "properties": {
+        "cycle_path": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/EntityId" },
+          "description": "Entity IDs forming the cycle (if circular_reference)"
+        },
+        "constraints_analyzed": { "type": "integer", "minimum": 0 },
+        "analysis_time_us": { "type": "integer", "minimum": 0 },
+        "hideable_in_viewport": { "type": "boolean" },
+        "hiding_viewport": { "$ref": "#/$defs/ViewportBounds" }
+      }
+    }
+  }
+}

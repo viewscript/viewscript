@@ -1,0 +1,46 @@
+# Stack Vertical Layout Command
+# Phase 15: CODL Example
+#
+# Arranges instances vertically with a specified gap.
+# Generates N-1 adjacency constraints for N instances.
+
+name: stack_vertical
+version: "1.0.0"
+description: "Stacks instances vertically with a specified gap"
+
+parameters:
+  - name: instances
+    type: Array<EntityId>
+    description: "Array of entity IDs to stack vertically"
+
+  - name: gap
+    type: Rational
+    default: "0"
+    description: "Gap between instances (in P-dimension units)"
+
+operations:
+  # For each instance (starting from index 1), constrain its Y position
+  # relative to the previous instance's Y position plus the gap.
+  - foreach:
+      item: curr
+      index: i
+      in: instances
+    where: "i > 0"
+    yield:
+      type: constraint
+      target: "${curr}"
+      component: y
+      relation: eq
+      priority: soft
+      term:
+        type: linear
+        entity_id: "${instances[i-1]}"
+        component: y
+        coefficient: "1"
+        offset: "${gap}"
+      intent: "Stack ${curr} below ${instances[i-1]} with gap"
+
+metadata:
+  author: "ViewScript"
+  license: "MIT"
+  category: "layout"

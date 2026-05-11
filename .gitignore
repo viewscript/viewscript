@@ -1,0 +1,35 @@
+# Rust
+target/
+Cargo.lock
+
+# TypeScript
+node_modules/
+dist/
+*.tsbuildinfo
+
+# LEAN 4
+.lake/
+lake-packages/
+
+# ViewScript
+.vsbuildinfo
+*.vs.lock
+.vs-telemetry.jsonl
+
+# NOTE: .proptest-regressions is INTENTIONALLY TRACKED (not ignored).
+# These regression files capture edge cases discovered by fuzzing and
+# serve as deterministic regression tests in CI. They transform unknown
+# bugs into known constraints, shared across the OSS community.
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Temporary/Generated
+RESPONSE*.md
+*.log
+*.tmp

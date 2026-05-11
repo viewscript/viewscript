@@ -1,0 +1,30 @@
+[package]
+name = "vsc-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "vsc"
+path = "src/main.rs"
+
+[dependencies]
+vsc-core = { path = "../vsc-core" }
+vsc-codl = { path = "../vsc-codl" }
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml = "0.9"
+thiserror.workspace = true
+clap = { version = "4.5", features = ["derive"] }
+
+[dev-dependencies]
+# CLI black-box testing
+assert_cmd = "2.0"           # Spawns CLI as subprocess, captures exit code/stdout/stderr
+predicates = "3.1"           # Fluent assertions for stdout content matching
+tempfile = "3.10"            # Creates isolated temp directories (virtual FS)
+jsonschema = "0.18"          # JSON Schema validation (Draft 2020-12)
+serde_json = "1.0"
+
+# Test utilities
+test-case = "3.3"            # Parameterized test cases
+insta = "1.38"               # Snapshot testing for JSON outputs

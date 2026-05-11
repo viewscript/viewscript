@@ -1,0 +1,11 @@
+name = "ViewScriptRFC"
+version = "0.1.0"
+defaultTargets = ["ViewScriptRFC"]
+
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
+rev = "master"
+
+[[lean_lib]]
+name = "ViewScriptRFC"

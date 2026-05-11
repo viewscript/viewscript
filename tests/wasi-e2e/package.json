@@ -1,0 +1,16 @@
+{
+  "name": "@viewscript/wasi-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-wasi-unstable-preview1 runner.mjs",
+    "test:verbose": "node --experimental-wasi-unstable-preview1 runner.mjs --verbose"
+  },
+  "devDependencies": {
+    "@aspect-build/rules_js": "^1.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

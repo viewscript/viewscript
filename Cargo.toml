@@ -1,0 +1,57 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/vsc-core",
+    "crates/vsc-cli",
+    "crates/vsc-wasm",
+    "crates/vsc-linter",
+    "crates/vsc-codl",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/viewscript/viewscript"
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+
+# ==============================================================================
+# Release Profile: Optimized for WASM Size
+# ==============================================================================
+
+[profile.release]
+# Optimize for size over speed
+opt-level = 'z'
+
+# Enable Link-Time Optimization (cross-crate inlining)
+lto = true
+
+# Single codegen unit = better LTO but slower compile
+codegen-units = 1
+
+# Abort on panic (smaller binary, no unwinding)
+panic = 'abort'
+
+# Strip symbols from binary
+strip = true
+
+# ==============================================================================
+# Release Profile for WASM (even more aggressive)
+# ==============================================================================
+
+[profile.release-wasm]
+inherits = "release"
+opt-level = 'z'
+lto = "fat"
+codegen-units = 1
+panic = 'abort'
+strip = "symbols"
+
+# Disable debug info completely
+debug = false
+debug-assertions = false
+overflow-checks = false

@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ViewScript Visual Demo</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      width: 800px;
+      height: 600px;
+      overflow: hidden;
+      background: #1a1a2e;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    #vs-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 800px;
+      height: 600px;
+    }
+    #vs-dom-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 800px;
+      height: 600px;
+      pointer-events: auto;
+    }
+    .vs-dom-element {
+      position: absolute;
+      pointer-events: auto;
+      will-change: transform;
+    }
+    #info-overlay {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      color: rgba(255, 255, 255, 0.7);
+      font-size: 12px;
+      font-family: monospace;
+      z-index: 1000;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="vs-canvas" width="800" height="600"></canvas>
+  <div id="vs-dom-layer"></div>
+  <div id="info-overlay"></div>
+
+  <script type="module">
+    /**
+     * ViewScript Visual Demo
+     *
+     * Demonstrates the complete rendering pipeline:
+     * 1. IR (Intermediate Representation) construction
+     * 2. Constraint-based P-dimension positioning
+     * 3. T-vector driven animations
+     * 4. Canvas + DOM bilayer rendering
+     */
+
+    const canvas = document.getElementById('vs-canvas');
+    const ctx = canvas.getContext('2d');
+    const domLayer = document.getElementById('vs-dom-layer');
+    const infoOverlay = document.getElementById('info-overlay');
+
+    // ==========================================================================
+    // IR Construction (Simulating vsc CLI output)
+    // ==========================================================================
+
+    /**
+     * This IR represents what `vsc build` would produce.
+     * Structure matches the vsc-core IR schema.
+     */
+    const ir = {
+      schema_version: 1,
+      project: {
+        name: "visual-demo",
+        version: "0.1.0"
+      },
+      entities: [
+        // Title text
+        {
+          id: 1,
+          type: "text",
+          content: "ViewScript P-Dimension Demo",
+          bounds: { x: 50, y: 50, width: 400, height: 40 },
+          fill: "#ffffff",
+          font: { family: "sans-serif", size: 28, weight: "bold" }
+        },
+        // Main rectangle (constrained to center)
+        {
+          id: 2,
+          type: "rect",
+          bounds: { x: 300, y: 200, width: 200, height: 200 },
+          fill: "#6366f1",
+          interactive: true,
+          stroke: { color: "#818cf8", width: 2 }
+        },
+        // Satellite rectangles (constrained relative to main)
+        {
+          id: 3,
+          type: "rect",
+          bounds: { x: 150, y: 250, width: 80, height: 80 },
+          fill: "#22c55e",
+          interactive: true
+        },
+        {
+          id: 4,
+          type: "rect",
+          bounds: { x: 570, y: 250, width: 80, height: 80 },
+          fill: "#f59e0b",
+          interactive: true
+        },
+        // Constraint visualization lines
+        {
+          id: 5,
+          type: "line",
+          from: { x: 230, y: 290 },
+          to: { x: 300, y: 300 },
+          stroke: { color: "rgba(255, 255, 255, 0.3)", width: 2, dash: [5, 5] }
+        },
+        {
+          id: 6,
+          type: "line",
+          from: { x: 500, y: 300 },
+          to: { x: 570, y: 290 },
+          stroke: { color: "rgba(255, 255, 255, 0.3)", width: 2, dash: [5, 5] }
+        },
+        // Labels
+        {
+          id: 7,
+          type: "text",
+          content: "Entity #2",
+          bounds: { x: 350, y: 420, width: 100, height: 20 },
+          fill: "rgba(255, 255, 255, 0.6)",
+          font: { family: "monospace", size: 12 }
+        },
+        {
+          id: 8,
+          type: "text",
+          content: "Entity #3",
+          bounds: { x: 150, y: 350, width: 80, height: 20 },
+          fill: "rgba(255, 255, 255, 0.6)",
+          font: { family: "monospace", size: 12 }
+        },
+        {
+          id: 9,
+          type: "text",
+          content: "Entity #4",
+          bounds: { x: 570, y: 350, width: 80, height: 20 },
+          fill: "rgba(255, 255, 255, 0.6)",
+          font: { family: "monospace", size: 12 }
+        },
+        // Constraint info box
+        {
+          id: 10,
+          type: "rect",
+          bounds: { x: 50, y: 450, width: 700, height: 120 },
+          fill: "rgba(255, 255, 255, 0.05)",
+          stroke: { color: "rgba(255, 255, 255, 0.2)", width: 1 }
+        },
+        {
+          id: 11,
+          type: "text",
+          content: "Active Constraints (P-Dimension):",
+          bounds: { x: 70, y: 475, width: 300, height: 20 },
+          fill: "#a5b4fc",
+          font: { family: "monospace", size: 14 }
+        },
+        {
+          id: 12,
+          type: "text",
+          content: "E2.x = 300/1  |  E3.x = E2.x - 150/1  |  E4.x = E2.x + 270/1",
+          bounds: { x: 70, y: 500, width: 600, height: 16 },
+          fill: "rgba(255, 255, 255, 0.7)",
+          font: { family: "monospace", size: 13 }
+        },
+        {
+          id: 13,
+          type: "text",
+          content: "T-Vector State: hover=0, animation_t=0.00",
+          bounds: { x: 70, y: 530, width: 400, height: 16 },
+          fill: "rgba(255, 255, 255, 0.5)",
+          font: { family: "monospace", size: 12 }
+        }
+      ],
+      constraints: [
+        // E2 (main) positioned at center
+        { id: 1, target: 2, component: "x", relation: "eq", term: { type: "const", value: "300/1" } },
+        { id: 2, target: 2, component: "y", relation: "eq", term: { type: "const", value: "200/1" } },
+        // E3 positioned relative to E2
+        { id: 3, target: 3, component: "x", relation: "eq", term: { type: "linear", coefficient: "1/1", entity_id: 2, component: "x", offset: "-150/1" } },
+        // E4 positioned relative to E2
+        { id: 4, target: 4, component: "x", relation: "eq", term: { type: "linear", coefficient: "1/1", entity_id: 2, component: "x", offset: "270/1" } }
+      ],
+      containments: []
+    };
+
+    // ==========================================================================
+    // Rendering Pipeline
+    // ==========================================================================
+
+    function render() {
+      // Clear canvas
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(0, 0, 800, 600);
+
+      // Render grid background
+      renderGrid();
+
+      // Render each entity
+      for (const entity of ir.entities) {
+        renderEntity(entity);
+      }
+
+      // Update info overlay
+      updateInfo();
+    }
+
+    function renderGrid() {
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+      ctx.lineWidth = 1;
+
+      // Vertical lines
+      for (let x = 0; x <= 800; x += 50) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, 600);
+        ctx.stroke();
+      }
+
+      // Horizontal lines
+      for (let y = 0; y <= 600; y += 50) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(800, y);
+        ctx.stroke();
+      }
+    }
+
+    function renderEntity(entity) {
+      const { type, bounds, fill, stroke, content, font } = entity;
+
+      switch (type) {
+        case 'rect':
+          // Fill
+          ctx.fillStyle = fill || '#ffffff';
+          ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
+
+          // Stroke
+          if (stroke) {
+            ctx.strokeStyle = stroke.color;
+            ctx.lineWidth = stroke.width;
+            ctx.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height);
+          }
+          break;
+
+        case 'text':
+          ctx.fillStyle = fill || '#ffffff';
+          const fontSize = font?.size || 16;
+          const fontFamily = font?.family || 'sans-serif';
+          const fontWeight = font?.weight || 'normal';
+          ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+          ctx.fillText(content, bounds.x, bounds.y + fontSize);
+          break;
+
+        case 'line':
+          ctx.strokeStyle = entity.stroke?.color || '#ffffff';
+          ctx.lineWidth = entity.stroke?.width || 1;
+          if (entity.stroke?.dash) {
+            ctx.setLineDash(entity.stroke.dash);
+          }
+          ctx.beginPath();
+          ctx.moveTo(entity.from.x, entity.from.y);
+          ctx.lineTo(entity.to.x, entity.to.y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          break;
+      }
+    }
+
+    function updateInfo() {
+      const now = new Date().toISOString();
+      infoOverlay.textContent = `ViewScript Renderer | Entities: ${ir.entities.length} | Constraints: ${ir.constraints.length} | ${now}`;
+    }
+
+    // ==========================================================================
+    // Animation Loop (T-Vector driven)
+    // ==========================================================================
+
+    let animationT = 0;
+    let hoverState = 0;
+
+    function animate(timestamp) {
+      animationT = (timestamp / 1000) % 10; // 10-second cycle
+
+      // Update T-vector display
+      const tVectorText = ir.entities.find(e => e.id === 13);
+      if (tVectorText) {
+        tVectorText.content = `T-Vector State: hover=${hoverState}, animation_t=${animationT.toFixed(2)}`;
+      }
+
+      // Animate main rectangle color based on T
+      const mainRect = ir.entities.find(e => e.id === 2);
+      if (mainRect) {
+        const hue = (animationT / 10) * 360;
+        mainRect.fill = `hsl(${hue}, 70%, 60%)`;
+      }
+
+      // Render
+      render();
+
+      requestAnimationFrame(animate);
+    }
+
+    // ==========================================================================
+    // Initialize
+    // ==========================================================================
+
+    // Initial render
+    render();
+
+    // Start animation
+    requestAnimationFrame(animate);
+
+    // Signal ready for screenshot
+    window.__VS_DEMO_READY__ = true;
+
+    console.log('[ViewScript] Visual Demo initialized');
+    console.log('[ViewScript] IR entities:', ir.entities.length);
+    console.log('[ViewScript] Constraints:', ir.constraints.length);
+  </script>
+</body>
+</html>

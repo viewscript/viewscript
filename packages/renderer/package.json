@@ -1,0 +1,28 @@
+{
+  "name": "@viewscript/renderer",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:visual": "playwright test --project=visual-regression",
+    "test:e2e:sync": "playwright test --project=bilayer-sync",
+    "test:e2e:perf": "playwright test --project=performance",
+    "test:e2e:async-race": "playwright test --project=async-race",
+    "serve:test": "npx serve tests/e2e -l 3000 -s",
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "canvaskit-wasm": "^0.39.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.44.0",
+    "@types/node": "^20.0.0",
+    "serve": "^14.2.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}

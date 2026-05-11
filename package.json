@@ -1,0 +1,10 @@
+{
+  "name": "viewscript",
+  "private": true,
+  "packageManager": "pnpm@9.1.0",
+  "scripts": {
+    "build": "just build",
+    "test": "just test",
+    "lint": "just lint"
+  }
+}

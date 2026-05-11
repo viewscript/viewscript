@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ViewScript Renderer Test Harness</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      width: 800px;
+      height: 600px;
+      overflow: hidden;
+      background: #ffffff;
+    }
+    #vs-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 800px;
+      height: 600px;
+    }
+    #vs-dom-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 800px;
+      height: 600px;
+      pointer-events: auto;
+    }
+    .vs-dom-element {
+      position: absolute;
+      pointer-events: auto;
+      background: transparent;
+      /* will-change for GPU layer promotion */
+      will-change: transform;
+    }
+  </style>
+</head>
+<body>
+  <!-- Canvas Layer (Visual) -->
+  <canvas id="vs-canvas" width="800" height="600"></canvas>
+
+  <!-- DOM Layer (Interaction) -->
+  <div id="vs-dom-layer"></div>
+
+  <script type="module">
+    /**
+     * Test Harness: Minimal VS Renderer Implementation
+     *
+     * This is a simplified renderer for E2E testing purposes.
+     * It implements the same interfaces as the production renderer.
+     */
+
+    // ==========================================================================
+    // Configuration
+    // ==========================================================================
+
+    const config = window.__VS_CANVASKIT_CONFIG__ || {
+      disableWebGL: false,
+      useSubpixelText: true,
+      devicePixelRatio: window.devicePixelRatio,
+    };
+
+    // ==========================================================================
+    // Renderer State
+    // ==========================================================================
+
+    const state = {
+      entities: new Map(),
+      canvas: document.getElementById('vs-canvas'),
+      ctx: null,
+      domLayer: document.getElementById('vs-dom-layer'),
+      domElements: new Map(),
+      tVector: 0,
+      eventBuffer: null, // Will be initialized as EventBuffer instance
+      processedEventCount: 0,
+      clickHandlers: new Map(),
+      tVectorState: {}, // Per-entity T-vector state
+      constraints: [], // Active constraints
+    };
+
+    // ==========================================================================
+    // Event Buffer (Mirrors event-backpressure.ts)
+    // ==========================================================================
+
+    class EventBuffer {
+      constructor(config = {}) {
+        this.config = {
+          maxEventsPerFrame: 50,
+          lowPriorityThrottleMs: 16,
+          enableCoalescing: true,
+          ...config,
+        };
+        this.writeBuffer = new Map();
+        this.priorityQueue = [];
+        this.lastEventTime = new Map();
+        this.pendingAsyncEvents = [];
+      }
+
+      push(event) {
+        const key = `${event.entityId}:${event.targetState}`;
+
+        // Critical events bypass coalescing
+        if (event.priority === 3) { // CRITICAL
+          this.priorityQueue.push(event);
+          return;
+        }
+
+        // Throttle check for low-priority events
+        if (event.priority === 0) { // LOW
+          const lastTime = this.lastEventTime.get(key) ?? 0;
+          if (event.timestamp - lastTime < this.config.lowPriorityThrottleMs) {
+            return;
+          }
+        }
+
+        // Coalesce: overwrite previous event for same entity+state
+        if (this.config.enableCoalescing) {
+          this.writeBuffer.set(key, event);
+        } else {
+          this.priorityQueue.push(event);
+        }
+
+        this.lastEventTime.set(key, event.timestamp);
+      }
+
+      pushAsync(event) {
+        this.pendingAsyncEvents.push(event);
+      }
+
+      mergeAsyncEvents() {
+        if (this.pendingAsyncEvents.length === 0) return;
+
+        for (const event of this.pendingAsyncEvents) {
+          this.push(event);
+        }
+        this.pendingAsyncEvents = [];
+      }
+
+      flush() {
+        const result = [];
+        const limit = this.config.maxEventsPerFrame;
+
+        // Critical events first
+        for (const event of this.priorityQueue) {
+          result.push({
+            entityId: event.entityId,
+            state: event.targetState,
+            value: event.value,
+            timestamp: event.timestamp,
+          });
+        }
+        this.priorityQueue = [];
+
+        // Coalesced events
+        const remaining = limit - result.length;
+        if (remaining > 0) {
+          const coalesced = Array.from(this.writeBuffer.values())
+            .sort((a, b) => b.priority - a.priority)
+            .slice(0, remaining);
+
+          for (const event of coalesced) {
+            result.push({
+              entityId: event.entityId,
+              state: event.targetState,
+              value: event.value,
+              timestamp: event.timestamp,
+            });
+          }
+        }
+
+        this.writeBuffer.clear();
+        return result;
+      }
+
+      getStats() {
+        return {
+          priorityQueueSize: this.priorityQueue.length,
+          coalescedSize: this.writeBuffer.size,
+          asyncPendingSize: this.pendingAsyncEvents.length,
+        };
+      }
+    }
+
+    // ==========================================================================
+    // Initialization
+    // ==========================================================================
+
+    function init() {
+      // Get 2D context
+      state.ctx = state.canvas.getContext('2d', {
+        alpha: false,
+        desynchronized: true, // Reduces latency
+      });
+
+      // Initialize event buffer
+      state.eventBuffer = new EventBuffer({ maxEventsPerFrame: 100 });
+
+      // Setup event listeners
+      setupEventListeners();
+
+      // Start render loop with async event merging
+      startRenderLoop();
+
+      // Signal ready
+      window.__VS_RENDERER_READY__ = true;
+      console.log('[VS] Renderer initialized');
+    }
+
+    function startRenderLoop() {
+      function renderLoop(timestamp) {
+        // Phase 0: Merge async events (CRITICAL for atomicity)
+        state.eventBuffer.mergeAsyncEvents();
+
+        // Phase 1: Flush events and apply to T-vector state
+        const events = state.eventBuffer.flush();
+        for (const event of events) {
+          if (!state.tVectorState[event.entityId]) {
+            state.tVectorState[event.entityId] = {
+              hover: 0,
+              pressed: 0,
+              focused: 0,
+              scroll_x: 0,
+              scroll_y: 0,
+              drag_progress: 0,
+              animation_t: 0,
+              gesture_phase: 0,
+            };
+          }
+          state.tVectorState[event.entityId][event.state] = event.value;
+          state.processedEventCount++;
+        }
+
+        // Phase 2: Evaluate constraints (P-dimension derived from T-vector)
+        evaluateConstraints();
+
+        // Phase 3: Render
+        renderAll();
+
+        requestAnimationFrame(renderLoop);
+      }
+      requestAnimationFrame(renderLoop);
+    }
+
+    function evaluateConstraints() {
+      for (const constraint of state.constraints) {
+        const entity = state.entities.get(constraint.target);
+        if (!entity) continue;
+
+        const tState = state.tVectorState[constraint.target] || {};
+
+        if (constraint.term.type === 'const') {
+          entity.bounds[constraint.component] = constraint.term.value;
+        } else if (constraint.term.type === 'linear') {
+          // X = coefficient * tState[tState] + offset
+          const tValue = tState[constraint.term.tState] || 0;
+          entity.bounds[constraint.component] =
+            constraint.term.coefficient * tValue + constraint.term.offset;
+        }
+
+        // Update DOM element position
+        const domEl = state.domElements.get(constraint.target);
+        if (domEl) {
+          domEl.style.transform = `translate3d(${entity.bounds.x}px, ${entity.bounds.y}px, 0)`;
+          domEl.style.left = '0';
+          domEl.style.top = '0';
+          domEl.dataset.vsEntity = String(constraint.target);
+        }
+      }
+    }
+
+    function renderAll() {
+      state.ctx.fillStyle = '#ffffff';
+      state.ctx.fillRect(0, 0, 800, 600);
+      for (const e of state.entities.values()) {
+        renderEntity(e);
+      }
+    }
+
+    function setupEventListeners() {
+      // Capture all pointer events on DOM layer
+      state.domLayer.addEventListener('click', handleClick);
+      state.domLayer.addEventListener('mousemove', handleMouseMove);
+
+      // Global event capture for stress testing
+      document.addEventListener('mousemove', (e) => {
+        state.eventBuffer.push({
+          type: 'mousemove',
+          x: e.clientX,
+          y: e.clientY,
+          timestamp: performance.now(),
+        });
+      });
+    }
+
+    // ==========================================================================
+    // Rendering
+    // ==========================================================================
+
+    function render(ir) {
+      const { entities, constraints = [], containments } = ir;
+
+      // Clear
+      state.ctx.fillStyle = '#ffffff';
+      state.ctx.fillRect(0, 0, 800, 600);
+
+      // Clear DOM layer
+      state.domLayer.innerHTML = '';
+      state.domElements.clear();
+      state.clickHandlers.clear();
+      state.tVectorState = {};
+
+      // Store constraints
+      state.constraints = constraints;
+
+      // Store and render entities
+      for (const entity of entities) {
+        state.entities.set(entity.id, entity);
+        // Initialize T-vector state for this entity
+        state.tVectorState[entity.id] = {
+          hover: 0,
+          pressed: 0,
+          focused: 0,
+          scroll_x: 0,
+          scroll_y: 0,
+          drag_progress: 0,
+          animation_t: 0,
+          gesture_phase: 0,
+        };
+        renderEntity(entity);
+      }
+    }
+
+    function renderEntity(entity) {
+      const { id, type, bounds, fill, interactive, onClick } = entity;
+
+      // Canvas rendering
+      if (type === 'rect') {
+        state.ctx.fillStyle = fill || '#000000';
+        state.ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
+      } else if (type === 'text') {
+        state.ctx.fillStyle = fill || '#000000';
+        state.ctx.font = `${entity.font?.size || 16}px ${entity.font?.family || 'sans-serif'}`;
+        state.ctx.fillText(entity.content, bounds.x, bounds.y + bounds.height);
+      }
+
+      // DOM element for interaction
+      if (interactive) {
+        const el = document.createElement('div');
+        el.className = 'vs-dom-element';
+        el.dataset.entityId = String(id);
+        el.dataset.vsEntity = String(id); // For async-race tests
+        el.style.left = `${bounds.x}px`;
+        el.style.top = `${bounds.y}px`;
+        el.style.width = `${bounds.width}px`;
+        el.style.height = `${bounds.height}px`;
+        el.style.transform = `translate3d(${bounds.x}px, ${bounds.y}px, 0)`;
+        el.style.left = '0';
+        el.style.top = '0';
+
+        state.domLayer.appendChild(el);
+        state.domElements.set(id, el);
+
+        if (onClick) {
+          state.clickHandlers.set(id, onClick);
+        }
+      }
+    }
+
+    function updateEntity(id, updates) {
+      const entity = state.entities.get(id);
+      if (!entity) return;
+
+      Object.assign(entity, updates);
+
+      // Re-render canvas
+      state.ctx.fillStyle = '#ffffff';
+      state.ctx.fillRect(0, 0, 800, 600);
+
+      for (const e of state.entities.values()) {
+        renderEntity(e);
+      }
+    }
+
+    // ==========================================================================
+    // Event Handling
+    // ==========================================================================
+
+    function handleClick(e) {
+      // Find which entity was clicked
+      const target = e.target;
+      if (!target.dataset?.entityId) return;
+
+      const entityId = parseInt(target.dataset.entityId, 10);
+      const handler = state.clickHandlers.get(entityId);
+
+      if (handler) {
+        handler();
+        window.__VS_CLICK_COUNT__ = (window.__VS_CLICK_COUNT__ || 0) + 1;
+      }
+    }
+
+    function handleMouseMove(e) {
+      // Backpressure: events are buffered, not immediately processed
+    }
+
+    // ==========================================================================
+    // T-Vector Animation
+    // ==========================================================================
+
+    function updateTVector(t) {
+      state.tVector = t;
+
+      // Process buffered events (backpressure)
+      const maxEventsPerFrame = 50;
+      const toProcess = state.eventBuffer.splice(0, maxEventsPerFrame);
+      state.processedEventCount += toProcess.length;
+    }
+
+    function animate(entityId, prop, from, to, durationMs) {
+      const startTime = performance.now();
+      const entity = state.entities.get(entityId);
+      if (!entity) return;
+
+      const animateFrame = () => {
+        const elapsed = performance.now() - startTime;
+        const progress = Math.min(elapsed / durationMs, 1);
+
+        // Linear interpolation
+        const value = from + (to - from) * progress;
+        entity.bounds[prop] = value;
+
+        // Update DOM element position
+        const el = state.domElements.get(entityId);
+        if (el) {
+          el.style.transform = `translate3d(${entity.bounds.x}px, ${entity.bounds.y}px, 0)`;
+          el.style.left = '0';
+          el.style.top = '0';
+        }
+
+        // Re-render
+        state.ctx.fillStyle = '#ffffff';
+        state.ctx.fillRect(0, 0, 800, 600);
+        for (const e of state.entities.values()) {
+          renderEntity(e);
+        }
+
+        if (progress < 1) {
+          requestAnimationFrame(animateFrame);
+        }
+      };
+
+      requestAnimationFrame(animateFrame);
+    }
+
+    // ==========================================================================
+    // Tick (for performance testing)
+    // ==========================================================================
+
+    function tick(timestamp) {
+      // Process events
+      updateTVector(timestamp / 1000);
+
+      // Render
+      state.ctx.fillStyle = '#ffffff';
+      state.ctx.fillRect(0, 0, 800, 600);
+      for (const e of state.entities.values()) {
+        renderEntity(e);
+      }
+    }
+
+    // ==========================================================================
+    // Public API
+    // ==========================================================================
+
+    window.__VS_RENDERER__ = {
+      render,
+      updateEntity,
+      updateTVector,
+      animate,
+      tick,
+      getProcessedEventCount: () => state.processedEventCount,
+      // Async race test APIs
+      getEventBuffer: () => state.eventBuffer,
+      getTVectorState: () => state.tVectorState,
+      getEntityBounds: (id) => {
+        const entity = state.entities.get(id);
+        return entity ? { ...entity.bounds } : null;
+      },
+    };
+
+    // Initialize
+    init();
+  </script>
+</body>
+</html>

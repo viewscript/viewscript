@@ -1,0 +1,564 @@
+{
+  "config": {
+    "configFile": "/home/ihasq/code/vs/packages/renderer/playwright.config.ts",
+    "rootDir": "/home/ihasq/code/vs/packages/renderer/tests/e2e",
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/home/ihasq/code/vs/packages/renderer/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "visual-regression",
+        "name": "visual-regression",
+        "testDir": "/home/ihasq/code/vs/packages/renderer/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/visual-regression\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/ihasq/code/vs/packages/renderer/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "bilayer-sync",
+        "name": "bilayer-sync",
+        "testDir": "/home/ihasq/code/vs/packages/renderer/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/bilayer-sync\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/ihasq/code/vs/packages/renderer/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "performance",
+        "name": "performance",
+        "testDir": "/home/ihasq/code/vs/packages/renderer/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/performance-profile\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/ihasq/code/vs/packages/renderer/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "memory-stability",
+        "name": "memory-stability",
+        "testDir": "/home/ihasq/code/vs/packages/renderer/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/memory-stability\\.spec\\.ts/"
+        ],
+        "timeout": 300000
+      },
+      {
+        "outputDir": "/home/ihasq/code/vs/packages/renderer/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "async-race",
+        "name": "async-race",
+        "testDir": "/home/ihasq/code/vs/packages/renderer/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/async-race\\.spec\\.ts/"
+        ],
+        "timeout": 60000
+      },
+      {
+        "outputDir": "/home/ihasq/code/vs/packages/renderer/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "screenshot",
+        "name": "screenshot",
+        "testDir": "/home/ihasq/code/vs/packages/renderer/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/screenshot\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/ihasq/code/vs/packages/renderer/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "path-topology",
+        "name": "path-topology",
+        "testDir": "/home/ihasq/code/vs/packages/renderer/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/path-topology\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/ihasq/code/vs/packages/renderer/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "g1-continuity",
+        "name": "g1-continuity",
+        "testDir": "/home/ihasq/code/vs/packages/renderer/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/g1-continuity\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "html",
+        {
+          "open": "never"
+        }
+      ],
+      [
+        "json",
+        {
+          "outputFile": "test-results/results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.59.1",
+    "workers": 1,
+    "webServer": {
+      "command": "npx serve tests/e2e -l 3000 --no-clipboard",
+      "url": "http://localhost:3000/test-harness.html",
+      "reuseExistingServer": true,
+      "timeout": 30000
+    }
+  },
+  "suites": [
+    {
+      "title": "path-topology.spec.ts",
+      "file": "path-topology.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Path Topology Preservation (Phase 6)",
+          "file": "path-topology.spec.ts",
+          "line": 559,
+          "column": 6,
+          "specs": [
+            {
+              "title": "shared endpoint produces seamless curve connection",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "path-topology",
+                  "projectName": "path-topology",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 118,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-05-11T02:17:06.727Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "5e9569d95ce76356c03f-1bb67ecf720c40fc97a5",
+              "file": "path-topology.spec.ts",
+              "line": 573,
+              "column": 3
+            },
+            {
+              "title": "triple junction has all curves meeting at single point",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "path-topology",
+                  "projectName": "path-topology",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 93,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-05-11T02:17:06.946Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "5e9569d95ce76356c03f-b750bd2963bd852c884a",
+              "file": "path-topology.spec.ts",
+              "line": 588,
+              "column": 3
+            },
+            {
+              "title": "evenodd fill rule creates donut with transparent hole",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "path-topology",
+                  "projectName": "path-topology",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 78,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-05-11T02:17:07.059Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "5e9569d95ce76356c03f-83a2c691faacd8aaef20",
+              "file": "path-topology.spec.ts",
+              "line": 602,
+              "column": 3
+            },
+            {
+              "title": "nonzero fill rule with same winding fills entire shape",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "path-topology",
+                  "projectName": "path-topology",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 96,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-05-11T02:17:07.156Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "5e9569d95ce76356c03f-a03b0108a2ac68f147c2",
+              "file": "path-topology.spec.ts",
+              "line": 617,
+              "column": 3
+            },
+            {
+              "title": "CRITICAL: bit-identical coordinates at shared control point",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "path-topology",
+                  "projectName": "path-topology",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 65,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-05-11T02:17:07.265Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "5e9569d95ce76356c03f-cda0f109a1d4666798b1",
+              "file": "path-topology.spec.ts",
+              "line": 630,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "g1-continuity.spec.ts",
+      "file": "g1-continuity.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "G1 Continuity (Phase 7)",
+          "file": "g1-continuity.spec.ts",
+          "line": 566,
+          "column": 6,
+          "specs": [
+            {
+              "title": "smooth junction satisfies collinearity constraint",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "g1-continuity",
+                  "projectName": "g1-continuity",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 106,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-05-11T02:17:08.036Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "9e9f8dca70e7672ee2dc-5fa87147d1509b2efc41",
+              "file": "g1-continuity.spec.ts",
+              "line": 579,
+              "column": 3
+            },
+            {
+              "title": "kinked junction violates collinearity constraint",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "g1-continuity",
+                  "projectName": "g1-continuity",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 81,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-05-11T02:17:08.233Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "9e9f8dca70e7672ee2dc-4b4b5d6f58866f6689a7",
+              "file": "g1-continuity.spec.ts",
+              "line": 593,
+              "column": 3
+            },
+            {
+              "title": "collinearity formula is exact with rational arithmetic",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "g1-continuity",
+                  "projectName": "g1-continuity",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 73,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-05-11T02:17:08.329Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "9e9f8dca70e7672ee2dc-002a445e07480d5c35d4",
+              "file": "g1-continuity.spec.ts",
+              "line": 605,
+              "column": 3
+            },
+            {
+              "title": "cross-multiplication avoids division by zero",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "g1-continuity",
+                  "projectName": "g1-continuity",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 76,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-05-11T02:17:08.418Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "9e9f8dca70e7672ee2dc-7c8bd9cb020272accf52",
+              "file": "g1-continuity.spec.ts",
+              "line": 619,
+              "column": 3
+            },
+            {
+              "title": "CRITICAL: G1 continuity produces no pixel-level kink",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "g1-continuity",
+                  "projectName": "g1-continuity",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 69,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-05-11T02:17:08.505Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "9e9f8dca70e7672ee2dc-e446ad2a571c7cee7f44",
+              "file": "g1-continuity.spec.ts",
+              "line": 633,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-05-11T02:17:04.393Z",
+    "duration": 4248.69,
+    "expected": 10,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

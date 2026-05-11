@@ -1,0 +1,12 @@
+# Proptest Regression Seeds
+#
+# This directory contains regression seeds discovered by proptest fuzzing.
+# These files are INTENTIONALLY COMMITTED to the repository.
+#
+# Each .txt file represents a counterexample that caused a test failure.
+# By committing these, we ensure:
+# 1. The same edge case is tested deterministically in every CI run
+# 2. The "immunity" is shared across all contributors
+# 3. We can track when a regression was introduced/fixed
+#
+# Do NOT add this directory to .gitignore.

@@ -1,0 +1,24 @@
+[package]
+name = "vsc-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+proptest-tests = ["proptest", "proptest-derive"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+proptest = { version = "1.4", optional = true }
+proptest-derive = { version = "0.4", optional = true }
+
+# Exact rational arithmetic for P-dimension (no floating-point contamination)
+num-rational = "0.4"
+num-bigint = "0.4"
+num-traits = "0.2"
+
+[dev-dependencies]
+# Test utilities only
