@@ -420,6 +420,7 @@ pub fn add_constraint(
             new_constraint.target,
             new_constraint.component,
             new_value,
+            new_constraint.priority,
         ) {
             return Err(solver_error_to_collision(
                 solver_error,

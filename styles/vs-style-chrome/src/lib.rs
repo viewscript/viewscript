@@ -385,8 +385,10 @@ impl StyleBundle {
     /// is preserved in `operations` for audit purposes but not enforced by the
     /// solver directly. The solver treats all constraints as equally binding.
     pub fn inject_into_solver(&self, solver: &mut ConstraintSolver) {
+        use vsc_core::ConstraintPriority;
         for constraint in &self.linear_constraints {
-            solver.add_linear(constraint.clone());
+            // Style constraints are always Hard priority
+            let _ = solver.add_linear(constraint.clone(), ConstraintPriority::Hard);
         }
     }
 

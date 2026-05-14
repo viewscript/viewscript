@@ -35,7 +35,7 @@
 //! When any variable in a bilinear term becomes resolved (DoF = 0),
 //! the term degrades to a linear term and can be promoted to the Active Queue.
 
-use crate::{EntityId, Rational, VectorComponent};
+use crate::{ConstraintPriority, EntityId, Rational, VectorComponent};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 // =============================================================================
@@ -591,6 +591,8 @@ pub struct ConstraintSolver {
     resolution_log: Vec<ResolutionEvent>,
     /// Next constraint ID for generated constraints.
     next_id: u64,
+    /// Constraint priorities for shadowing resolution.
+    constraint_priorities: HashMap<u64, ConstraintPriority>,
 }
 
 impl Default for ConstraintSolver {
@@ -609,6 +611,7 @@ impl ConstraintSolver {
             quadratic_queue: Vec::new(),
             resolution_log: Vec::new(),
             next_id: 1,
+            constraint_priorities: HashMap::new(),
         }
     }
 
@@ -631,8 +634,13 @@ impl ConstraintSolver {
     /// Add a linear constraint to the active queue.
     ///
     /// Returns an error if the constraint conflicts with an existing equality
-    /// constraint on the same variable.
-    pub fn add_linear(&mut self, constraint: LinearConstraint) -> Result<(), SolverError> {
+    /// constraint on the same variable, unless the new constraint is Hard
+    /// and the existing one is Soft (shadowing).
+    pub fn add_linear(
+        &mut self,
+        constraint: LinearConstraint,
+        priority: ConstraintPriority,
+    ) -> Result<(), SolverError> {
         // Check for conflicting equality constraints on single-variable equations
         // e.g., if we have "X = 100" and try to add "X = 200"
         if constraint.relation == LinearRelation::Eq && constraint.terms.len() == 1 {
@@ -645,13 +653,27 @@ impl ConstraintSolver {
                 // Check existing equality constraints for this variable
                 if let Some((existing_id, existing_value)) = self.find_conflicting_eq(*var_id) {
                     if existing_value != new_value {
-                        return Err(SolverError::ConflictingConstraint {
-                            var_id: *var_id,
-                            existing_constraint_id: existing_id,
-                            existing_value,
-                            new_constraint_id: constraint.id,
-                            new_value,
-                        });
+                        // Check if shadowing is allowed
+                        let existing_priority = self
+                            .constraint_priorities
+                            .get(&existing_id)
+                            .copied()
+                            .unwrap_or(ConstraintPriority::Hard);
+
+                        if priority == ConstraintPriority::Hard
+                            && existing_priority == ConstraintPriority::Soft
+                        {
+                            // Shadowing: remove existing Soft constraint, add new Hard constraint
+                            self.remove_constraint(existing_id);
+                        } else {
+                            return Err(SolverError::ConflictingConstraint {
+                                var_id: *var_id,
+                                existing_constraint_id: existing_id,
+                                existing_value,
+                                new_constraint_id: constraint.id,
+                                new_value,
+                            });
+                        }
                     }
                 }
             }
@@ -661,8 +683,17 @@ impl ConstraintSolver {
         for var in constraint.variables() {
             self.variables.entry(var).or_insert(VariableState::Free);
         }
+
+        // Record the priority
+        self.constraint_priorities.insert(constraint.id, priority);
         self.active_queue.push_back(constraint);
         Ok(())
+    }
+
+    /// Remove a constraint by ID.
+    fn remove_constraint(&mut self, id: u64) {
+        self.active_queue.retain(|c| c.id != id);
+        self.constraint_priorities.remove(&id);
     }
 
     /// Find an existing equality constraint for a specific variable.
@@ -1334,6 +1365,12 @@ use crate::{ConstraintTerm, OperationType, VsBuildInfo};
 /// Returns `Ok(())` if the constraint is valid, or `Err(SolverError)` if
 /// it conflicts with existing constraints.
 ///
+/// ## Shadowing
+///
+/// A Hard constraint can shadow (override) a Soft constraint on the same variable.
+/// This allows component libraries to provide default positions that can be
+/// overridden by user constraints.
+///
 /// ## Usage
 ///
 /// This function is used by all entry points (CLI, WASM, FFI-C, CODL) to ensure
@@ -1344,6 +1381,7 @@ pub fn validate_constraint_against_buildinfo(
     target_entity: EntityId,
     component: crate::VectorComponent,
     new_value: &Rational,
+    new_priority: ConstraintPriority,
 ) -> Result<(), SolverError> {
     let mut solver = ConstraintSolver::new();
 
@@ -1362,7 +1400,7 @@ pub fn validate_constraint_against_buildinfo(
                     vec![(var_id, Rational::from_int(1))],
                     -value.clone(),
                 );
-                solver.add_linear(linear)?;
+                solver.add_linear(linear, op.constraint.priority)?;
             }
         }
     }
@@ -1374,7 +1412,7 @@ pub fn validate_constraint_against_buildinfo(
         vec![(var_id, Rational::from_int(1))],
         -new_value.clone(),
     );
-    solver.add_linear(new_linear)?;
+    solver.add_linear(new_linear, new_priority)?;
 
     Ok(())
 }
@@ -1413,41 +1451,71 @@ mod tests {
 
         // Add linear constraints to fix junction and handles
         // P.x = 100
-        solver.add_linear(LinearConstraint::eq(
-            1,
-            vec![(p_x, Rational::from_int(1))],
-            Rational::from_int(-100),
-        ));
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    1,
+                    vec![(p_x, Rational::from_int(1))],
+                    Rational::from_int(-100),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
         // P.y = 200
-        solver.add_linear(LinearConstraint::eq(
-            2,
-            vec![(p_y, Rational::from_int(1))],
-            Rational::from_int(-200),
-        ));
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    2,
+                    vec![(p_y, Rational::from_int(1))],
+                    Rational::from_int(-200),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
         // H1.x = 50
-        solver.add_linear(LinearConstraint::eq(
-            3,
-            vec![(h1_x, Rational::from_int(1))],
-            Rational::from_int(-50),
-        ));
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    3,
+                    vec![(h1_x, Rational::from_int(1))],
+                    Rational::from_int(-50),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
         // H1.y = 200
-        solver.add_linear(LinearConstraint::eq(
-            4,
-            vec![(h1_y, Rational::from_int(1))],
-            Rational::from_int(-200),
-        ));
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    4,
+                    vec![(h1_y, Rational::from_int(1))],
+                    Rational::from_int(-200),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
         // H2.x = 150
-        solver.add_linear(LinearConstraint::eq(
-            5,
-            vec![(h2_x, Rational::from_int(1))],
-            Rational::from_int(-150),
-        ));
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    5,
+                    vec![(h2_x, Rational::from_int(1))],
+                    Rational::from_int(-150),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
         // H2.y = 200
-        solver.add_linear(LinearConstraint::eq(
-            6,
-            vec![(h2_y, Rational::from_int(1))],
-            Rational::from_int(-200),
-        ));
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    6,
+                    vec![(h2_y, Rational::from_int(1))],
+                    Rational::from_int(-200),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
 
         // Add G1 continuity (should be satisfied since all Y are equal)
         solver.add_g1_continuity(EntityId(1), EntityId(2), EntityId(3));
@@ -1534,35 +1602,48 @@ mod tests {
         let h2_y = var(3, VectorComponent::Y);
 
         // Fix P1 at (0, 0)
-        solver.add_linear(LinearConstraint::eq(
-            1,
-            vec![(p1_x, Rational::from_int(1))],
-            Rational::zero(),
-        ));
-        solver.add_linear(LinearConstraint::eq(
-            2,
-            vec![(p1_y, Rational::from_int(1))],
-            Rational::zero(),
-        ));
+        solver
+            .add_linear(
+                LinearConstraint::eq(1, vec![(p1_x, Rational::from_int(1))], Rational::zero()),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
+        solver
+            .add_linear(
+                LinearConstraint::eq(2, vec![(p1_y, Rational::from_int(1))], Rational::zero()),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
 
         // Fix H1 at (10, 0)
-        solver.add_linear(LinearConstraint::eq(
-            3,
-            vec![(h1_x, Rational::from_int(1))],
-            Rational::from_int(-10),
-        ));
-        solver.add_linear(LinearConstraint::eq(
-            4,
-            vec![(h1_y, Rational::from_int(1))],
-            Rational::zero(),
-        ));
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    3,
+                    vec![(h1_x, Rational::from_int(1))],
+                    Rational::from_int(-10),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
+        solver
+            .add_linear(
+                LinearConstraint::eq(4, vec![(h1_y, Rational::from_int(1))], Rational::zero()),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
 
         // H2.x is free but we'll fix it at 20
-        solver.add_linear(LinearConstraint::eq(
-            5,
-            vec![(h2_x, Rational::from_int(1))],
-            Rational::from_int(-20),
-        ));
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    5,
+                    vec![(h2_x, Rational::from_int(1))],
+                    Rational::from_int(-20),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
 
         // G1 continuity constraint
         solver.add_g1_continuity(EntityId(1), EntityId(2), EntityId(3));
@@ -1644,37 +1725,62 @@ mod tests {
 
         // Center at (100, 100)
         let center = EntityId(1);
-        solver.add_linear(LinearConstraint::eq(
-            1,
-            vec![(var(1, VectorComponent::X), Rational::from_int(1))],
-            Rational::from_int(-100),
-        ));
-        solver.add_linear(LinearConstraint::eq(
-            2,
-            vec![(var(1, VectorComponent::Y), Rational::from_int(1))],
-            Rational::from_int(-100),
-        ));
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    1,
+                    vec![(var(1, VectorComponent::X), Rational::from_int(1))],
+                    Rational::from_int(-100),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    2,
+                    vec![(var(1, VectorComponent::Y), Rational::from_int(1))],
+                    Rational::from_int(-100),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
 
         // Radius = 50
         let radius = EntityId(2);
-        solver.add_linear(LinearConstraint::eq(
-            3,
-            vec![(var(2, VectorComponent::Value), Rational::from_int(1))],
-            Rational::from_int(-50),
-        ));
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    3,
+                    vec![(var(2, VectorComponent::Value), Rational::from_int(1))],
+                    Rational::from_int(-50),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
 
         // Point at (150, 100) - exactly on the circle (distance = 50)
         let point = EntityId(3);
-        solver.add_linear(LinearConstraint::eq(
-            4,
-            vec![(var(3, VectorComponent::X), Rational::from_int(1))],
-            Rational::from_int(-150),
-        ));
-        solver.add_linear(LinearConstraint::eq(
-            5,
-            vec![(var(3, VectorComponent::Y), Rational::from_int(1))],
-            Rational::from_int(-100),
-        ));
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    4,
+                    vec![(var(3, VectorComponent::X), Rational::from_int(1))],
+                    Rational::from_int(-150),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    5,
+                    vec![(var(3, VectorComponent::Y), Rational::from_int(1))],
+                    Rational::from_int(-100),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
 
         // Add circumference constraint: point lies on circle(center, radius)
         solver.add_circumference(point, center, radius);
@@ -1697,37 +1803,62 @@ mod tests {
 
         // Center at (0, 0)
         let center = EntityId(1);
-        solver.add_linear(LinearConstraint::eq(
-            1,
-            vec![(var(1, VectorComponent::X), Rational::from_int(1))],
-            Rational::zero(),
-        ));
-        solver.add_linear(LinearConstraint::eq(
-            2,
-            vec![(var(1, VectorComponent::Y), Rational::from_int(1))],
-            Rational::zero(),
-        ));
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    1,
+                    vec![(var(1, VectorComponent::X), Rational::from_int(1))],
+                    Rational::zero(),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    2,
+                    vec![(var(1, VectorComponent::Y), Rational::from_int(1))],
+                    Rational::zero(),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
 
         // Radius = 5
         let radius = EntityId(2);
-        solver.add_linear(LinearConstraint::eq(
-            3,
-            vec![(var(2, VectorComponent::Value), Rational::from_int(1))],
-            Rational::from_int(-5),
-        ));
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    3,
+                    vec![(var(2, VectorComponent::Value), Rational::from_int(1))],
+                    Rational::from_int(-5),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
 
         // Point at (3, 4) - exactly on the circle (3² + 4² = 25 = 5²)
         let point = EntityId(3);
-        solver.add_linear(LinearConstraint::eq(
-            4,
-            vec![(var(3, VectorComponent::X), Rational::from_int(1))],
-            Rational::from_int(-3),
-        ));
-        solver.add_linear(LinearConstraint::eq(
-            5,
-            vec![(var(3, VectorComponent::Y), Rational::from_int(1))],
-            Rational::from_int(-4),
-        ));
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    4,
+                    vec![(var(3, VectorComponent::X), Rational::from_int(1))],
+                    Rational::from_int(-3),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    5,
+                    vec![(var(3, VectorComponent::Y), Rational::from_int(1))],
+                    Rational::from_int(-4),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
 
         // Add circumference constraint
         solver.add_circumference(point, center, radius);
@@ -1748,50 +1879,85 @@ mod tests {
 
         // Center at (0, 0)
         let center = EntityId(1);
-        solver.add_linear(LinearConstraint::eq(
-            1,
-            vec![(var(1, VectorComponent::X), Rational::from_int(1))],
-            Rational::zero(),
-        ));
-        solver.add_linear(LinearConstraint::eq(
-            2,
-            vec![(var(1, VectorComponent::Y), Rational::from_int(1))],
-            Rational::zero(),
-        ));
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    1,
+                    vec![(var(1, VectorComponent::X), Rational::from_int(1))],
+                    Rational::zero(),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    2,
+                    vec![(var(1, VectorComponent::Y), Rational::from_int(1))],
+                    Rational::zero(),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
 
         // Radius = 10
         let radius = EntityId(2);
-        solver.add_linear(LinearConstraint::eq(
-            3,
-            vec![(var(2, VectorComponent::Value), Rational::from_int(1))],
-            Rational::from_int(-10),
-        ));
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    3,
+                    vec![(var(2, VectorComponent::Value), Rational::from_int(1))],
+                    Rational::from_int(-10),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
 
         // Start point at (10, 0) - on circle
         let start = EntityId(3);
-        solver.add_linear(LinearConstraint::eq(
-            4,
-            vec![(var(3, VectorComponent::X), Rational::from_int(1))],
-            Rational::from_int(-10),
-        ));
-        solver.add_linear(LinearConstraint::eq(
-            5,
-            vec![(var(3, VectorComponent::Y), Rational::from_int(1))],
-            Rational::zero(),
-        ));
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    4,
+                    vec![(var(3, VectorComponent::X), Rational::from_int(1))],
+                    Rational::from_int(-10),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    5,
+                    vec![(var(3, VectorComponent::Y), Rational::from_int(1))],
+                    Rational::zero(),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
 
         // End point at (0, 10) - on circle
         let end = EntityId(4);
-        solver.add_linear(LinearConstraint::eq(
-            6,
-            vec![(var(4, VectorComponent::X), Rational::from_int(1))],
-            Rational::zero(),
-        ));
-        solver.add_linear(LinearConstraint::eq(
-            7,
-            vec![(var(4, VectorComponent::Y), Rational::from_int(1))],
-            Rational::from_int(-10),
-        ));
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    6,
+                    vec![(var(4, VectorComponent::X), Rational::from_int(1))],
+                    Rational::zero(),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    7,
+                    vec![(var(4, VectorComponent::Y), Rational::from_int(1))],
+                    Rational::from_int(-10),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
 
         // Add arc constraints (both start and end must be on circle)
         solver.add_arc_constraints(center, radius, start, end);
@@ -1872,22 +2038,32 @@ mod tests {
 
         // R1.value = 100
         let r1 = EntityId(1);
-        solver.add_linear(LinearConstraint::eq(
-            1,
-            vec![(var(1, VectorComponent::Value), Rational::from_int(1))],
-            Rational::from_int(-100),
-        ));
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    1,
+                    vec![(var(1, VectorComponent::Value), Rational::from_int(1))],
+                    Rational::from_int(-100),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
 
         // R2.value = R1.value / 2 (expressed as: R2 - R1/2 = 0, or 2*R2 - R1 = 0)
         let r2 = EntityId(2);
-        solver.add_linear(LinearConstraint::eq(
-            2,
-            vec![
-                (var(2, VectorComponent::Value), Rational::from_int(2)),
-                (var(1, VectorComponent::Value), Rational::from_int(-1)),
-            ],
-            Rational::zero(),
-        ));
+        solver
+            .add_linear(
+                LinearConstraint::eq(
+                    2,
+                    vec![
+                        (var(2, VectorComponent::Value), Rational::from_int(2)),
+                        (var(1, VectorComponent::Value), Rational::from_int(-1)),
+                    ],
+                    Rational::zero(),
+                ),
+                ConstraintPriority::Hard,
+            )
+            .unwrap();
 
         let result = solver.solve();
         assert!(
@@ -1915,19 +2091,25 @@ mod tests {
         let x_var = var(100, VectorComponent::X);
 
         // First constraint: X = 100
-        let result1 = solver.add_linear(LinearConstraint::eq(
-            1,
-            vec![(x_var, Rational::from_int(1))],
-            Rational::from_int(-100),
-        ));
+        let result1 = solver.add_linear(
+            LinearConstraint::eq(
+                1,
+                vec![(x_var, Rational::from_int(1))],
+                Rational::from_int(-100),
+            ),
+            ConstraintPriority::Hard,
+        );
         assert!(result1.is_ok(), "First constraint should succeed");
 
         // Second constraint: X = 200 (conflicts with first)
-        let result2 = solver.add_linear(LinearConstraint::eq(
-            2,
-            vec![(x_var, Rational::from_int(1))],
-            Rational::from_int(-200),
-        ));
+        let result2 = solver.add_linear(
+            LinearConstraint::eq(
+                2,
+                vec![(x_var, Rational::from_int(1))],
+                Rational::from_int(-200),
+            ),
+            ConstraintPriority::Hard,
+        );
 
         // Should return ConflictingConstraint error
         match result2 {
@@ -1957,19 +2139,66 @@ mod tests {
         let x_var = var(100, VectorComponent::X);
 
         // First constraint: X = 100
-        let result1 = solver.add_linear(LinearConstraint::eq(
-            1,
-            vec![(x_var, Rational::from_int(1))],
-            Rational::from_int(-100),
-        ));
+        let result1 = solver.add_linear(
+            LinearConstraint::eq(
+                1,
+                vec![(x_var, Rational::from_int(1))],
+                Rational::from_int(-100),
+            ),
+            ConstraintPriority::Hard,
+        );
         assert!(result1.is_ok());
 
         // Second constraint: X = 100 (same value, should be allowed)
-        let result2 = solver.add_linear(LinearConstraint::eq(
-            2,
-            vec![(x_var, Rational::from_int(1))],
-            Rational::from_int(-100),
-        ));
+        let result2 = solver.add_linear(
+            LinearConstraint::eq(
+                2,
+                vec![(x_var, Rational::from_int(1))],
+                Rational::from_int(-100),
+            ),
+            ConstraintPriority::Hard,
+        );
         assert!(result2.is_ok(), "Same value constraint should be allowed");
+    }
+
+    /// Test: Hard constraint can shadow (override) Soft constraint
+    #[test]
+    fn test_override_soft_constraint_with_hard() {
+        let mut solver = ConstraintSolver::new();
+
+        let x_var = var(100, VectorComponent::X);
+
+        // First constraint: X = 100 (Soft)
+        let result1 = solver.add_linear(
+            LinearConstraint::eq(
+                1,
+                vec![(x_var, Rational::from_int(1))],
+                Rational::from_int(-100),
+            ),
+            ConstraintPriority::Soft,
+        );
+        assert!(result1.is_ok(), "Soft constraint should succeed");
+
+        // Second constraint: X = 200 (Hard) - should shadow the Soft constraint
+        let result2 = solver.add_linear(
+            LinearConstraint::eq(
+                2,
+                vec![(x_var, Rational::from_int(1))],
+                Rational::from_int(-200),
+            ),
+            ConstraintPriority::Hard,
+        );
+        assert!(
+            result2.is_ok(),
+            "Hard constraint should shadow Soft constraint"
+        );
+
+        // Solve and verify the Hard constraint value wins
+        let solution = solver.solve().unwrap();
+        assert_eq!(
+            solution.get(&x_var),
+            Some(&Rational::from_int(200)),
+            "Hard constraint value (200) should win over Soft (100)"
+        );
     }
 }
