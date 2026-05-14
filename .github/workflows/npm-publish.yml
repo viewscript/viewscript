@@ -291,13 +291,20 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Source cargo environment (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
       - uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: v1-rust  # Invalidate corrupted cache
+          prefix-key: v2-rust  # Invalidate corrupted cache
 
       - name: Verify Rust toolchain
+        shell: bash
         run: |
-          which cargo
+          echo "PATH: $PATH"
+          which cargo || echo "cargo not in PATH"
           cargo --version
           rustup show
 
@@ -314,6 +321,7 @@ jobs:
           ls -la crates/vsc-launcher/embedded/
 
       - name: Build launcher
+        shell: bash
         run: cargo build -p vsc-launcher --release --target ${{ matrix.target }}
 
       - name: Rename binary
