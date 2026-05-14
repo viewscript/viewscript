@@ -1101,8 +1101,16 @@ pub fn build(target: &str, outdir: &str) -> CommandResult {
     #[cfg(feature = "embedded-wasm")]
     {
         use crate::embedded_wasm;
-        build_with_embedded_wasm(&dist, embedded_wasm::WASM_BINARY, embedded_wasm::WASM_JS,
-            embedded_wasm::WASM_DTS, embedded_wasm::WASM_BG_DTS, embedded_wasm::PACKAGE_JSON, target, outdir)
+        build_with_embedded_wasm(
+            &dist,
+            embedded_wasm::WASM_BINARY,
+            embedded_wasm::WASM_JS,
+            embedded_wasm::WASM_DTS,
+            embedded_wasm::WASM_BG_DTS,
+            embedded_wasm::PACKAGE_JSON,
+            target,
+            outdir,
+        )
     }
 
     #[cfg(not(feature = "embedded-wasm"))]
