@@ -21,6 +21,8 @@ pub mod telemetry;
 pub mod types;
 pub mod validator;
 
+pub mod codegen;
+
 #[cfg(feature = "text-shaping")]
 pub mod text;
 
