@@ -1451,7 +1451,10 @@ pub fn validate_constraint_against_buildinfo(
                     -value.clone(),
                 )
             }
-            ConstraintTerm::Ref { entity_id, component } => {
+            ConstraintTerm::Ref {
+                entity_id,
+                component,
+            } => {
                 // target = ref → 1*target - 1*ref = 0
                 let ref_var = VarId::new(*entity_id, *component);
                 LinearConstraint::eq(

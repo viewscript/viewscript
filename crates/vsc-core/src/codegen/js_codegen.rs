@@ -154,10 +154,7 @@ pub fn generate_compiled_module(
     output.push('\n');
 
     // Stage 4: Mesh constants (pre-tessellated vertex/index data)
-    output.push_str(&generate_mesh_constants(
-        build_info,
-        _tessellation_outputs,
-    ));
+    output.push_str(&generate_mesh_constants(build_info, _tessellation_outputs));
     output.push('\n');
 
     // Stage 5: render() function
@@ -175,15 +172,24 @@ pub fn generate_compiled_module(
     // === DOM Layer (Interaction + Accessibility) ===
 
     // Stage 8: mountDOM() function
-    output.push_str(&generate_mount_dom_function(interactive_entities, &var_name_map));
+    output.push_str(&generate_mount_dom_function(
+        interactive_entities,
+        &var_name_map,
+    ));
     output.push('\n');
 
     // Stage 9: updateDOM() function
-    output.push_str(&generate_update_dom_function(interactive_entities, &var_name_map));
+    output.push_str(&generate_update_dom_function(
+        interactive_entities,
+        &var_name_map,
+    ));
     output.push('\n');
 
     // Stage 10: bindEvents() function
-    output.push_str(&generate_bind_events_function(interactive_entities, &var_name_map));
+    output.push_str(&generate_bind_events_function(
+        interactive_entities,
+        &var_name_map,
+    ));
     output.push('\n');
 
     // Stage 11: mount() unified entry point
@@ -220,7 +226,11 @@ fn build_var_name_map(build_info: &VsBuildInfo, solve_result: &SolveResult) -> V
     for (var_id, _) in &solve_result.values {
         let key = (var_id.entity, var_id.component);
         if !map.contains_key(&key) {
-            let name = format!("e{}_{}", var_id.entity.0, component_suffix(var_id.component));
+            let name = format!(
+                "e{}_{}",
+                var_id.entity.0,
+                component_suffix(var_id.component)
+            );
             map.insert(key, name);
         }
     }
@@ -442,13 +452,7 @@ fn topological_sort_constraints(constraints: &[Constraint]) -> Result<Vec<Constr
         let involved: Vec<u64> = constraints
             .iter()
             .enumerate()
-            .filter_map(|(i, c)| {
-                if in_degree[i] > 0 {
-                    Some(c.id)
-                } else {
-                    None
-                }
-            })
+            .filter_map(|(i, c)| if in_degree[i] > 0 { Some(c.id) } else { None })
             .collect();
 
         return Err(CycleError {
@@ -472,10 +476,9 @@ fn get_term_dependencies(term: &ConstraintTerm) -> Vec<(EntityId, VectorComponen
             component,
             ..
         } => vec![(*entity_id, *component)],
-        ConstraintTerm::LinearCombination { terms, .. } => terms
-            .iter()
-            .map(|f| (f.entity_id, f.component))
-            .collect(),
+        ConstraintTerm::LinearCombination { terms, .. } => {
+            terms.iter().map(|f| (f.entity_id, f.component)).collect()
+        }
     }
 }
 
@@ -645,7 +648,11 @@ fn generate_mesh_constants(
             ));
 
             // Pipeline type based on tessellation type
-            let pipeline = if tess.is_fill { "loop_blinn" } else { "sdf_stroke" };
+            let pipeline = if tess.is_fill {
+                "loop_blinn"
+            } else {
+                "sdf_stroke"
+            };
             output.push_str(&format!(
                 "const MESH_{}_PIPELINE = '{}';\n",
                 mesh_id, pipeline
@@ -880,10 +887,7 @@ fn generate_init_function(build_info: &VsBuildInfo) -> String {
     output.push_str("  // Register meshes in Z-order\n");
     for path_entry in &build_info.path_entities {
         let mesh_id = path_entry.id.0;
-        output.push_str(&format!(
-            "  runtime.registerMesh('mesh_{}', {{\n",
-            mesh_id
-        ));
+        output.push_str(&format!("  runtime.registerMesh('mesh_{}', {{\n", mesh_id));
         output.push_str(&format!("    vertices: MESH_{}_VERTICES,\n", mesh_id));
         output.push_str(&format!("    indices: MESH_{}_INDICES,\n", mesh_id));
         output.push_str(&format!("    pipelineKey: MESH_{}_PIPELINE,\n", mesh_id));
@@ -1016,7 +1020,10 @@ fn generate_mount_dom_function(
 
         // Append to overlay and store reference
         output.push_str(&format!("  overlay.appendChild({});\n", var_name));
-        output.push_str(&format!("  _domElements['{}'] = {};\n\n", var_name, var_name));
+        output.push_str(&format!(
+            "  _domElements['{}'] = {};\n\n",
+            var_name, var_name
+        ));
     }
 
     output.push_str("  container.appendChild(overlay);\n");
@@ -1212,7 +1219,9 @@ fn generate_mount_function(_build_info: &VsBuildInfo) -> String {
     // Create canvas for WebGPU
     output.push_str("  // Create canvas for WebGPU layer\n");
     output.push_str("  const canvas = document.createElement('canvas');\n");
-    output.push_str("  canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;';\n");
+    output.push_str(
+        "  canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;';\n",
+    );
     output.push_str("  container.style.position = 'relative';\n");
     output.push_str("  container.appendChild(canvas);\n\n");
 
@@ -1254,7 +1263,10 @@ fn generate_mount_function(_build_info: &VsBuildInfo) -> String {
 /// export const ENTITY_IDS = [1000, 1001, ...];
 /// export default { init, mount, update, render, ENTITY_IDS };
 /// ```
-fn generate_module_exports(build_info: &VsBuildInfo, interactive_entities: &[InteractiveInfo]) -> String {
+fn generate_module_exports(
+    build_info: &VsBuildInfo,
+    interactive_entities: &[InteractiveInfo],
+) -> String {
     let mut output = String::new();
     output.push_str("// Module exports (Stage 12)\n");
 
@@ -1722,7 +1734,11 @@ mod tests {
                     delta: Rational::from_int(-1),
                 },
             ),
-            InteractiveInfo::text_span("counter_label", EntityId(1002), Some("Counter value".to_string())),
+            InteractiveInfo::text_span(
+                "counter_label",
+                EntityId(1002),
+                Some("Counter value".to_string()),
+            ),
         ]
     }
 
@@ -1745,26 +1761,56 @@ mod tests {
         let output = generate_mount_dom_function(&interactive, &var_map);
 
         // Must contain mountDOM function
-        assert!(output.contains("function mountDOM(container)"), "Missing mountDOM function");
+        assert!(
+            output.contains("function mountDOM(container)"),
+            "Missing mountDOM function"
+        );
 
         // Must create overlay with aria-live
-        assert!(output.contains("aria-live"), "Missing aria-live attribute on overlay");
+        assert!(
+            output.contains("aria-live"),
+            "Missing aria-live attribute on overlay"
+        );
 
         // Must create button elements
-        assert!(output.contains("createElement('button')"), "Missing button element creation");
+        assert!(
+            output.contains("createElement('button')"),
+            "Missing button element creation"
+        );
 
         // Must set aria-label
-        assert!(output.contains("aria-label"), "Missing aria-label attribute");
-        assert!(output.contains("Increment counter"), "Missing increment button aria-label");
-        assert!(output.contains("Decrement counter"), "Missing decrement button aria-label");
+        assert!(
+            output.contains("aria-label"),
+            "Missing aria-label attribute"
+        );
+        assert!(
+            output.contains("Increment counter"),
+            "Missing increment button aria-label"
+        );
+        assert!(
+            output.contains("Decrement counter"),
+            "Missing decrement button aria-label"
+        );
 
         // Must create text span
-        assert!(output.contains("createElement('span')"), "Missing span element creation");
+        assert!(
+            output.contains("createElement('span')"),
+            "Missing span element creation"
+        );
 
         // Must store references in _domElements
-        assert!(output.contains("_domElements['increment_btn']"), "Missing increment_btn reference");
-        assert!(output.contains("_domElements['decrement_btn']"), "Missing decrement_btn reference");
-        assert!(output.contains("_domElements['counter_label']"), "Missing counter_label reference");
+        assert!(
+            output.contains("_domElements['increment_btn']"),
+            "Missing increment_btn reference"
+        );
+        assert!(
+            output.contains("_domElements['decrement_btn']"),
+            "Missing decrement_btn reference"
+        );
+        assert!(
+            output.contains("_domElements['counter_label']"),
+            "Missing counter_label reference"
+        );
     }
 
     #[test]
@@ -1775,10 +1821,16 @@ mod tests {
         let output = generate_update_dom_function(&interactive, &var_map);
 
         // Must contain updateDOM function
-        assert!(output.contains("function updateDOM()"), "Missing updateDOM function");
+        assert!(
+            output.contains("function updateDOM()"),
+            "Missing updateDOM function"
+        );
 
         // Must use translate3d for GPU-accelerated positioning
-        assert!(output.contains("translate3d"), "Missing translate3d for GPU acceleration");
+        assert!(
+            output.contains("translate3d"),
+            "Missing translate3d for GPU acceleration"
+        );
 
         // Must reference correct variables
         assert!(output.contains("e1000_x"), "Missing e1000_x reference");
@@ -1793,19 +1845,37 @@ mod tests {
         let output = generate_bind_events_function(&interactive, &var_map);
 
         // Must contain bindEvents function with runtime parameter
-        assert!(output.contains("function bindEvents(runtime)"), "Missing bindEvents(runtime) function");
+        assert!(
+            output.contains("function bindEvents(runtime)"),
+            "Missing bindEvents(runtime) function"
+        );
 
         // Must add click event listeners
-        assert!(output.contains("addEventListener('click'"), "Missing click event listener");
+        assert!(
+            output.contains("addEventListener('click'"),
+            "Missing click event listener"
+        );
 
         // Must contain increment action
         assert!(output.contains("counter += 1"), "Missing counter increment");
-        assert!(output.contains("counter += -1"), "Missing counter decrement");
+        assert!(
+            output.contains("counter += -1"),
+            "Missing counter decrement"
+        );
 
         // Must trigger update chain after event
-        assert!(output.contains("update();"), "Missing update() call after event");
-        assert!(output.contains("updateDOM();"), "Missing updateDOM() call after event");
-        assert!(output.contains("render(runtime);"), "Missing render(runtime) call after event");
+        assert!(
+            output.contains("update();"),
+            "Missing update() call after event"
+        );
+        assert!(
+            output.contains("updateDOM();"),
+            "Missing updateDOM() call after event"
+        );
+        assert!(
+            output.contains("render(runtime);"),
+            "Missing render(runtime) call after event"
+        );
     }
 
     #[test]
@@ -1815,21 +1885,36 @@ mod tests {
         let output = generate_mount_function(&build_info);
 
         // Must export mount function
-        assert!(output.contains("export async function mount(container)"), "Missing mount export");
+        assert!(
+            output.contains("export async function mount(container)"),
+            "Missing mount export"
+        );
 
         // Must create canvas for WebGPU
-        assert!(output.contains("createElement('canvas')"), "Missing canvas creation");
+        assert!(
+            output.contains("createElement('canvas')"),
+            "Missing canvas creation"
+        );
 
         // Must call init for WebGPU layer
         assert!(output.contains("await init(canvas)"), "Missing WebGPU init");
 
         // Must initialize DOM layer
-        assert!(output.contains("mountDOM(container)"), "Missing mountDOM call");
-        assert!(output.contains("bindEvents(runtime)"), "Missing bindEvents(runtime) call");
+        assert!(
+            output.contains("mountDOM(container)"),
+            "Missing mountDOM call"
+        );
+        assert!(
+            output.contains("bindEvents(runtime)"),
+            "Missing bindEvents(runtime) call"
+        );
         assert!(output.contains("updateDOM()"), "Missing updateDOM call");
 
         // Must return combined result
-        assert!(output.contains("runtime, canvas, overlay"), "Missing return values");
+        assert!(
+            output.contains("runtime, canvas, overlay"),
+            "Missing return values"
+        );
     }
 
     #[test]
@@ -1903,19 +1988,52 @@ mod tests {
         .expect("Should generate module");
 
         // Verify all required features are present
-        assert!(output.contains("mountDOM"), "Missing mountDOM in full output");
-        assert!(output.contains("addEventListener('click'"), "Missing click listener in full output");
-        assert!(output.contains("translate3d"), "Missing translate3d in full output");
-        assert!(output.contains("aria-label"), "Missing aria-label in full output");
-        assert!(output.contains("aria-live"), "Missing aria-live in full output");
-        assert!(output.contains("export async function mount"), "Missing mount export in full output");
-        assert!(output.contains("render(runtime)"), "Missing render(runtime) in event handler");
+        assert!(
+            output.contains("mountDOM"),
+            "Missing mountDOM in full output"
+        );
+        assert!(
+            output.contains("addEventListener('click'"),
+            "Missing click listener in full output"
+        );
+        assert!(
+            output.contains("translate3d"),
+            "Missing translate3d in full output"
+        );
+        assert!(
+            output.contains("aria-label"),
+            "Missing aria-label in full output"
+        );
+        assert!(
+            output.contains("aria-live"),
+            "Missing aria-live in full output"
+        );
+        assert!(
+            output.contains("export async function mount"),
+            "Missing mount export in full output"
+        );
+        assert!(
+            output.contains("render(runtime)"),
+            "Missing render(runtime) in event handler"
+        );
 
         // Verify INTERACTIVE_IDS export
-        assert!(output.contains("INTERACTIVE_IDS"), "Missing INTERACTIVE_IDS export");
-        assert!(output.contains("1000"), "Missing entity 1000 in INTERACTIVE_IDS");
-        assert!(output.contains("1001"), "Missing entity 1001 in INTERACTIVE_IDS");
-        assert!(output.contains("1002"), "Missing entity 1002 in INTERACTIVE_IDS");
+        assert!(
+            output.contains("INTERACTIVE_IDS"),
+            "Missing INTERACTIVE_IDS export"
+        );
+        assert!(
+            output.contains("1000"),
+            "Missing entity 1000 in INTERACTIVE_IDS"
+        );
+        assert!(
+            output.contains("1001"),
+            "Missing entity 1001 in INTERACTIVE_IDS"
+        );
+        assert!(
+            output.contains("1002"),
+            "Missing entity 1002 in INTERACTIVE_IDS"
+        );
     }
 
     #[test]

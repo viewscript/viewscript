@@ -136,12 +136,13 @@ pub fn term_to_js_expr(term: &ConstraintTerm, var_name_map: &VarNameMap) -> Stri
     match term {
         ConstraintTerm::Const { value } => rational_to_js(value),
 
-        ConstraintTerm::Ref { entity_id, component } => {
-            var_name_map
-                .get(&(*entity_id, *component))
-                .cloned()
-                .unwrap_or_else(|| format!("/* unknown {:?}.{:?} */", entity_id, component))
-        }
+        ConstraintTerm::Ref {
+            entity_id,
+            component,
+        } => var_name_map
+            .get(&(*entity_id, *component))
+            .cloned()
+            .unwrap_or_else(|| format!("/* unknown {:?}.{:?} */", entity_id, component)),
 
         ConstraintTerm::Linear {
             coefficient,
