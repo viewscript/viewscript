@@ -19,6 +19,12 @@ import {
   type ResolvedModule,
   type FfiManifest,
 } from './manifest.js';
+import {
+  compileVsToJs,
+  isWasiAvailable,
+  generatePlaceholderJs,
+  type VsBuildInfoInput,
+} from './wasi-runner.js';
 
 // =============================================================================
 // Plugin Options
@@ -173,10 +179,37 @@ export function viewScriptPlugin(options: ViewScriptPluginOptions = {}): Plugin 
       // Store state for generateBundle
       vsFiles.set(id, { parseResult, resolvedModules });
 
-      // Return transformed code (placeholder for Phase 1)
-      // In later phases, this would emit runtime bindings
+      // Attempt WASI compilation, fall back to placeholder
+      let generatedCode: string;
+
+      if (await isWasiAvailable()) {
+        // Full WASI compilation path
+        const result = await compileVsToJs(code);
+        if (result.success && result.code) {
+          generatedCode = result.code;
+        } else {
+          // Report as build error, not warning
+          this.error({
+            message: `WASI compilation failed: ${result.error}`,
+            id,
+          });
+          // Fallback (error above may throw, but just in case)
+          generatedCode = generatePlaceholderJs(
+            { version: 1, operations: [] },
+            id
+          );
+        }
+      } else {
+        // WASI not available - use placeholder for Phase 1
+        // The placeholder generates minimal runtime initialization code
+        generatedCode = generatePlaceholderJs(
+          { version: 1, operations: [] },
+          id
+        );
+      }
+
       return {
-        code: `// ViewScript compiled from ${id}\nexport default {};`,
+        code: generatedCode,
         map: null,
       };
     },
@@ -211,8 +244,12 @@ export function viewScriptPlugin(options: ViewScriptPluginOptions = {}): Plugin 
       const context: ManifestContext = {
         vsParseResult: {
           imports: aggregatedImports,
+          componentDecls: [],
           binds: aggregatedBinds,
           triggers: aggregatedTriggers,
+          components: [],
+          scene: null,
+          consts: [],
           errors: [],
         },
         resolvedModules: aggregatedModules,
@@ -272,6 +309,9 @@ export type {
   ManifestError,
   ResolvedModule,
 } from './manifest.js';
+
+export { compileVsToJs, isWasiAvailable, generatePlaceholderJs } from './wasi-runner.js';
+export type { CompileResult, VsBuildInfoInput } from './wasi-runner.js';
 
 // Default export for convenient usage
 export default viewScriptPlugin;

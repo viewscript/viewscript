@@ -348,4 +348,249 @@ q trigger t = bounds_overlap(x, y) -> a()
       expect(result.triggers[0].line).toBe(6);
     });
   });
+
+  // ===========================================================================
+  // New TypeScript AST Parser Tests (function-call syntax)
+  // ===========================================================================
+
+  describe('TypeScript AST parsing', () => {
+    describe('export default object literal', () => {
+      it('parses rect component declaration', () => {
+        const content = `
+export default {
+  bg: rect({ x: 100, y: 200, width: 320, height: 200 }),
+}`;
+        const result = parseVsFile(content);
+
+        expect(result.componentDecls).toHaveLength(1);
+        expect(result.componentDecls[0].name).toBe('bg');
+        expect(result.componentDecls[0].type).toBe('rect');
+        expect(result.componentDecls[0].properties.x).toEqual({ kind: 'literal', value: 100 });
+        expect(result.componentDecls[0].properties.y).toEqual({ kind: 'literal', value: 200 });
+      });
+
+      it('parses text component with string property', () => {
+        const content = `
+export default {
+  label: text({ content: "Hello", fill: "#cdd6f4" }),
+}`;
+        const result = parseVsFile(content);
+
+        expect(result.componentDecls).toHaveLength(1);
+        expect(result.componentDecls[0].type).toBe('text');
+        expect(result.componentDecls[0].properties.content).toEqual({ kind: 'literal', value: 'Hello' });
+        expect(result.componentDecls[0].properties.fill).toEqual({ kind: 'literal', value: '#cdd6f4' });
+      });
+
+      it('parses property reference (bg.x)', () => {
+        const content = `
+export default {
+  bg: rect({ x: 100 }),
+  label: text({ x: bg.x }),
+}`;
+        const result = parseVsFile(content);
+
+        expect(result.componentDecls).toHaveLength(2);
+        expect(result.componentDecls[1].properties.x).toEqual({
+          kind: 'reference',
+          entity: 'bg',
+          component: 'x',
+        });
+      });
+
+      it('parses expression (bg.x + bg.width / 2)', () => {
+        const content = `
+export default {
+  label: text({ x: bg.x + bg.width / 2 }),
+}`;
+        const result = parseVsFile(content);
+
+        expect(result.componentDecls).toHaveLength(1);
+        const xProp = result.componentDecls[0].properties.x;
+        expect(xProp.kind).toBe('expression');
+        if (xProp.kind === 'expression') {
+          expect(xProp.ast.type).toBe('binary');
+          expect(xProp.source).toContain('bg.x + bg.width / 2');
+        }
+      });
+
+      it('parses FFI function reference (content: getCount)', () => {
+        const content = `
+import { getCount } from "./logic"
+
+export default {
+  label: text({ content: getCount }),
+}`;
+        const result = parseVsFile(content);
+
+        expect(result.imports).toHaveLength(1);
+        expect(result.imports[0].names).toEqual(['getCount']);
+        expect(result.componentDecls).toHaveLength(1);
+        expect(result.componentDecls[0].properties.content).toEqual({
+          kind: 'reference',
+          entity: 'getCount',
+        });
+      });
+
+      it('parses FFI function call (clamp(value, 0, 1))', () => {
+        const content = `
+export default {
+  box: rect({ opacity: clamp(progress, 0, 1) }),
+}`;
+        const result = parseVsFile(content);
+
+        const opacityProp = result.componentDecls[0].properties.opacity;
+        expect(opacityProp.kind).toBe('ffiCall');
+        if (opacityProp.kind === 'ffiCall') {
+          expect(opacityProp.functionName).toBe('clamp');
+          expect(opacityProp.args).toHaveLength(3);
+        }
+      });
+
+      it('parses interactive: true flag', () => {
+        const content = `
+export default {
+  btn: rect({ x: 100, interactive: true }),
+}`;
+        const result = parseVsFile(content);
+
+        expect(result.componentDecls[0].interactive).toBe(true);
+      });
+
+      it('parses onClick event binding', () => {
+        const content = `
+export default {
+  btn: rect({
+    x: 100,
+    interactive: true,
+    onClick: { type: 'increment', target: 'count', delta: 1 },
+  }),
+}`;
+        const result = parseVsFile(content);
+
+        expect(result.componentDecls[0].eventBindings).toHaveLength(1);
+        const binding = result.componentDecls[0].eventBindings[0];
+        expect(binding.event).toBe('click');
+        expect(binding.action).toEqual({
+          type: 'increment',
+          target: 'count',
+          delta: 1,
+        });
+      });
+
+      it('parses toggle event action', () => {
+        const content = `
+export default {
+  toggle: rect({
+    onClick: { type: 'toggle', target: 'visible', values: [0, 1] },
+  }),
+}`;
+        const result = parseVsFile(content);
+
+        const binding = result.componentDecls[0].eventBindings[0];
+        expect(binding.action).toEqual({
+          type: 'toggle',
+          target: 'visible',
+          values: [0, 1],
+        });
+      });
+
+      it('parses call event action with handler', () => {
+        const content = `
+export default {
+  btn: rect({
+    onClick: { type: 'call', handler: 'onSubmit' },
+  }),
+}`;
+        const result = parseVsFile(content);
+
+        const binding = result.componentDecls[0].eventBindings[0];
+        expect(binding.action).toEqual({
+          type: 'call',
+          handler: 'onSubmit',
+        });
+      });
+
+      it('parses multiple components', () => {
+        const content = `
+export default {
+  bg: rect({ x: 0, y: 0, width: 800, height: 600 }),
+  panel: rect({ x: 100, y: 100, width: 300, height: 200 }),
+  title: text({ x: 150, content: "Hello" }),
+}`;
+        const result = parseVsFile(content);
+
+        expect(result.componentDecls).toHaveLength(3);
+        expect(result.componentDecls.map(c => c.name)).toEqual(['bg', 'panel', 'title']);
+      });
+
+      it('parses negative numbers', () => {
+        const content = `
+export default {
+  box: rect({ x: -100, y: -50 }),
+}`;
+        const result = parseVsFile(content);
+
+        expect(result.componentDecls[0].properties.x).toEqual({ kind: 'literal', value: -100 });
+      });
+    });
+
+    describe('expression AST generation', () => {
+      it('generates correct AST for simple addition', () => {
+        const content = `
+export default {
+  box: rect({ x: a.x + 10 }),
+}`;
+        const result = parseVsFile(content);
+
+        const xProp = result.componentDecls[0].properties.x;
+        expect(xProp.kind).toBe('expression');
+        if (xProp.kind === 'expression') {
+          expect(xProp.ast).toEqual({
+            type: 'binary',
+            op: '+',
+            left: { type: 'ref', entity: 'a', component: 'x' },
+            right: { type: 'const', value: 10 },
+          });
+        }
+      });
+
+      it('generates correct AST for division', () => {
+        const content = `
+export default {
+  box: rect({ x: width / 2 }),
+}`;
+        const result = parseVsFile(content);
+
+        const xProp = result.componentDecls[0].properties.x;
+        expect(xProp.kind).toBe('expression');
+        if (xProp.kind === 'expression') {
+          expect(xProp.ast.type).toBe('binary');
+          if (xProp.ast.type === 'binary') {
+            expect(xProp.ast.op).toBe('/');
+          }
+        }
+      });
+
+      it('generates correct AST for complex expression', () => {
+        const content = `
+export default {
+  label: text({ x: (panel.x + panel.width) / 2 }),
+}`;
+        const result = parseVsFile(content);
+
+        const xProp = result.componentDecls[0].properties.x;
+        expect(xProp.kind).toBe('expression');
+        if (xProp.kind === 'expression') {
+          // (panel.x + panel.width) / 2
+          expect(xProp.ast.type).toBe('binary');
+          if (xProp.ast.type === 'binary') {
+            expect(xProp.ast.op).toBe('/');
+            expect(xProp.ast.left.type).toBe('binary'); // panel.x + panel.width
+            expect(xProp.ast.right).toEqual({ type: 'const', value: 2 });
+          }
+        }
+      });
+    });
+  });
 });
