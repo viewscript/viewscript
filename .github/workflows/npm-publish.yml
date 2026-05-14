@@ -275,3 +275,57 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
+
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [check-and-release, publish-cli]
+    if: needs.check-and-release.outputs.has_changes == 'true'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: List artifacts
+        run: find artifacts/ -type f | sort
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.check-and-release.outputs.new_version }}
+          name: v${{ needs.check-and-release.outputs.new_version }}
+          body: |
+            ## Installation
+
+            ```bash
+            curl -fsSL https://viewscript.pages.dev/install.sh | sh
+            ```
+
+            ## Downloads
+
+            | Platform | Architecture | Binary |
+            |----------|--------------|--------|
+            | Linux | x86_64 | vsc-linux-x86_64 |
+            | macOS | x86_64 | vsc-macos-x86_64 |
+            | macOS | ARM64 | vsc-macos-aarch64 |
+            | Windows | x86_64 | vsc-windows-x86_64.exe |
+
+            ## npm Packages
+
+            - `@viewscript/wasm@${{ needs.check-and-release.outputs.new_version }}`
+            - `@viewscript/renderer@${{ needs.check-and-release.outputs.new_version }}`
+            - `@viewscript/browser-defaults@${{ needs.check-and-release.outputs.new_version }}`
+          files: |
+            artifacts/vsc-linux-x86_64/vsc-linux-x86_64
+            artifacts/vsc-macos-x86_64/vsc-macos-x86_64
+            artifacts/vsc-macos-aarch64/vsc-macos-aarch64
+            artifacts/vsc-windows-x86_64.exe/vsc-windows-x86_64.exe
+          draft: false
+          prerelease: false
