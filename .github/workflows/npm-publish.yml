@@ -48,7 +48,7 @@ jobs:
         if: steps.check.outputs.has_changes == 'true'
         run: |
           VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          TIMESTAMP=$(date +%Y%m%d%H%M)
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
           FULL_VERSION="${VERSION}-${TIMESTAMP}"
           echo "version=${FULL_VERSION}" >> $GITHUB_OUTPUT
           echo "Version: ${FULL_VERSION}"
