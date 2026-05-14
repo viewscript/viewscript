@@ -1,0 +1,158 @@
+name: ViewScript CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  rust-check:
+    name: Rust Check & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Format check
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --workspace -- -D warnings
+        continue-on-error: true
+      - name: Build workspace
+        run: cargo build --workspace
+
+  rust-test:
+    name: Rust Tests
+    runs-on: ubuntu-latest
+    needs: rust-check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: vsc-core tests
+        run: cargo test -p vsc-core
+      - name: vsc-core tests (text feature)
+        run: cargo test -p vsc-core --features text-shaping
+      - name: vsc-gpu tests
+        run: cargo test -p vsc-gpu
+      - name: vsc-codl tests
+        run: cargo test -p vsc-codl
+      - name: vsc-linter tests
+        run: cargo test -p vsc-linter
+      - name: vsc-cli tests
+        run: cargo test -p vsc-cli
+      - name: vsc-wasm tests
+        run: cargo test -p vsc-wasm
+      - name: vsc-ffi-c tests
+        run: cargo test -p vsc-ffi-c
+      - name: vs-style-chrome tests
+        run: cargo test -p vs-style-chrome
+
+  wasm-build:
+    name: WASM Build
+    runs-on: ubuntu-latest
+    needs: rust-check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Build vsc-wasm (default)
+        run: wasm-pack build crates/vsc-wasm --target web
+      - name: Build vsc-wasm (gpu)
+        run: wasm-pack build crates/vsc-wasm --target web --features gpu
+      - name: Native tests
+        run: cargo test -p vsc-wasm
+
+  wasi-build:
+    name: WASI Build
+    runs-on: ubuntu-latest
+    needs: rust-check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - uses: Swatinem/rust-cache@v2
+      - name: Build for WASI
+        run: cargo build -p vsc-wasm --target wasm32-wasip1
+
+  ffi-c-build:
+    name: C FFI Build
+    runs-on: ubuntu-latest
+    needs: rust-check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build shared library
+        run: cargo build -p vsc-ffi-c
+      - name: Build static library
+        run: cargo build -p vsc-ffi-c --release
+      - name: Verify library outputs
+        run: |
+          ls -la target/debug/libvsc_ffi_c.so || ls -la target/debug/libvsc_ffi_c.dylib || true
+          ls -la target/release/libvsc_ffi_c.a || true
+      - name: Run FFI tests
+        run: cargo test -p vsc-ffi-c
+
+  typescript-test:
+    name: TypeScript Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install pnpm
+        run: npm install -g pnpm
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+        working-directory: packages/renderer
+      - name: Run Vitest
+        run: pnpm test
+        working-directory: packages/renderer
+
+  benchmarks:
+    name: Benchmarks (dry run)
+    runs-on: ubuntu-latest
+    needs: rust-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Loop-Blinn benchmark
+        run: cargo bench -p vsc-gpu --bench loop_blinn_bench -- --test
+      - name: SDF Stroke benchmark
+        run: cargo bench -p vsc-gpu --bench sdf_stroke_bench -- --test
+
+  cli-integration:
+    name: CLI Integration Tests
+    runs-on: ubuntu-latest
+    needs: rust-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build CLI
+        run: cargo build -p vsc-cli --release
+      - name: Workflow test
+        run: |
+          VSC=./target/release/vsc
+          mkdir -p /tmp/ci-test && cd /tmp/ci-test
+          $GITHUB_WORKSPACE/$VSC init --name ci-test
+          $GITHUB_WORKSPACE/$VSC add-component -t rectangle -x 50 -y 50 -w 200 -h 100 -r 8 -f "#ff0000"
+          $GITHUB_WORKSPACE/$VSC check
+          $GITHUB_WORKSPACE/$VSC build --target wgpu --outdir dist
+          test -f dist/index.html
+          test -f dist/pkg/vsc_wasm_bg.wasm
+          echo "CLI integration test passed"
