@@ -8,6 +8,7 @@ members = [
     "crates/vsc-codl",
     "crates/vsc-gpu",
     "crates/vsc-ffi-c",
+    "crates/vsc-launcher",
     "styles/vs-style-chrome",
 ]
 

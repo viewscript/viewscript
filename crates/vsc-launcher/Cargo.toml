@@ -1,0 +1,17 @@
+[package]
+name = "vsc-launcher"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Native launcher for ViewScript CLI with auto-update support"
+
+[[bin]]
+name = "vsc"
+path = "src/main.rs"
+
+[dependencies]
+wasmtime = "36"
+wasmtime-wasi = "36"
+zstd = "0.13"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+dirs = "6"
