@@ -10,6 +10,8 @@ jobs:
   check-and-release:
     name: Check for changes & update release branch
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       has_changes: ${{ steps.check.outputs.has_changes }}
       new_version: ${{ steps.version.outputs.version }}
@@ -21,9 +23,13 @@ jobs:
       - name: Check for changes since last release
         id: check
         run: |
-          git fetch origin release || echo "release branch not found"
+          git fetch origin main release || echo "fetch failed"
+          echo "Current HEAD: $(git rev-parse HEAD)"
+          echo "origin/main: $(git rev-parse origin/main 2>/dev/null || echo 'not found')"
+          echo "origin/release: $(git rev-parse origin/release 2>/dev/null || echo 'not found')"
+
           if git rev-parse origin/release >/dev/null 2>&1; then
-            DIFF=$(git diff --name-only origin/release..origin/main -- crates/ packages/ styles/ Cargo.toml Cargo.lock)
+            DIFF=$(git diff --name-only origin/release..HEAD -- crates/ packages/ styles/ Cargo.toml Cargo.lock)
             if [ -z "$DIFF" ]; then
               echo "has_changes=false" >> $GITHUB_OUTPUT
               echo "No code changes since last release"
@@ -50,8 +56,9 @@ jobs:
       - name: Fast-forward release branch
         if: steps.check.outputs.has_changes == 'true'
         run: |
+          MAIN_SHA=$(git rev-parse HEAD)
           git checkout release
-          git merge --ff-only origin/main
+          git merge --ff-only $MAIN_SHA
           git push origin release
 
   publish:
@@ -61,6 +68,7 @@ jobs:
     if: needs.check-and-release.outputs.has_changes == 'true'
     permissions:
       contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
