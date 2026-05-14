@@ -100,8 +100,10 @@ impl VscEngine {
         for q_var in &self.build_info.q_variables {
             if let Some(q_value) = snapshot.get(&q_var.name) {
                 if let Some(rational) = q_value.to_rational() {
-                    self.solver
-                        .register_variable(q_var.target_var, VariableState::Resolved { value: rational });
+                    self.solver.register_variable(
+                        q_var.target_var,
+                        VariableState::Resolved { value: rational },
+                    );
                 }
             }
         }
@@ -114,7 +116,10 @@ impl VscEngine {
 
         for iteration in 0..=MAX_DERIVED_ITERATIONS {
             // Solve constraints
-            let solutions = self.solver.solve().map_err(|e| TickError::Solver(format!("{:?}", e)))?;
+            let solutions = self
+                .solver
+                .solve()
+                .map_err(|e| TickError::Solver(format!("{:?}", e)))?;
 
             // Build scene
             let scene_nodes = SceneBuilder::new(&solutions, &self.build_info)
@@ -131,7 +136,8 @@ impl VscEngine {
             // Evaluate derived Q-variables
             let mut any_changed = false;
             for derived in &self.build_info.derived_q_variables {
-                let new_value = evaluate_derived(&derived.rule, &self.cached_q_values, &scene_nodes);
+                let new_value =
+                    evaluate_derived(&derived.rule, &self.cached_q_values, &scene_nodes);
 
                 // Check if value changed
                 let old_value = self.cached_q_values.get(&derived.name);
@@ -143,7 +149,8 @@ impl VscEngine {
 
                 if changed {
                     any_changed = true;
-                    self.cached_q_values.insert(derived.name.clone(), new_value.clone());
+                    self.cached_q_values
+                        .insert(derived.name.clone(), new_value.clone());
 
                     // Re-inject into solver
                     if let Some(rational) = new_value.to_rational() {
@@ -446,7 +453,10 @@ mod tests {
     #[test]
     fn test_vsc_engine_create_returns_non_null() {
         let engine = vsc_engine_create();
-        assert!(!engine.is_null(), "vsc_engine_create should return non-null pointer");
+        assert!(
+            !engine.is_null(),
+            "vsc_engine_create should return non-null pointer"
+        );
         unsafe {
             vsc_engine_destroy(engine);
         }
@@ -458,7 +468,8 @@ mod tests {
         let snapshot = r#"{"values":{}}"#;
 
         unsafe {
-            let result = vsc_engine_tick(engine, snapshot.as_ptr() as *const c_char, snapshot.len());
+            let result =
+                vsc_engine_tick(engine, snapshot.as_ptr() as *const c_char, snapshot.len());
             assert_eq!(result, 0, "tick with empty snapshot should succeed");
             vsc_engine_destroy(engine);
         }
@@ -468,8 +479,11 @@ mod tests {
     fn test_vsc_engine_tick_null_engine_returns_minus_1() {
         let snapshot = r#"{"values":{}}"#;
         unsafe {
-            let result =
-                vsc_engine_tick(std::ptr::null_mut(), snapshot.as_ptr() as *const c_char, snapshot.len());
+            let result = vsc_engine_tick(
+                std::ptr::null_mut(),
+                snapshot.as_ptr() as *const c_char,
+                snapshot.len(),
+            );
             assert_eq!(result, -1, "tick with null engine should return -1");
         }
     }
@@ -491,7 +505,11 @@ mod tests {
         let invalid_bytes: [u8; 4] = [0xFF, 0xFE, 0x00, 0x01];
 
         unsafe {
-            let result = vsc_engine_tick(engine, invalid_bytes.as_ptr() as *const c_char, invalid_bytes.len());
+            let result = vsc_engine_tick(
+                engine,
+                invalid_bytes.as_ptr() as *const c_char,
+                invalid_bytes.len(),
+            );
             assert_eq!(result, -2, "tick with invalid UTF-8 should return -2");
             vsc_engine_destroy(engine);
         }
@@ -503,8 +521,11 @@ mod tests {
         let invalid_json = "not valid json";
 
         unsafe {
-            let result =
-                vsc_engine_tick(engine, invalid_json.as_ptr() as *const c_char, invalid_json.len());
+            let result = vsc_engine_tick(
+                engine,
+                invalid_json.as_ptr() as *const c_char,
+                invalid_json.len(),
+            );
             assert_eq!(result, -3, "tick with invalid JSON should return -3");
             vsc_engine_destroy(engine);
         }
@@ -529,15 +550,17 @@ mod tests {
 
             // Get scene JSON
             let mut buf = vec![0u8; 1024];
-            let len =
-                vsc_engine_get_scene_json(engine, buf.as_mut_ptr() as *mut c_char, buf.len());
+            let len = vsc_engine_get_scene_json(engine, buf.as_mut_ptr() as *mut c_char, buf.len());
 
             assert!(len >= 0, "get_scene_json should succeed");
 
             // Parse the result
             let json_str = std::str::from_utf8(&buf[..len as usize]).unwrap();
             let scene: Vec<SceneNode> = serde_json::from_str(json_str).unwrap();
-            assert!(scene.is_empty(), "Empty build_info should produce empty scene");
+            assert!(
+                scene.is_empty(),
+                "Empty build_info should produce empty scene"
+            );
 
             vsc_engine_destroy(engine);
         }
@@ -577,7 +600,10 @@ mod tests {
                 params.len(),
             );
 
-            assert!(entity_id >= 0, "add_component should return positive entity_id");
+            assert!(
+                entity_id >= 0,
+                "add_component should return positive entity_id"
+            );
 
             vsc_engine_destroy(engine);
         }

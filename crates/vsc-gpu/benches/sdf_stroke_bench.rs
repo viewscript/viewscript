@@ -181,7 +181,8 @@ fn bench_stroke_tessellation_time_cubic(c: &mut Criterion) {
             &(&path, stroke_width),
             |b, (path, width)| {
                 b.iter(|| {
-                    let result = tessellate_cubic_stroke_segments(black_box(*path), black_box(*width));
+                    let result =
+                        tessellate_cubic_stroke_segments(black_box(*path), black_box(*width));
                     black_box(result)
                 });
             },

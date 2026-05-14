@@ -42,8 +42,8 @@ impl TestProject {
     }
 
     fn read_buildinfo(&self) -> Value {
-        let content = fs::read_to_string(self.root.join(".vsbuildinfo"))
-            .expect(".vsbuildinfo should exist");
+        let content =
+            fs::read_to_string(self.root.join(".vsbuildinfo")).expect(".vsbuildinfo should exist");
         serde_json::from_str(&content).expect(".vsbuildinfo should be valid JSON")
     }
 
@@ -100,8 +100,12 @@ fn test_run_command_registers_path_entity() {
 
     // Execute run-command with path_id = 42
     let args_json = r#"{"path_id": 42}"#;
-    let (code, stdout, stderr) =
-        proj.run_vsc(&["run-command", "path_with_fill.vscmd.yaml", "--args", args_json]);
+    let (code, stdout, stderr) = proj.run_vsc(&[
+        "run-command",
+        "path_with_fill.vscmd.yaml",
+        "--args",
+        args_json,
+    ]);
     assert_eq!(
         code, 0,
         "vsc run-command failed.\nstdout: {}\nstderr: {}",
@@ -138,7 +142,11 @@ fn test_run_command_registers_path_entity() {
     );
 
     let entry = &path_entities[0];
-    assert_eq!(entry["id"], 42, "Expected path entity id=42, got: {}", entry["id"]);
+    assert_eq!(
+        entry["id"], 42,
+        "Expected path entity id=42, got: {}",
+        entry["id"]
+    );
 
     // Verify fill field is present and is a solid fill
     let fill = &entry["fill"];
@@ -174,13 +182,29 @@ fn test_run_command_path_entity_fill_isolated_from_other_entities() {
     proj.write_file("path_with_fill.vscmd.yaml", PATH_WITH_FILL_YAML);
 
     // Run twice with different IDs – each should produce its own path_entity
-    let (code, stdout, stderr) =
-        proj.run_vsc(&["run-command", "path_with_fill.vscmd.yaml", "--args", r#"{"path_id": 10}"#]);
-    assert_eq!(code, 0, "first run-command failed.\nstdout: {}\nstderr: {}", stdout, stderr);
+    let (code, stdout, stderr) = proj.run_vsc(&[
+        "run-command",
+        "path_with_fill.vscmd.yaml",
+        "--args",
+        r#"{"path_id": 10}"#,
+    ]);
+    assert_eq!(
+        code, 0,
+        "first run-command failed.\nstdout: {}\nstderr: {}",
+        stdout, stderr
+    );
 
-    let (code, stdout, stderr) =
-        proj.run_vsc(&["run-command", "path_with_fill.vscmd.yaml", "--args", r#"{"path_id": 20}"#]);
-    assert_eq!(code, 0, "second run-command failed.\nstdout: {}\nstderr: {}", stdout, stderr);
+    let (code, stdout, stderr) = proj.run_vsc(&[
+        "run-command",
+        "path_with_fill.vscmd.yaml",
+        "--args",
+        r#"{"path_id": 20}"#,
+    ]);
+    assert_eq!(
+        code, 0,
+        "second run-command failed.\nstdout: {}\nstderr: {}",
+        stdout, stderr
+    );
 
     let buildinfo = proj.read_buildinfo();
     let path_entities = buildinfo["path_entities"]

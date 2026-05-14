@@ -93,8 +93,7 @@ impl PebbleGame {
     fn new(vertices: impl IntoIterator<Item = VertexId>) -> Self {
         let vertices: HashSet<_> = vertices.into_iter().collect();
         let pebbles: HashMap<_, _> = vertices.iter().map(|&v| (v, 2u8)).collect();
-        let directed_edges: HashMap<_, _> =
-            vertices.iter().map(|&v| (v, HashSet::new())).collect();
+        let directed_edges: HashMap<_, _> = vertices.iter().map(|&v| (v, HashSet::new())).collect();
 
         Self {
             pebbles,
@@ -215,14 +214,10 @@ impl PebbleGame {
             // Use one pebble to cover this edge
             if self.pebble_count(v1) >= 1 {
                 self.pebbles.entry(v1).and_modify(|p| *p -= 1);
-                self.directed_edges
-                    .get_mut(&v1)
-                    .map(|e| e.insert(v2));
+                self.directed_edges.get_mut(&v1).map(|e| e.insert(v2));
             } else {
                 self.pebbles.entry(v2).and_modify(|p| *p -= 1);
-                self.directed_edges
-                    .get_mut(&v2)
-                    .map(|e| e.insert(v1));
+                self.directed_edges.get_mut(&v2).map(|e| e.insert(v1));
             }
             true
         } else {
@@ -463,7 +458,9 @@ mod tests {
         assert_eq!(result.laman_number, 5);
         assert!(matches!(
             result.status,
-            RigidityStatus::Flexible { degrees_of_freedom: 1 }
+            RigidityStatus::Flexible {
+                degrees_of_freedom: 1
+            }
         ));
     }
 
@@ -523,7 +520,9 @@ mod tests {
         assert_eq!(result.edge_count, 0);
         assert!(matches!(
             result.status,
-            RigidityStatus::Flexible { degrees_of_freedom: 2 }
+            RigidityStatus::Flexible {
+                degrees_of_freedom: 2
+            }
         ));
     }
 
@@ -545,7 +544,9 @@ mod tests {
         assert_eq!(result.laman_number, 7);
         assert!(matches!(
             result.status,
-            RigidityStatus::Flexible { degrees_of_freedom: 2 }
+            RigidityStatus::Flexible {
+                degrees_of_freedom: 2
+            }
         ));
     }
 
@@ -612,7 +613,9 @@ mod tests {
         assert_eq!(result.laman_number, 5);
         assert!(matches!(
             result.status,
-            RigidityStatus::Flexible { degrees_of_freedom: 2 }
+            RigidityStatus::Flexible {
+                degrees_of_freedom: 2
+            }
         ));
     }
 }

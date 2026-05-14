@@ -40,7 +40,9 @@ pub use distribution::{
     distribute_with_largest_remainder, DistributedDimension, DistributionMethod,
     DistributionResult, DistributionStats, SiblingGroup,
 };
-pub use rounding::{round_with_topology_preservation, RoundingResult, RoundingStats, TopologyViolation};
+pub use rounding::{
+    round_with_topology_preservation, RoundingResult, RoundingStats, TopologyViolation,
+};
 // Note: PVector, PVectorBounds, RasterBounds are defined in crate root (lib.rs)
 // Note: Edge, CoordRef, TopoConstraint are defined in vsc-core::types
 pub use union_find::{Axis, UnionFind};

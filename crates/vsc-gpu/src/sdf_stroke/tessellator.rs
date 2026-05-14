@@ -380,15 +380,33 @@ mod tests {
         let v = &output.vertices;
 
         // Check bounding box expansion
-        let min_x = v.iter().map(|v| v.position[0]).fold(f32::INFINITY, f32::min);
-        let max_x = v.iter().map(|v| v.position[0]).fold(f32::NEG_INFINITY, f32::max);
-        let min_y = v.iter().map(|v| v.position[1]).fold(f32::INFINITY, f32::min);
-        let max_y = v.iter().map(|v| v.position[1]).fold(f32::NEG_INFINITY, f32::max);
+        let min_x = v
+            .iter()
+            .map(|v| v.position[0])
+            .fold(f32::INFINITY, f32::min);
+        let max_x = v
+            .iter()
+            .map(|v| v.position[0])
+            .fold(f32::NEG_INFINITY, f32::max);
+        let min_y = v
+            .iter()
+            .map(|v| v.position[1])
+            .fold(f32::INFINITY, f32::min);
+        let max_y = v
+            .iter()
+            .map(|v| v.position[1])
+            .fold(f32::NEG_INFINITY, f32::max);
 
         assert!((min_x - (-half_width)).abs() < 0.001, "min_x should be -5");
-        assert!((max_x - (100.0 + half_width)).abs() < 0.001, "max_x should be 105");
+        assert!(
+            (max_x - (100.0 + half_width)).abs() < 0.001,
+            "max_x should be 105"
+        );
         assert!((min_y - (-half_width)).abs() < 0.001, "min_y should be -5");
-        assert!((max_y - (100.0 + half_width)).abs() < 0.001, "max_y should be 105");
+        assert!(
+            (max_y - (100.0 + half_width)).abs() < 0.001,
+            "max_y should be 105"
+        );
     }
 
     #[test]
@@ -437,11 +455,20 @@ mod tests {
         // Verify all indices are within vertex range
         let vertex_count = output.vertices.len() as u32;
         for &idx in &output.indices {
-            assert!(idx < vertex_count, "Index {} out of range (max {})", idx, vertex_count - 1);
+            assert!(
+                idx < vertex_count,
+                "Index {} out of range (max {})",
+                idx,
+                vertex_count - 1
+            );
         }
 
         // Verify indices form complete triangles
-        assert_eq!(output.indices.len() % 3, 0, "Indices should form complete triangles");
+        assert_eq!(
+            output.indices.len() % 3,
+            0,
+            "Indices should form complete triangles"
+        );
 
         // Verify first curve indices: 0, 1, 2, 0, 2, 3
         assert_eq!(output.indices[0..6], [0, 1, 2, 0, 2, 3]);
@@ -454,8 +481,14 @@ mod tests {
     fn test_pen_tracking() {
         // Verify pen position is tracked correctly across segments
         let commands = vec![
-            PathCommand::MoveTo { x: r(100), y: r(200) },
-            PathCommand::LineTo { x: r(150), y: r(200) }, // Pen moves to (150, 200)
+            PathCommand::MoveTo {
+                x: r(100),
+                y: r(200),
+            },
+            PathCommand::LineTo {
+                x: r(150),
+                y: r(200),
+            }, // Pen moves to (150, 200)
             PathCommand::QuadTo {
                 x1: r(175),
                 y1: r(250),
@@ -467,14 +500,21 @@ mod tests {
         let output = tessellate_stroke_segments(&commands, 4.0);
 
         // The QuadTo should start from (150, 200), not (0, 0)
-        assert_eq!(output.vertices[0].p0, [150.0, 200.0], "p0 should be pen position after LineTo");
+        assert_eq!(
+            output.vertices[0].p0,
+            [150.0, 200.0],
+            "p0 should be pen position after LineTo"
+        );
     }
 
     #[test]
     fn test_close_resets_pen() {
         let commands = vec![
             PathCommand::MoveTo { x: r(10), y: r(20) },
-            PathCommand::LineTo { x: r(100), y: r(20) },
+            PathCommand::LineTo {
+                x: r(100),
+                y: r(20),
+            },
             PathCommand::Close, // Pen returns to (10, 20)
             PathCommand::QuadTo {
                 x1: r(50),
@@ -487,7 +527,11 @@ mod tests {
         let output = tessellate_stroke_segments(&commands, 4.0);
 
         // QuadTo after Close should start from subpath start
-        assert_eq!(output.vertices[0].p0, [10.0, 20.0], "p0 should be subpath start after Close");
+        assert_eq!(
+            output.vertices[0].p0,
+            [10.0, 20.0],
+            "p0 should be subpath start after Close"
+        );
     }
 
     #[test]

@@ -53,8 +53,12 @@ enum OutputFormat {
 }
 
 fn parse_check(s: &str) -> Result<LintCheck, String> {
-    LintCheck::from_str(s)
-        .ok_or_else(|| format!("Unknown check: {}. Available: float-contamination, global-state, cycle-detection", s))
+    LintCheck::from_str(s).ok_or_else(|| {
+        format!(
+            "Unknown check: {}. Available: float-contamination, global-state, cycle-detection",
+            s
+        )
+    })
 }
 
 fn main() -> ExitCode {
@@ -70,13 +74,20 @@ fn main() -> ExitCode {
     } else if let Some(check) = cli.check {
         vec![check]
     } else {
-        eprintln!("{}: Must specify --all or --check <CHECK>", "error".red().bold());
+        eprintln!(
+            "{}: Must specify --all or --check <CHECK>",
+            "error".red().bold()
+        );
         return ExitCode::FAILURE;
     };
 
     // Verify path exists
     if !cli.path.exists() {
-        eprintln!("{}: Path does not exist: {}", "error".red().bold(), cli.path.display());
+        eprintln!(
+            "{}: Path does not exist: {}",
+            "error".red().bold(),
+            cli.path.display()
+        );
         return ExitCode::FAILURE;
     }
 

@@ -32,32 +32,17 @@
 //! `LOCUS_EVALUATION_REJECTED`: The constraint attempts to evaluate a point
 //! on a circular/arc boundary. Use ControlPoints for constrainable positions.
 
-use syn::{
-    visit::Visit,
-    spanned::Spanned,
-    File, ItemFn, Expr, ExprBinary, ExprMethodCall, ExprCall, BinOp,
-};
 use crate::{LintCheck, LintViolation, Severity};
+use syn::{
+    spanned::Spanned, visit::Visit, BinOp, Expr, ExprBinary, ExprCall, ExprMethodCall, File, ItemFn,
+};
 
 /// Patterns indicating locus (quadratic) operations.
-const QUADRATIC_PATTERNS: &[&str] = &[
-    "pow",
-    "powi",
-    "powf",
-    "sqrt",
-    "hypot",
-];
+const QUADRATIC_PATTERNS: &[&str] = &["pow", "powi", "powf", "sqrt", "hypot"];
 
 /// Trig functions that indicate parametric circle evaluation.
 const TRIG_FUNCTIONS: &[&str] = &[
-    "sin",
-    "cos",
-    "tan",
-    "asin",
-    "acos",
-    "atan",
-    "atan2",
-    "sin_cos",
+    "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sin_cos",
 ];
 
 /// Patterns indicating distance or radius calculations.
@@ -137,9 +122,7 @@ impl LocusProhibitionVisitor {
 
     fn check_constraint_context(&self, fn_name: &str) -> bool {
         let lower = fn_name.to_lowercase();
-        lower.contains("constraint")
-            || lower.contains("solve")
-            || lower.contains("evaluate")
+        lower.contains("constraint") || lower.contains("solve") || lower.contains("evaluate")
     }
 }
 
@@ -161,7 +144,8 @@ impl<'ast> Visit<'ast> for LocusProhibitionVisitor {
         // Detect x * x patterns (squaring)
         if matches!(node.op, BinOp::Mul(_)) {
             // Check if left and right are the same identifier (x * x)
-            if let (Expr::Path(left), Expr::Path(right)) = (node.left.as_ref(), node.right.as_ref()) {
+            if let (Expr::Path(left), Expr::Path(right)) = (node.left.as_ref(), node.right.as_ref())
+            {
                 if left.path.segments.len() == 1 && right.path.segments.len() == 1 {
                     let left_name = left.path.segments[0].ident.to_string();
                     let right_name = right.path.segments[0].ident.to_string();
@@ -367,7 +351,10 @@ mod tests {
             }
         "#;
         let violations = check_code(code);
-        assert!(violations.is_empty(), "Linear radius constraints should be allowed");
+        assert!(
+            violations.is_empty(),
+            "Linear radius constraints should be allowed"
+        );
     }
 
     #[test]
@@ -384,7 +371,10 @@ mod tests {
             }
         "#;
         let violations = check_code(code);
-        assert!(violations.is_empty(), "Arc center constraints should be allowed");
+        assert!(
+            violations.is_empty(),
+            "Arc center constraints should be allowed"
+        );
     }
 
     #[test]

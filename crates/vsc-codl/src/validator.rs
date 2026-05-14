@@ -89,7 +89,8 @@ impl CodlValidator {
         // Add parameters to scope
         for param in &cmd.parameters {
             self.scope.insert(param.name.clone());
-            self.parameters.insert(param.name.clone(), param.param_type.clone());
+            self.parameters
+                .insert(param.name.clone(), param.param_type.clone());
         }
 
         // Validate operations
@@ -309,12 +310,22 @@ impl CodlValidator {
         index_var: &str,
     ) {
         // Validate target expression
-        self.validate_expr_string(&c.target, &format!("{}.target", path), where_guard, index_var);
+        self.validate_expr_string(
+            &c.target,
+            &format!("{}.target", path),
+            where_guard,
+            index_var,
+        );
 
         // Validate term
         match &c.term {
             CodlTerm::Const { value } => {
-                self.validate_expr_string(value, &format!("{}.term.value", path), where_guard, index_var);
+                self.validate_expr_string(
+                    value,
+                    &format!("{}.term.value", path),
+                    where_guard,
+                    index_var,
+                );
             }
             CodlTerm::Ref { entity_id, .. } => {
                 self.validate_expr_string(
@@ -373,22 +384,89 @@ impl CodlValidator {
             match seg {
                 crate::ast::CodlPathSegment::MoveTo { x, y }
                 | crate::ast::CodlPathSegment::LineTo { x, y } => {
-                    self.validate_expr_string(x, &format!("{}.x", seg_path), where_guard, index_var);
-                    self.validate_expr_string(y, &format!("{}.y", seg_path), where_guard, index_var);
+                    self.validate_expr_string(
+                        x,
+                        &format!("{}.x", seg_path),
+                        where_guard,
+                        index_var,
+                    );
+                    self.validate_expr_string(
+                        y,
+                        &format!("{}.y", seg_path),
+                        where_guard,
+                        index_var,
+                    );
                 }
                 crate::ast::CodlPathSegment::QuadTo { cx, cy, x, y } => {
-                    self.validate_expr_string(cx, &format!("{}.cx", seg_path), where_guard, index_var);
-                    self.validate_expr_string(cy, &format!("{}.cy", seg_path), where_guard, index_var);
-                    self.validate_expr_string(x, &format!("{}.x", seg_path), where_guard, index_var);
-                    self.validate_expr_string(y, &format!("{}.y", seg_path), where_guard, index_var);
+                    self.validate_expr_string(
+                        cx,
+                        &format!("{}.cx", seg_path),
+                        where_guard,
+                        index_var,
+                    );
+                    self.validate_expr_string(
+                        cy,
+                        &format!("{}.cy", seg_path),
+                        where_guard,
+                        index_var,
+                    );
+                    self.validate_expr_string(
+                        x,
+                        &format!("{}.x", seg_path),
+                        where_guard,
+                        index_var,
+                    );
+                    self.validate_expr_string(
+                        y,
+                        &format!("{}.y", seg_path),
+                        where_guard,
+                        index_var,
+                    );
                 }
-                crate::ast::CodlPathSegment::CubicTo { c1x, c1y, c2x, c2y, x, y } => {
-                    self.validate_expr_string(c1x, &format!("{}.c1x", seg_path), where_guard, index_var);
-                    self.validate_expr_string(c1y, &format!("{}.c1y", seg_path), where_guard, index_var);
-                    self.validate_expr_string(c2x, &format!("{}.c2x", seg_path), where_guard, index_var);
-                    self.validate_expr_string(c2y, &format!("{}.c2y", seg_path), where_guard, index_var);
-                    self.validate_expr_string(x, &format!("{}.x", seg_path), where_guard, index_var);
-                    self.validate_expr_string(y, &format!("{}.y", seg_path), where_guard, index_var);
+                crate::ast::CodlPathSegment::CubicTo {
+                    c1x,
+                    c1y,
+                    c2x,
+                    c2y,
+                    x,
+                    y,
+                } => {
+                    self.validate_expr_string(
+                        c1x,
+                        &format!("{}.c1x", seg_path),
+                        where_guard,
+                        index_var,
+                    );
+                    self.validate_expr_string(
+                        c1y,
+                        &format!("{}.c1y", seg_path),
+                        where_guard,
+                        index_var,
+                    );
+                    self.validate_expr_string(
+                        c2x,
+                        &format!("{}.c2x", seg_path),
+                        where_guard,
+                        index_var,
+                    );
+                    self.validate_expr_string(
+                        c2y,
+                        &format!("{}.c2y", seg_path),
+                        where_guard,
+                        index_var,
+                    );
+                    self.validate_expr_string(
+                        x,
+                        &format!("{}.x", seg_path),
+                        where_guard,
+                        index_var,
+                    );
+                    self.validate_expr_string(
+                        y,
+                        &format!("{}.y", seg_path),
+                        where_guard,
+                        index_var,
+                    );
                 }
                 crate::ast::CodlPathSegment::Close => {}
             }
@@ -403,7 +481,12 @@ impl CodlValidator {
         index_var: &str,
     ) {
         // Validate target expression
-        self.validate_expr_string(&f.target, &format!("{}.target", path), where_guard, index_var);
+        self.validate_expr_string(
+            &f.target,
+            &format!("{}.target", path),
+            where_guard,
+            index_var,
+        );
 
         // Validate fill type
         match &f.fill {
@@ -414,7 +497,12 @@ impl CodlValidator {
                 self.validate_expr_string(a, &format!("{}.fill.a", path), where_guard, index_var);
             }
             crate::ast::CodlFillType::Gradient { gradient_id } => {
-                self.validate_expr_string(gradient_id, &format!("{}.fill.gradient_id", path), where_guard, index_var);
+                self.validate_expr_string(
+                    gradient_id,
+                    &format!("{}.fill.gradient_id", path),
+                    where_guard,
+                    index_var,
+                );
             }
         }
     }
@@ -427,7 +515,12 @@ impl CodlValidator {
         index_var: &str,
     ) {
         // Validate target expression
-        self.validate_expr_string(&s.target, &format!("{}.target", path), where_guard, index_var);
+        self.validate_expr_string(
+            &s.target,
+            &format!("{}.target", path),
+            where_guard,
+            index_var,
+        );
 
         // Validate stroke properties
         self.validate_expr_string(&s.width, &format!("{}.width", path), where_guard, index_var);
@@ -435,7 +528,12 @@ impl CodlValidator {
         self.validate_expr_string(&s.g, &format!("{}.g", path), where_guard, index_var);
         self.validate_expr_string(&s.b, &format!("{}.b", path), where_guard, index_var);
         self.validate_expr_string(&s.a, &format!("{}.a", path), where_guard, index_var);
-        self.validate_expr_string(&s.miter_limit, &format!("{}.miter_limit", path), where_guard, index_var);
+        self.validate_expr_string(
+            &s.miter_limit,
+            &format!("{}.miter_limit", path),
+            where_guard,
+            index_var,
+        );
     }
 
     fn validate_expr_string(
@@ -481,10 +579,7 @@ impl CodlValidator {
                             self.errors.push(
                                 ValidationErrorBuilder::new(
                                     ValidationErrorCode::PotentialIndexOutOfBounds,
-                                    format!(
-                                        "Array access {}[...] might be out of bounds",
-                                        array
-                                    ),
+                                    format!("Array access {}[...] might be out of bounds", array),
                                 )
                                 .at_operation(self.current_op_index, path)
                                 .with_suggestion(format!(
@@ -1006,12 +1101,12 @@ operations:
         component: y
 "#;
         let result = parse_and_validate(yaml);
+        assert!(!result.is_valid, "Unguarded i-1 access should be rejected");
         assert!(
-            !result.is_valid,
-            "Unguarded i-1 access should be rejected"
-        );
-        assert!(
-            result.errors.iter().any(|e| e.code == ValidationErrorCode::PotentialIndexOutOfBounds),
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ValidationErrorCode::PotentialIndexOutOfBounds),
             "Should produce PotentialIndexOutOfBounds error"
         );
     }
@@ -1075,7 +1170,10 @@ operations:
             "Foreach over non-array should be rejected"
         );
         assert!(
-            result.errors.iter().any(|e| e.code == ValidationErrorCode::TypeMismatch),
+            result
+                .errors
+                .iter()
+                .any(|e| e.code == ValidationErrorCode::TypeMismatch),
             "Should produce TypeMismatch error"
         );
     }

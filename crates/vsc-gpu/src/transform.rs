@@ -266,8 +266,18 @@ mod tests {
         assert!((lhs.b - rhs.b).abs() < tol, "b: {} vs {}", lhs.b, rhs.b);
         assert!((lhs.c - rhs.c).abs() < tol, "c: {} vs {}", lhs.c, rhs.c);
         assert!((lhs.d - rhs.d).abs() < tol, "d: {} vs {}", lhs.d, rhs.d);
-        assert!((lhs.tx - rhs.tx).abs() < tol, "tx: {} vs {}", lhs.tx, rhs.tx);
-        assert!((lhs.ty - rhs.ty).abs() < tol, "ty: {} vs {}", lhs.ty, rhs.ty);
+        assert!(
+            (lhs.tx - rhs.tx).abs() < tol,
+            "tx: {} vs {}",
+            lhs.tx,
+            rhs.tx
+        );
+        assert!(
+            (lhs.ty - rhs.ty).abs() < tol,
+            "ty: {} vs {}",
+            lhs.ty,
+            rhs.ty
+        );
     }
 
     /// Task 2: push(identity) followed by pop() leaves the stack state unchanged.

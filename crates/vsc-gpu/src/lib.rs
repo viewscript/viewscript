@@ -55,15 +55,17 @@ pub mod web_target;
 
 // Re-export core types
 pub use batcher::{DrawBatch, DrawBatcher, GpuBatchResources, PipelineKey, UniformData};
-pub use loop_blinn::{compute_curve_sign, tessellate_quadratic_beziers, LoopBlinnOutput, LoopBlinnVertex};
-pub use sdf_stroke::{tessellate_stroke_segments, SdfStrokeOutput, SdfStrokeVertex};
+pub use loop_blinn::{
+    compute_curve_sign, tessellate_quadratic_beziers, LoopBlinnOutput, LoopBlinnVertex,
+};
 pub use opacity::OpacityStack;
 pub use pipeline::{PipelineManager, PipelineSet};
 pub use renderer::GpuRenderer;
 pub use scene_converter::SceneConverter;
+pub use sdf_stroke::{tessellate_stroke_segments, SdfStrokeOutput, SdfStrokeVertex};
 pub use stencil::StencilStack;
-pub use web_target::WebTarget;
 pub use tessellation::{BoundingBox, GpuVertex, TessellationError, TessellationOutput};
+pub use web_target::WebTarget;
 
 // Re-export rasterizer types for topology-preserving rounding
 pub use rasterizer::{

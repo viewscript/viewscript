@@ -145,7 +145,10 @@ pub fn build_jacobian_matrix(constraints: &[Constraint]) -> JacobianMatrix {
         var_set.insert(JacVar::new(c.target, c.component));
 
         match &c.term {
-            ConstraintTerm::Ref { entity_id, component } => {
+            ConstraintTerm::Ref {
+                entity_id,
+                component,
+            } => {
                 var_set.insert(JacVar::new(*entity_id, *component));
             }
             ConstraintTerm::Linear {
@@ -162,11 +165,8 @@ pub fn build_jacobian_matrix(constraints: &[Constraint]) -> JacobianMatrix {
     }
 
     let variables: Vec<JacVar> = var_set.into_iter().collect();
-    let var_index: HashMap<JacVar, usize> = variables
-        .iter()
-        .enumerate()
-        .map(|(i, v)| (*v, i))
-        .collect();
+    let var_index: HashMap<JacVar, usize> =
+        variables.iter().enumerate().map(|(i, v)| (*v, i)).collect();
 
     let rows = constraints.len();
     let cols = variables.len();
@@ -187,7 +187,10 @@ pub fn build_jacobian_matrix(constraints: &[Constraint]) -> JacobianMatrix {
             ConstraintTerm::Const { .. } => {
                 // f = target − const  →  ∂f/∂(ref) = 0 (no ref variable)
             }
-            ConstraintTerm::Ref { entity_id, component } => {
+            ConstraintTerm::Ref {
+                entity_id,
+                component,
+            } => {
                 // f = target − ref  →  ∂f/∂(ref) = −1
                 let ref_col = var_index[&JacVar::new(*entity_id, *component)];
                 accumulate(&mut data[row][ref_col], Rational::from_int(-1));

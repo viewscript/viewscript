@@ -158,11 +158,21 @@ pub struct ResolutionStrategyWeights {
     pub max_relative_error: Rational,
 }
 
-fn default_deletion_weight() -> Rational { Rational::from_int(1000) }
-fn default_relation_weight() -> Rational { Rational::from_int(100) }
-fn default_modification_weight() -> Rational { Rational::from_int(10) }
-fn default_relative_error_weight() -> Rational { Rational::one() }
-fn default_max_relative_error() -> Rational { Rational::one() }
+fn default_deletion_weight() -> Rational {
+    Rational::from_int(1000)
+}
+fn default_relation_weight() -> Rational {
+    Rational::from_int(100)
+}
+fn default_modification_weight() -> Rational {
+    Rational::from_int(10)
+}
+fn default_relative_error_weight() -> Rational {
+    Rational::one()
+}
+fn default_max_relative_error() -> Rational {
+    Rational::one()
+}
 
 impl Default for ResolutionStrategyWeights {
     fn default() -> Self {
@@ -181,8 +191,10 @@ impl MathematicalDistance {
     /// Uses exact rational arithmetic.
     pub fn compute_composite(&self, weights: &ResolutionStrategyWeights) -> Rational {
         let del_score = Rational::from_int(self.deletions as i64) * weights.deletion.clone();
-        let rel_score = Rational::from_int(self.relation_changes as i64) * weights.relation_change.clone();
-        let mod_score = Rational::from_int(self.constant_modifications as i64) * weights.constant_modification.clone();
+        let rel_score =
+            Rational::from_int(self.relation_changes as i64) * weights.relation_change.clone();
+        let mod_score = Rational::from_int(self.constant_modifications as i64)
+            * weights.constant_modification.clone();
 
         // Clamp relative error to max
         let clamped_error = if self.relative_error < weights.max_relative_error {
@@ -232,9 +244,7 @@ pub enum RepairAction {
     RejectIncoming,
 
     /// Delete one or more existing constraints.
-    DeleteExisting {
-        constraint_ids: Vec<u64>,
-    },
+    DeleteExisting { constraint_ids: Vec<u64> },
 
     /// Modify constants in existing constraints.
     ModifyConstants,

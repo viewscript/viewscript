@@ -111,7 +111,10 @@ pub enum ComponentValue {
     /// Reference to a parameter.
     Param { name: String },
     /// Reference to another control point's component.
-    Ref { local_id: u64, component: VectorComponent },
+    Ref {
+        local_id: u64,
+        component: VectorComponent,
+    },
 }
 
 /// A term in a component constraint (may reference local IDs).
@@ -121,7 +124,10 @@ pub enum ComponentTerm {
     /// Constant value.
     Const { value: Rational },
     /// Reference to local entity.
-    Ref { local_id: u64, component: VectorComponent },
+    Ref {
+        local_id: u64,
+        component: VectorComponent,
+    },
     /// Linear combination with local entity reference.
     Linear {
         coefficient: Rational,
@@ -332,13 +338,26 @@ impl NamespaceResolver {
                 handle: id_mapping.get(&handle.0).copied().unwrap_or(*handle),
                 to: id_mapping.get(&to.0).copied().unwrap_or(*to),
             },
-            PathSegment::Cubic { from, handle1, handle2, to } => PathSegment::Cubic {
+            PathSegment::Cubic {
+                from,
+                handle1,
+                handle2,
+                to,
+            } => PathSegment::Cubic {
                 from: id_mapping.get(&from.0).copied().unwrap_or(*from),
                 handle1: id_mapping.get(&handle1.0).copied().unwrap_or(*handle1),
                 handle2: id_mapping.get(&handle2.0).copied().unwrap_or(*handle2),
                 to: id_mapping.get(&to.0).copied().unwrap_or(*to),
             },
-            PathSegment::Arc { from, to, rx, ry, rotation, large_arc, sweep } => PathSegment::Arc {
+            PathSegment::Arc {
+                from,
+                to,
+                rx,
+                ry,
+                rotation,
+                large_arc,
+                sweep,
+            } => PathSegment::Arc {
                 from: id_mapping.get(&from.0).copied().unwrap_or(*from),
                 to: id_mapping.get(&to.0).copied().unwrap_or(*to),
                 rx: rx.clone(),
@@ -359,10 +378,9 @@ impl NamespaceResolver {
     ) -> Rational {
         match value {
             ComponentValue::Const { value } => value.clone(),
-            ComponentValue::Param { name } => params
-                .get(name)
-                .cloned()
-                .unwrap_or_else(Rational::zero),
+            ComponentValue::Param { name } => {
+                params.get(name).cloned().unwrap_or_else(Rational::zero)
+            }
             ComponentValue::Ref { .. } => {
                 // For initial values, references are resolved later via constraints
                 Rational::zero()
@@ -381,7 +399,10 @@ impl NamespaceResolver {
             ComponentTerm::Const { value } => ConstraintTerm::Const {
                 value: value.clone(),
             },
-            ComponentTerm::Ref { local_id, component } => ConstraintTerm::Ref {
+            ComponentTerm::Ref {
+                local_id,
+                component,
+            } => ConstraintTerm::Ref {
                 entity_id: id_mapping[local_id],
                 component: *component,
             },
@@ -397,17 +418,18 @@ impl NamespaceResolver {
                 offset: offset.clone(),
             },
             ComponentTerm::Param { name } => ConstraintTerm::Const {
-                value: params
-                    .get(name)
-                    .cloned()
-                    .unwrap_or_else(Rational::zero),
+                value: params.get(name).cloned().unwrap_or_else(Rational::zero),
             },
         }
     }
 
     /// Get the current state for serialization.
     pub fn state(&self) -> (u64, u64, u64) {
-        (self.next_instance_id, self.next_entity_id, self.next_constraint_id)
+        (
+            self.next_instance_id,
+            self.next_entity_id,
+            self.next_constraint_id,
+        )
     }
 
     /// Restore state from serialized values.
@@ -463,57 +485,89 @@ pub fn std_rounded_rect() -> ComponentDefinition {
                 local_id: 1,
                 name: "tl_top".to_string(),
                 role: ControlPointRole::Anchor,
-                initial_x: ComponentValue::Param { name: "x".to_string() },
-                initial_y: ComponentValue::Param { name: "y".to_string() },
+                initial_x: ComponentValue::Param {
+                    name: "x".to_string(),
+                },
+                initial_y: ComponentValue::Param {
+                    name: "y".to_string(),
+                },
             },
             ComponentControlPoint {
                 local_id: 2,
                 name: "tl_left".to_string(),
                 role: ControlPointRole::Anchor,
-                initial_x: ComponentValue::Param { name: "x".to_string() },
-                initial_y: ComponentValue::Param { name: "y".to_string() },
+                initial_x: ComponentValue::Param {
+                    name: "x".to_string(),
+                },
+                initial_y: ComponentValue::Param {
+                    name: "y".to_string(),
+                },
             },
             ComponentControlPoint {
                 local_id: 3,
                 name: "tr_top".to_string(),
                 role: ControlPointRole::Anchor,
-                initial_x: ComponentValue::Param { name: "x".to_string() },
-                initial_y: ComponentValue::Param { name: "y".to_string() },
+                initial_x: ComponentValue::Param {
+                    name: "x".to_string(),
+                },
+                initial_y: ComponentValue::Param {
+                    name: "y".to_string(),
+                },
             },
             ComponentControlPoint {
                 local_id: 4,
                 name: "tr_right".to_string(),
                 role: ControlPointRole::Anchor,
-                initial_x: ComponentValue::Param { name: "x".to_string() },
-                initial_y: ComponentValue::Param { name: "y".to_string() },
+                initial_x: ComponentValue::Param {
+                    name: "x".to_string(),
+                },
+                initial_y: ComponentValue::Param {
+                    name: "y".to_string(),
+                },
             },
             ComponentControlPoint {
                 local_id: 5,
                 name: "br_right".to_string(),
                 role: ControlPointRole::Anchor,
-                initial_x: ComponentValue::Param { name: "x".to_string() },
-                initial_y: ComponentValue::Param { name: "y".to_string() },
+                initial_x: ComponentValue::Param {
+                    name: "x".to_string(),
+                },
+                initial_y: ComponentValue::Param {
+                    name: "y".to_string(),
+                },
             },
             ComponentControlPoint {
                 local_id: 6,
                 name: "br_bottom".to_string(),
                 role: ControlPointRole::Anchor,
-                initial_x: ComponentValue::Param { name: "x".to_string() },
-                initial_y: ComponentValue::Param { name: "y".to_string() },
+                initial_x: ComponentValue::Param {
+                    name: "x".to_string(),
+                },
+                initial_y: ComponentValue::Param {
+                    name: "y".to_string(),
+                },
             },
             ComponentControlPoint {
                 local_id: 7,
                 name: "bl_bottom".to_string(),
                 role: ControlPointRole::Anchor,
-                initial_x: ComponentValue::Param { name: "x".to_string() },
-                initial_y: ComponentValue::Param { name: "y".to_string() },
+                initial_x: ComponentValue::Param {
+                    name: "x".to_string(),
+                },
+                initial_y: ComponentValue::Param {
+                    name: "y".to_string(),
+                },
             },
             ComponentControlPoint {
                 local_id: 8,
                 name: "bl_left".to_string(),
                 role: ControlPointRole::Anchor,
-                initial_x: ComponentValue::Param { name: "x".to_string() },
-                initial_y: ComponentValue::Param { name: "y".to_string() },
+                initial_x: ComponentValue::Param {
+                    name: "x".to_string(),
+                },
+                initial_y: ComponentValue::Param {
+                    name: "y".to_string(),
+                },
             },
             // Scalar radius entities (local_ids 9-12).
             // The X component stores the radius value; Y is unused (zero).
@@ -522,29 +576,45 @@ pub fn std_rounded_rect() -> ComponentDefinition {
                 local_id: 9,
                 name: "radius_tl".to_string(),
                 role: ControlPointRole::Handle,
-                initial_x: ComponentValue::Param { name: "radius_tl".to_string() },
-                initial_y: ComponentValue::Const { value: Rational::zero() },
+                initial_x: ComponentValue::Param {
+                    name: "radius_tl".to_string(),
+                },
+                initial_y: ComponentValue::Const {
+                    value: Rational::zero(),
+                },
             },
             ComponentControlPoint {
                 local_id: 10,
                 name: "radius_tr".to_string(),
                 role: ControlPointRole::Handle,
-                initial_x: ComponentValue::Param { name: "radius_tr".to_string() },
-                initial_y: ComponentValue::Const { value: Rational::zero() },
+                initial_x: ComponentValue::Param {
+                    name: "radius_tr".to_string(),
+                },
+                initial_y: ComponentValue::Const {
+                    value: Rational::zero(),
+                },
             },
             ComponentControlPoint {
                 local_id: 11,
                 name: "radius_bl".to_string(),
                 role: ControlPointRole::Handle,
-                initial_x: ComponentValue::Param { name: "radius_bl".to_string() },
-                initial_y: ComponentValue::Const { value: Rational::zero() },
+                initial_x: ComponentValue::Param {
+                    name: "radius_bl".to_string(),
+                },
+                initial_y: ComponentValue::Const {
+                    value: Rational::zero(),
+                },
             },
             ComponentControlPoint {
                 local_id: 12,
                 name: "radius_br".to_string(),
                 role: ControlPointRole::Handle,
-                initial_x: ComponentValue::Param { name: "radius_br".to_string() },
-                initial_y: ComponentValue::Const { value: Rational::zero() },
+                initial_x: ComponentValue::Param {
+                    name: "radius_br".to_string(),
+                },
+                initial_y: ComponentValue::Const {
+                    value: Rational::zero(),
+                },
             },
         ],
         constraints: vec![
@@ -598,7 +668,9 @@ pub fn std_rounded_rect() -> ComponentDefinition {
                 target_local_id: 9, // radius_tl
                 component: VectorComponent::X,
                 relation: RelationType::Ge,
-                term: ComponentTerm::Const { value: Rational::zero() },
+                term: ComponentTerm::Const {
+                    value: Rational::zero(),
+                },
                 priority: ConstraintPriority::Hard,
                 description: Some("std_rounded_rect:radius_validation: radius_tl >= 0".to_string()),
             },
@@ -608,7 +680,9 @@ pub fn std_rounded_rect() -> ComponentDefinition {
                 target_local_id: 10, // radius_tr
                 component: VectorComponent::X,
                 relation: RelationType::Ge,
-                term: ComponentTerm::Const { value: Rational::zero() },
+                term: ComponentTerm::Const {
+                    value: Rational::zero(),
+                },
                 priority: ConstraintPriority::Hard,
                 description: Some("std_rounded_rect:radius_validation: radius_tr >= 0".to_string()),
             },
@@ -618,7 +692,9 @@ pub fn std_rounded_rect() -> ComponentDefinition {
                 target_local_id: 11, // radius_bl
                 component: VectorComponent::X,
                 relation: RelationType::Ge,
-                term: ComponentTerm::Const { value: Rational::zero() },
+                term: ComponentTerm::Const {
+                    value: Rational::zero(),
+                },
                 priority: ConstraintPriority::Hard,
                 description: Some("std_rounded_rect:radius_validation: radius_bl >= 0".to_string()),
             },
@@ -628,7 +704,9 @@ pub fn std_rounded_rect() -> ComponentDefinition {
                 target_local_id: 12, // radius_br
                 component: VectorComponent::X,
                 relation: RelationType::Ge,
-                term: ComponentTerm::Const { value: Rational::zero() },
+                term: ComponentTerm::Const {
+                    value: Rational::zero(),
+                },
                 priority: ConstraintPriority::Hard,
                 description: Some("std_rounded_rect:radius_validation: radius_br >= 0".to_string()),
             },
@@ -678,7 +756,9 @@ pub fn std_rounded_rect() -> ComponentDefinition {
                 name: "corner_radius".to_string(),
                 default: Rational::from_int(10),
                 allow_negative: false,
-                description: Some("Default corner radius (can be overridden per-corner)".to_string()),
+                description: Some(
+                    "Default corner radius (can be overridden per-corner)".to_string(),
+                ),
             },
             ComponentParameter {
                 name: "radius_tl".to_string(),
@@ -696,13 +776,17 @@ pub fn std_rounded_rect() -> ComponentDefinition {
                 name: "radius_bl".to_string(),
                 default: Rational::from_int(10),
                 allow_negative: false,
-                description: Some("Bottom-left corner radius (overrides corner_radius)".to_string()),
+                description: Some(
+                    "Bottom-left corner radius (overrides corner_radius)".to_string(),
+                ),
             },
             ComponentParameter {
                 name: "radius_br".to_string(),
                 default: Rational::from_int(10),
                 allow_negative: false,
-                description: Some("Bottom-right corner radius (overrides corner_radius)".to_string()),
+                description: Some(
+                    "Bottom-right corner radius (overrides corner_radius)".to_string(),
+                ),
             },
         ],
         // Path topology (Phase D-01)
@@ -721,77 +805,75 @@ pub fn std_rounded_rect() -> ComponentDefinition {
         //   bl_bottom -> bl_left (arc, bottom-left corner)
         //   bl_left -> tl_left (line, left edge)
         //   tl_left -> tl_top (arc, top-left corner)
-        path_entities: vec![
-            PathEntityEntry {
-                id: EntityId(100), // Placeholder; remapped during instantiation
-                segments: vec![
-                    // Top edge: tl_top -> tr_top
-                    PathSegment::Line {
-                        from: EntityId(1), // tl_top
-                        to: EntityId(3),   // tr_top
-                    },
-                    // Top-right corner arc: tr_top -> tr_right
-                    PathSegment::Arc {
-                        from: EntityId(3), // tr_top
-                        to: EntityId(4),   // tr_right
-                        rx: Rational::from_int(10), // Default corner_radius
-                        ry: Rational::from_int(10),
-                        rotation: 0.0,
-                        large_arc: false,
-                        sweep: true, // Clockwise
-                    },
-                    // Right edge: tr_right -> br_right
-                    PathSegment::Line {
-                        from: EntityId(4), // tr_right
-                        to: EntityId(5),   // br_right
-                    },
-                    // Bottom-right corner arc: br_right -> br_bottom
-                    PathSegment::Arc {
-                        from: EntityId(5), // br_right
-                        to: EntityId(6),   // br_bottom
-                        rx: Rational::from_int(10),
-                        ry: Rational::from_int(10),
-                        rotation: 0.0,
-                        large_arc: false,
-                        sweep: true,
-                    },
-                    // Bottom edge: br_bottom -> bl_bottom
-                    PathSegment::Line {
-                        from: EntityId(6), // br_bottom
-                        to: EntityId(7),   // bl_bottom
-                    },
-                    // Bottom-left corner arc: bl_bottom -> bl_left
-                    PathSegment::Arc {
-                        from: EntityId(7), // bl_bottom
-                        to: EntityId(8),   // bl_left
-                        rx: Rational::from_int(10),
-                        ry: Rational::from_int(10),
-                        rotation: 0.0,
-                        large_arc: false,
-                        sweep: true,
-                    },
-                    // Left edge: bl_left -> tl_left
-                    PathSegment::Line {
-                        from: EntityId(8), // bl_left
-                        to: EntityId(2),   // tl_left
-                    },
-                    // Top-left corner arc: tl_left -> tl_top
-                    PathSegment::Arc {
-                        from: EntityId(2), // tl_left
-                        to: EntityId(1),   // tl_top
-                        rx: Rational::from_int(10),
-                        ry: Rational::from_int(10),
-                        rotation: 0.0,
-                        large_arc: false,
-                        sweep: true,
-                    },
-                ],
-                closed: true,
-                fill_rule: FillRule::NonZero,
-                fill: None,   // Style injected at instantiation
-                stroke: None, // Style injected at instantiation
-            },
-        ],
+        path_entities: vec![PathEntityEntry {
+            id: EntityId(100), // Placeholder; remapped during instantiation
+            segments: vec![
+                // Top edge: tl_top -> tr_top
+                PathSegment::Line {
+                    from: EntityId(1), // tl_top
+                    to: EntityId(3),   // tr_top
+                },
+                // Top-right corner arc: tr_top -> tr_right
+                PathSegment::Arc {
+                    from: EntityId(3),          // tr_top
+                    to: EntityId(4),            // tr_right
+                    rx: Rational::from_int(10), // Default corner_radius
+                    ry: Rational::from_int(10),
+                    rotation: 0.0,
+                    large_arc: false,
+                    sweep: true, // Clockwise
+                },
+                // Right edge: tr_right -> br_right
+                PathSegment::Line {
+                    from: EntityId(4), // tr_right
+                    to: EntityId(5),   // br_right
+                },
+                // Bottom-right corner arc: br_right -> br_bottom
+                PathSegment::Arc {
+                    from: EntityId(5), // br_right
+                    to: EntityId(6),   // br_bottom
+                    rx: Rational::from_int(10),
+                    ry: Rational::from_int(10),
+                    rotation: 0.0,
+                    large_arc: false,
+                    sweep: true,
+                },
+                // Bottom edge: br_bottom -> bl_bottom
+                PathSegment::Line {
+                    from: EntityId(6), // br_bottom
+                    to: EntityId(7),   // bl_bottom
+                },
+                // Bottom-left corner arc: bl_bottom -> bl_left
+                PathSegment::Arc {
+                    from: EntityId(7), // bl_bottom
+                    to: EntityId(8),   // bl_left
+                    rx: Rational::from_int(10),
+                    ry: Rational::from_int(10),
+                    rotation: 0.0,
+                    large_arc: false,
+                    sweep: true,
+                },
+                // Left edge: bl_left -> tl_left
+                PathSegment::Line {
+                    from: EntityId(8), // bl_left
+                    to: EntityId(2),   // tl_left
+                },
+                // Top-left corner arc: tl_left -> tl_top
+                PathSegment::Arc {
+                    from: EntityId(2), // tl_left
+                    to: EntityId(1),   // tl_top
+                    rx: Rational::from_int(10),
+                    ry: Rational::from_int(10),
+                    rotation: 0.0,
+                    large_arc: false,
+                    sweep: true,
+                },
+            ],
+            closed: true,
+            fill_rule: FillRule::NonZero,
+            fill: None,   // Style injected at instantiation
+            stroke: None, // Style injected at instantiation
+        }],
     }
 }
 
@@ -807,29 +889,45 @@ pub fn std_text() -> ComponentDefinition {
                 local_id: 1,
                 name: "TL".to_string(),
                 role: ControlPointRole::Anchor,
-                initial_x: ComponentValue::Param { name: "x".to_string() },
-                initial_y: ComponentValue::Param { name: "y".to_string() },
+                initial_x: ComponentValue::Param {
+                    name: "x".to_string(),
+                },
+                initial_y: ComponentValue::Param {
+                    name: "y".to_string(),
+                },
             },
             ComponentControlPoint {
                 local_id: 2,
                 name: "TR".to_string(),
                 role: ControlPointRole::Anchor,
-                initial_x: ComponentValue::Param { name: "x".to_string() },
-                initial_y: ComponentValue::Param { name: "y".to_string() },
+                initial_x: ComponentValue::Param {
+                    name: "x".to_string(),
+                },
+                initial_y: ComponentValue::Param {
+                    name: "y".to_string(),
+                },
             },
             ComponentControlPoint {
                 local_id: 3,
                 name: "BL".to_string(),
                 role: ControlPointRole::Anchor,
-                initial_x: ComponentValue::Param { name: "x".to_string() },
-                initial_y: ComponentValue::Param { name: "y".to_string() },
+                initial_x: ComponentValue::Param {
+                    name: "x".to_string(),
+                },
+                initial_y: ComponentValue::Param {
+                    name: "y".to_string(),
+                },
             },
             ComponentControlPoint {
                 local_id: 4,
                 name: "BR".to_string(),
                 role: ControlPointRole::Anchor,
-                initial_x: ComponentValue::Param { name: "x".to_string() },
-                initial_y: ComponentValue::Param { name: "y".to_string() },
+                initial_x: ComponentValue::Param {
+                    name: "x".to_string(),
+                },
+                initial_y: ComponentValue::Param {
+                    name: "y".to_string(),
+                },
             },
         ],
         // Note: Width/height constraints are added dynamically via update-metrics
@@ -993,7 +1091,10 @@ mod tests {
             .filter(|c| c.priority == ConstraintPriority::Soft)
             .count();
 
-        assert!(soft_count > 0, "RoundedRect should have Soft constraints for override");
+        assert!(
+            soft_count > 0,
+            "RoundedRect should have Soft constraints for override"
+        );
     }
 
     // =========================================================================
@@ -1013,8 +1114,16 @@ mod tests {
         assert_eq!(path.segments.len(), 8);
 
         // Count segment types
-        let line_count = path.segments.iter().filter(|s| matches!(s, PathSegment::Line { .. })).count();
-        let arc_count = path.segments.iter().filter(|s| matches!(s, PathSegment::Arc { .. })).count();
+        let line_count = path
+            .segments
+            .iter()
+            .filter(|s| matches!(s, PathSegment::Line { .. }))
+            .count();
+        let arc_count = path
+            .segments
+            .iter()
+            .filter(|s| matches!(s, PathSegment::Arc { .. }))
+            .count();
 
         assert_eq!(line_count, 4, "Should have 4 Line segments");
         assert_eq!(arc_count, 4, "Should have 4 Arc segments");
@@ -1034,13 +1143,13 @@ mod tests {
 
         // Verify segment order: Line, Arc, Line, Arc, Line, Arc, Line, Arc
         assert!(matches!(path.segments[0], PathSegment::Line { .. })); // Top edge
-        assert!(matches!(path.segments[1], PathSegment::Arc { .. }));  // Top-right corner
+        assert!(matches!(path.segments[1], PathSegment::Arc { .. })); // Top-right corner
         assert!(matches!(path.segments[2], PathSegment::Line { .. })); // Right edge
-        assert!(matches!(path.segments[3], PathSegment::Arc { .. }));  // Bottom-right corner
+        assert!(matches!(path.segments[3], PathSegment::Arc { .. })); // Bottom-right corner
         assert!(matches!(path.segments[4], PathSegment::Line { .. })); // Bottom edge
-        assert!(matches!(path.segments[5], PathSegment::Arc { .. }));  // Bottom-left corner
+        assert!(matches!(path.segments[5], PathSegment::Arc { .. })); // Bottom-left corner
         assert!(matches!(path.segments[6], PathSegment::Line { .. })); // Left edge
-        assert!(matches!(path.segments[7], PathSegment::Arc { .. }));  // Top-left corner
+        assert!(matches!(path.segments[7], PathSegment::Arc { .. })); // Top-left corner
     }
 
     #[test]
@@ -1049,14 +1158,16 @@ mod tests {
         let path = &rr_def.path_entities[0];
 
         // Extract "to" from each segment to verify connectivity
-        let endpoints: Vec<EntityId> = path.segments.iter().map(|seg| {
-            match seg {
+        let endpoints: Vec<EntityId> = path
+            .segments
+            .iter()
+            .map(|seg| match seg {
                 PathSegment::Line { to, .. } => *to,
                 PathSegment::Arc { to, .. } => *to,
                 PathSegment::Quad { to, .. } => *to,
                 PathSegment::Cubic { to, .. } => *to,
-            }
-        }).collect();
+            })
+            .collect();
 
         // Each segment's "to" should be the next segment's "from"
         for i in 0..path.segments.len() - 1 {
@@ -1066,9 +1177,15 @@ mod tests {
                 PathSegment::Quad { from, .. } => *from,
                 PathSegment::Cubic { from, .. } => *from,
             };
-            assert_eq!(endpoints[i], next_from,
+            assert_eq!(
+                endpoints[i],
+                next_from,
                 "Segment {} 'to' ({:?}) should equal segment {} 'from' ({:?})",
-                i, endpoints[i], i + 1, next_from);
+                i,
+                endpoints[i],
+                i + 1,
+                next_from
+            );
         }
 
         // For closed path, last segment's "to" should be first segment's "from"
@@ -1079,9 +1196,11 @@ mod tests {
             PathSegment::Cubic { from, .. } => *from,
         };
         let last_to = endpoints.last().unwrap();
-        assert_eq!(*last_to, first_from,
+        assert_eq!(
+            *last_to, first_from,
             "Last segment 'to' ({:?}) should equal first segment 'from' ({:?}) for closed path",
-            last_to, first_from);
+            last_to, first_from
+        );
     }
 
     #[test]
@@ -1113,15 +1232,23 @@ mod tests {
                 PathSegment::Line { from, to } => vec![*from, *to],
                 PathSegment::Arc { from, to, .. } => vec![*from, *to],
                 PathSegment::Quad { from, handle, to } => vec![*from, *handle, *to],
-                PathSegment::Cubic { from, handle1, handle2, to } => {
+                PathSegment::Cubic {
+                    from,
+                    handle1,
+                    handle2,
+                    to,
+                } => {
                     vec![*from, *handle1, *handle2, *to]
                 }
             };
 
             for id in ids {
                 // Global IDs should be >= 10000 (NamespaceResolver's starting offset)
-                assert!(id.0 >= 10000,
-                    "EntityId {:?} should be remapped to global ID (>= 10000)", id);
+                assert!(
+                    id.0 >= 10000,
+                    "EntityId {:?} should be remapped to global ID (>= 10000)",
+                    id
+                );
             }
         }
     }
@@ -1135,7 +1262,8 @@ mod tests {
         let rr_def = std_rounded_rect();
 
         // Collect all Ge constraints targeting radius entities (local_ids 9-12)
-        let radius_local_ids: std::collections::HashSet<u64> = [9, 10, 11, 12].iter().cloned().collect();
+        let radius_local_ids: std::collections::HashSet<u64> =
+            [9, 10, 11, 12].iter().cloned().collect();
         let ge_constraints: Vec<&ComponentConstraint> = rr_def
             .constraints
             .iter()
@@ -1177,15 +1305,17 @@ mod tests {
         let rr_def = std_rounded_rect();
 
         // Verify each corner has a dedicated Ge constraint
-        for (local_id, name) in &[(9u64, "radius_tl"), (10u64, "radius_tr"), (11u64, "radius_bl"), (12u64, "radius_br")] {
-            let found = rr_def
-                .constraints
-                .iter()
-                .any(|c| {
-                    c.target_local_id == *local_id
-                        && c.relation == RelationType::Ge
-                        && c.priority == ConstraintPriority::Hard
-                });
+        for (local_id, name) in &[
+            (9u64, "radius_tl"),
+            (10u64, "radius_tr"),
+            (11u64, "radius_bl"),
+            (12u64, "radius_br"),
+        ] {
+            let found = rr_def.constraints.iter().any(|c| {
+                c.target_local_id == *local_id
+                    && c.relation == RelationType::Ge
+                    && c.priority == ConstraintPriority::Hard
+            });
             assert!(
                 found,
                 "Missing Hard Ge(>= 0) constraint for corner '{}' (local_id {})",
@@ -1238,11 +1368,7 @@ mod tests {
         // The constraint term must be Const { value: 0 }
         match &ge_constraint.term {
             ConstraintTerm::Const { value } => {
-                assert_eq!(
-                    *value,
-                    Rational::zero(),
-                    "Ge constraint bound must be zero"
-                );
+                assert_eq!(*value, Rational::zero(), "Ge constraint bound must be zero");
             }
             other => panic!("Expected Const term, got {:?}", other),
         }

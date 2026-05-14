@@ -76,7 +76,6 @@ struct RationalCoord {
     value: Rational,
 }
 
-
 /// Result of the rounding algorithm.
 #[derive(Debug, Clone)]
 pub struct RoundingResult {
@@ -165,8 +164,7 @@ pub fn round_with_topology_preservation(
     stats.conflicts_resolved = conflicts_resolved;
 
     // Phase 4: Build final bounds
-    let bounds =
-        build_final_bounds(entities, &adjusted, &coord_to_class, device_pixel_ratio);
+    let bounds = build_final_bounds(entities, &adjusted, &coord_to_class, device_pixel_ratio);
 
     // Phase 5: Verify topology
     let violations = verify_topology(&bounds, constraints);
@@ -616,7 +614,12 @@ mod tests {
             a_right,
             b.x
         );
-        assert!((b.x - c.x).abs() < 1e-9, "B.left != C.left: {} vs {}", b.x, c.x);
+        assert!(
+            (b.x - c.x).abs() < 1e-9,
+            "B.left != C.left: {} vs {}",
+            b.x,
+            c.x
+        );
     }
 
     /// Task 1: Non-integer DPR 1.5 – rounding must not produce NaN/inf and

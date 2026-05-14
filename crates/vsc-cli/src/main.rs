@@ -397,9 +397,10 @@ fn main() -> ExitCode {
         Commands::ApiSearch { query, limit } => commands::api_search(&query, limit),
         Commands::CheckWhere { entity_id } => commands::check_where(entity_id),
         Commands::CheckWhen { constraint_id } => commands::check_when(constraint_id),
-        Commands::AddObject { object_type, position } => {
-            commands::add_object(&object_type, position.as_deref())
-        }
+        Commands::AddObject {
+            object_type,
+            position,
+        } => commands::add_object(&object_type, position.as_deref()),
         Commands::AddConstraint {
             target,
             component,
@@ -416,7 +417,9 @@ fn main() -> ExitCode {
             relation,
             value,
             intent,
-        } => commands::patch_constraint(entity_id, &component, &relation, &value, intent.as_deref()),
+        } => {
+            commands::patch_constraint(entity_id, &component, &relation, &value, intent.as_deref())
+        }
         Commands::AddLayout {
             layout_type,
             instances,

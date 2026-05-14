@@ -56,11 +56,16 @@ fn search_by_entity_id_after_add_component() {
     let add_output = vsc_in(dir)
         .args([
             "add-component",
-            "-t", "RoundedRect",
-            "-x", "100",
-            "-y", "200",
-            "-w", "300",
-            "--height", "150",
+            "-t",
+            "RoundedRect",
+            "-x",
+            "100",
+            "-y",
+            "200",
+            "-w",
+            "300",
+            "--height",
+            "150",
         ])
         .assert()
         .success()
@@ -87,9 +92,9 @@ fn search_by_entity_id_after_add_component() {
 
     // Verify results contain the target entity
     let results = search_json["results"].as_array().unwrap();
-    let has_target = results.iter().any(|r| {
-        r["target"].as_u64() == Some(entity_id) || r["id"].as_u64() == Some(entity_id)
-    });
+    let has_target = results
+        .iter()
+        .any(|r| r["target"].as_u64() == Some(entity_id) || r["id"].as_u64() == Some(entity_id));
     assert!(has_target, "Results should contain the target entity");
 }
 
@@ -109,11 +114,16 @@ fn search_by_type_constraint_only() {
     vsc_in(dir)
         .args([
             "add-component",
-            "-t", "rect",
-            "-x", "0",
-            "-y", "0",
-            "-w", "100",
-            "--height", "100",
+            "-t",
+            "rect",
+            "-x",
+            "0",
+            "-y",
+            "0",
+            "-w",
+            "100",
+            "--height",
+            "100",
         ])
         .assert()
         .success();
@@ -121,11 +131,16 @@ fn search_by_type_constraint_only() {
     vsc_in(dir)
         .args([
             "add-component",
-            "-t", "rect",
-            "-x", "100",
-            "-y", "100",
-            "-w", "50",
-            "--height", "50",
+            "-t",
+            "rect",
+            "-x",
+            "100",
+            "-y",
+            "100",
+            "-w",
+            "50",
+            "--height",
+            "50",
         ])
         .assert()
         .success();
@@ -149,7 +164,10 @@ fn search_by_type_constraint_only() {
     assert!(!results.is_empty(), "Should have constraint results");
 
     for result in results {
-        assert_eq!(result["type"], "constraint", "All results should be constraints");
+        assert_eq!(
+            result["type"], "constraint",
+            "All results should be constraints"
+        );
     }
 }
 
@@ -167,12 +185,7 @@ fn search_by_type_path_empty() {
 
     // Add a rect component (not a path)
     vsc_in(dir)
-        .args([
-            "add-component",
-            "-t", "rect",
-            "-x", "0",
-            "-y", "0",
-        ])
+        .args(["add-component", "-t", "rect", "-x", "0", "-y", "0"])
         .assert()
         .success();
 
@@ -206,12 +219,7 @@ fn search_by_component_x() {
 
     // Add a component
     vsc_in(dir)
-        .args([
-            "add-component",
-            "-t", "rect",
-            "-x", "50",
-            "-y", "100",
-        ])
+        .args(["add-component", "-t", "rect", "-x", "50", "-y", "100"])
         .assert()
         .success();
 
@@ -232,7 +240,10 @@ fn search_by_component_x() {
     // All results should have X component
     let results = json["results"].as_array().unwrap();
     for result in results {
-        assert_eq!(result["component"], "X", "All results should have X component");
+        assert_eq!(
+            result["component"], "X",
+            "All results should have X component"
+        );
     }
 }
 
@@ -253,9 +264,12 @@ fn search_respects_limit() {
         vsc_in(dir)
             .args([
                 "add-component",
-                "-t", "rect",
-                "-x", &(i * 10).to_string(),
-                "-y", &(i * 10).to_string(),
+                "-t",
+                "rect",
+                "-x",
+                &(i * 10).to_string(),
+                "-y",
+                &(i * 10).to_string(),
             ])
             .assert()
             .success();

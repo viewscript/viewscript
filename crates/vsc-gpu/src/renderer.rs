@@ -47,7 +47,8 @@ use crate::batcher::DrawBatcher;
 use crate::opacity::OpacityStack;
 use crate::pipeline::PipelineManager;
 use crate::shaders::{
-    GradientStopUniform, GradientUniform, RadialGradientUniform, SolidColorUniform, TransformUniform,
+    GradientStopUniform, GradientUniform, RadialGradientUniform, SolidColorUniform,
+    TransformUniform,
 };
 use crate::stencil::StencilStack;
 use crate::tessellation::{tessellate_path, tessellate_path_stroke, TessellationOutput};
@@ -105,7 +106,11 @@ impl GpuRenderer {
     /// - `device`: wgpu device for resource creation (wrapped in Arc for shared ownership)
     /// - `queue`: wgpu queue for command submission (wrapped in Arc for shared ownership)
     /// - `format`: Target texture format (typically from surface configuration)
-    pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>, format: wgpu::TextureFormat) -> Self {
+    pub fn new(
+        device: Arc<wgpu::Device>,
+        queue: Arc<wgpu::Queue>,
+        format: wgpu::TextureFormat,
+    ) -> Self {
         let pipeline_manager = PipelineManager::new(&device, format);
 
         // Create sampler for external textures (linear filtering, clamp to edge)
@@ -138,7 +143,10 @@ impl GpuRenderer {
     /// This method is called internally by `render_frame()` and only recreates
     /// the texture when the viewport size changes, avoiding per-frame allocations.
     fn ensure_depth_stencil(&mut self, width: u32, height: u32) {
-        if self.cached_width == width && self.cached_height == height && self.depth_stencil_view.is_some() {
+        if self.cached_width == width
+            && self.cached_height == height
+            && self.depth_stencil_view.is_some()
+        {
             return; // Already cached with correct dimensions
         }
 
@@ -201,12 +209,19 @@ impl GpuRenderer {
     ) {
         // Phase H: Collect nodes into batches
         let mut batcher = DrawBatcher::new();
-        batcher.collect(nodes, &self.pipeline_manager, viewport_width, viewport_height);
+        batcher.collect(
+            nodes,
+            &self.pipeline_manager,
+            viewport_width,
+            viewport_height,
+        );
         let batches = batcher.drain();
 
         // Ensure depth-stencil texture is cached and correctly sized
         self.ensure_depth_stencil(viewport_width as u32, viewport_height as u32);
-        let depth_stencil_view = self.depth_stencil_view.as_ref()
+        let depth_stencil_view = self
+            .depth_stencil_view
+            .as_ref()
             .expect("depth_stencil_view should be initialized by ensure_depth_stencil");
 
         let mut encoder = self
@@ -245,7 +260,9 @@ impl GpuRenderer {
 
             // Phase H: Render batches instead of individual nodes
             for batch in &batches {
-                let pipeline_set = self.pipeline_manager.select_pipeline_by_key(batch.pipeline_key);
+                let pipeline_set = self
+                    .pipeline_manager
+                    .select_pipeline_by_key(batch.pipeline_key);
 
                 // Create GPU resources - special handling for texture batches
                 let resources = if let Some(texture_id) = batch.texture_id() {
@@ -258,10 +275,7 @@ impl GpuRenderer {
                             &self.texture_sampler,
                         )
                     } else {
-                        log::warn!(
-                            "External texture {} not found, skipping batch",
-                            texture_id
-                        );
+                        log::warn!("External texture {} not found, skipping batch", texture_id);
                         continue;
                     }
                 } else {
@@ -279,7 +293,8 @@ impl GpuRenderer {
                 render_pass.set_bind_group(0, &resources.transform_bind_group, &[]);
                 render_pass.set_bind_group(1, &resources.style_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, resources.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(resources.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass
+                    .set_index_buffer(resources.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 render_pass.draw_indexed(0..resources.index_count, 0, 0..1);
             }
         }
@@ -301,7 +316,9 @@ impl GpuRenderer {
     ) {
         // Ensure depth-stencil texture is cached and correctly sized
         self.ensure_depth_stencil(viewport_width as u32, viewport_height as u32);
-        let depth_stencil_view = self.depth_stencil_view.as_ref()
+        let depth_stencil_view = self
+            .depth_stencil_view
+            .as_ref()
             .expect("depth_stencil_view should be initialized by ensure_depth_stencil");
 
         let mut encoder = self
@@ -493,35 +510,43 @@ impl GpuRenderer {
         let pipeline_set = self.pipeline_manager.stencil_write_pipeline();
 
         // Create vertex buffer
-        let vertex_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Clip Path Vertex Buffer"),
-            contents: bytemuck::cast_slice(&tessellation.vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        let vertex_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Clip Path Vertex Buffer"),
+                contents: bytemuck::cast_slice(&tessellation.vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
 
         // Create index buffer
-        let index_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Clip Path Index Buffer"),
-            contents: bytemuck::cast_slice(&tessellation.indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
+        let index_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Clip Path Index Buffer"),
+                contents: bytemuck::cast_slice(&tessellation.indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
 
         // Create transform uniform (opacity not relevant for stencil write)
         let transform_uniform =
             TransformUniform::from_affine(&world_transform, viewport_width, viewport_height);
-        let transform_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Clip Path Transform Uniform Buffer"),
-            contents: bytemuck::bytes_of(&transform_uniform),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        let transform_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Clip Path Transform Uniform Buffer"),
+                contents: bytemuck::bytes_of(&transform_uniform),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
 
         // Create dummy color buffer (required by shader but not used)
         let color_uniform = SolidColorUniform::new(0.0, 0.0, 0.0, 0.0);
-        let color_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Clip Path Color Uniform Buffer"),
-            contents: bytemuck::bytes_of(&color_uniform),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        let color_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Clip Path Color Uniform Buffer"),
+                contents: bytemuck::bytes_of(&color_uniform),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
 
         // Create bind groups
         let transform_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -604,9 +629,7 @@ impl GpuRenderer {
             if let Ok(tessellation) = tessellate_path_stroke(&path.path_data, stroke) {
                 if !tessellation.is_empty() {
                     // Strokes use solid color
-                    let solid_fill = FillStyle::Solid {
-                        rgba: stroke.rgba,
-                    };
+                    let solid_fill = FillStyle::Solid { rgba: stroke.rgba };
                     self.draw_tessellation(
                         render_pass,
                         &tessellation,
@@ -623,7 +646,11 @@ impl GpuRenderer {
     }
 
     /// Tessellate a path fill.
-    fn tessellate_fill(&self, path: &CanvasPathNode, fill: &FillStyle) -> Option<TessellationOutput> {
+    fn tessellate_fill(
+        &self,
+        path: &CanvasPathNode,
+        fill: &FillStyle,
+    ) -> Option<TessellationOutput> {
         match tessellate_path(&path.path_data, Some(fill)) {
             Ok(output) => Some(output),
             Err(e) => {
@@ -657,37 +684,48 @@ impl GpuRenderer {
         let pipeline_set = self.pipeline_manager.select_pipeline_for_fill(fill);
 
         // Create vertex buffer
-        let vertex_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(&tessellation.vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        let vertex_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Vertex Buffer"),
+                contents: bytemuck::cast_slice(&tessellation.vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
 
         // Create index buffer
-        let index_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Index Buffer"),
-            contents: bytemuck::cast_slice(&tessellation.indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
+        let index_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Index Buffer"),
+                contents: bytemuck::cast_slice(&tessellation.indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
 
         // Create transform uniform with accumulated opacity
-        let transform_uniform =
-            TransformUniform::from_affine_with_opacity(world_transform, viewport_width, viewport_height, opacity);
-        let transform_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Transform Uniform Buffer"),
-            contents: bytemuck::bytes_of(&transform_uniform),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        let transform_uniform = TransformUniform::from_affine_with_opacity(
+            world_transform,
+            viewport_width,
+            viewport_height,
+            opacity,
+        );
+        let transform_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Transform Uniform Buffer"),
+                contents: bytemuck::bytes_of(&transform_uniform),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
 
         // Create style uniform buffer based on fill type
         let style_buffer = match fill {
             FillStyle::Solid { rgba } => {
                 let color_uniform = SolidColorUniform::from_rgba(*rgba);
-                self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Solid Color Uniform Buffer"),
-                    contents: bytemuck::bytes_of(&color_uniform),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                })
+                self.device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Solid Color Uniform Buffer"),
+                        contents: bytemuck::bytes_of(&color_uniform),
+                        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    })
             }
             FillStyle::LinearGradient { stops, start, end } => {
                 let stop_uniforms = Self::convert_gradient_stops(stops);
@@ -696,24 +734,30 @@ impl GpuRenderer {
                     end.as_ref(),
                     &stop_uniforms,
                 );
-                self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Linear Gradient Uniform Buffer"),
-                    contents: bytemuck::bytes_of(&gradient_uniform),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                })
+                self.device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Linear Gradient Uniform Buffer"),
+                        contents: bytemuck::bytes_of(&gradient_uniform),
+                        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    })
             }
-            FillStyle::RadialGradient { stops, center, radius } => {
+            FillStyle::RadialGradient {
+                stops,
+                center,
+                radius,
+            } => {
                 let stop_uniforms = Self::convert_gradient_stops(stops);
                 let radial_uniform = RadialGradientUniform::from_radial_gradient(
                     center.as_ref(),
                     radius.as_ref(),
                     &stop_uniforms,
                 );
-                self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Radial Gradient Uniform Buffer"),
-                    contents: bytemuck::bytes_of(&radial_uniform),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                })
+                self.device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Radial Gradient Uniform Buffer"),
+                        contents: bytemuck::bytes_of(&radial_uniform),
+                        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    })
             }
             FillStyle::Pattern { .. } => {
                 // Pattern support deferred to future track
@@ -723,11 +767,12 @@ impl GpuRenderer {
                 // Fallback to magenta for unresolved external textures.
                 // Phase J-3 will implement TextureRegistry and texture bind groups.
                 let color_uniform = SolidColorUniform::new(1.0, 0.0, 1.0, 1.0);
-                self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("ExternalTexture Fallback Uniform Buffer"),
-                    contents: bytemuck::bytes_of(&color_uniform),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                })
+                self.device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("ExternalTexture Fallback Uniform Buffer"),
+                        contents: bytemuck::bytes_of(&color_uniform),
+                        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    })
             }
         };
 
@@ -861,8 +906,8 @@ impl GpuRenderer {
 mod tests {
     use super::*;
     use crate::{
-        AffineTransform, CanvasNodeBase, LineCap, LineJoin,
-        PVector, PVectorBounds, PathCommand, StrokeStyle,
+        AffineTransform, CanvasNodeBase, LineCap, LineJoin, PVector, PVectorBounds, PathCommand,
+        StrokeStyle,
     };
     use vsc_core::{EntityId, Rational};
 
@@ -914,7 +959,11 @@ mod tests {
     }
 
     /// Helper to create a group node with custom opacity.
-    fn create_group_with_opacity(children: Vec<CanvasNode>, transform: AffineTransform, opacity: f64) -> CanvasGroupNode {
+    fn create_group_with_opacity(
+        children: Vec<CanvasNode>,
+        transform: AffineTransform,
+        opacity: f64,
+    ) -> CanvasGroupNode {
         CanvasGroupNode {
             base: CanvasNodeBase {
                 entity_id: EntityId(0),
@@ -1057,7 +1106,11 @@ mod tests {
             // Render with batched path (render_frame)
             let texture_a = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("Batched Render Target"),
-                size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
@@ -1071,7 +1124,11 @@ mod tests {
             // Render with legacy path (render_frame_legacy)
             let texture_b = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("Legacy Render Target"),
-                size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
@@ -1090,7 +1147,8 @@ mod tests {
                     usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
                     mapped_at_creation: false,
                 });
-                let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+                let mut enc =
+                    device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
                 enc.copy_texture_to_buffer(
                     wgpu::ImageCopyTexture {
                         texture: tex,
@@ -1106,13 +1164,19 @@ mod tests {
                             rows_per_image: Some(height),
                         },
                     },
-                    wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                    wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
                 );
                 queue.submit(std::iter::once(enc.finish()));
 
                 let slice = buf.slice(..);
                 let (tx, rx) = std::sync::mpsc::channel();
-                slice.map_async(wgpu::MapMode::Read, move |r| { tx.send(r).unwrap(); });
+                slice.map_async(wgpu::MapMode::Read, move |r| {
+                    tx.send(r).unwrap();
+                });
                 device.poll(wgpu::Maintain::Wait);
                 rx.recv().unwrap().expect("map failed");
                 let data = slice.get_mapped_range();
@@ -1131,7 +1195,10 @@ mod tests {
                 "render_frame() and render_frame_legacy() must produce identical output"
             );
 
-            println!("render_frame vs legacy: outputs match ({} bytes)", pixels_a.len());
+            println!(
+                "render_frame vs legacy: outputs match ({} bytes)",
+                pixels_a.len()
+            );
         });
     }
 
@@ -1580,7 +1647,7 @@ mod tests {
                     },
                     GradientStop {
                         offset: Rational::new(1, 2), // 0.5
-                        rgba: [0, 255, 0, 255], // Green at 0.5
+                        rgba: [0, 255, 0, 255],      // Green at 0.5
                     },
                     GradientStop {
                         offset: Rational::one(),
@@ -1705,7 +1772,10 @@ mod tests {
             let right_r = data[right_offset];
             let right_g = data[right_offset + 1];
             let right_b = data[right_offset + 2];
-            println!("Right pixel (x=61): R={}, G={}, B={}", right_r, right_g, right_b);
+            println!(
+                "Right pixel (x=61): R={}, G={}, B={}",
+                right_r, right_g, right_b
+            );
             assert!(
                 right_b > 200,
                 "Right edge should be blue-ish (B={}, expected >200)",

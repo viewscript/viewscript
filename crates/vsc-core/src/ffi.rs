@@ -151,7 +151,12 @@ pub struct TextureHandle {
 impl TextureHandle {
     /// Create a new texture handle.
     pub fn new(id: u64, width: u32, height: u32, format: TextureFormat) -> Self {
-        Self { id, width, height, format }
+        Self {
+            id,
+            width,
+            height,
+            format,
+        }
     }
 }
 
@@ -318,10 +323,7 @@ pub enum QError {
 
     /// Type mismatch when extracting Q-value.
     #[error("type mismatch: expected {expected}, got {actual}")]
-    TypeMismatch {
-        expected: String,
-        actual: String,
-    },
+    TypeMismatch { expected: String, actual: String },
 }
 
 // =============================================================================
@@ -463,7 +465,6 @@ pub enum DerivedRule {
         /// Entity ID whose bounding box to test against.
         entity_id: EntityId,
     },
-
     // Future extensions:
     // /// Threshold: returns 1.0 if source > threshold, else 0.0
     // Threshold {
@@ -655,7 +656,12 @@ mod tests {
             QValue::Bool(true),
             QValue::Bytes(QBytes(vec![1, 2, 3, 4])),
             QValue::Vec2(Rational::from_int(10), Rational::from_int(20)),
-            QValue::TextureHandle(TextureHandle::new(12345, 1920, 1080, TextureFormat::Rgba8Unorm)),
+            QValue::TextureHandle(TextureHandle::new(
+                12345,
+                1920,
+                1080,
+                TextureFormat::Rgba8Unorm,
+            )),
             QValue::None,
         ];
 
@@ -741,11 +747,17 @@ mod tests {
     // Derived Q-Variable Tests
     // =========================================================================
 
-    use crate::scene::{ScenePathNode, SceneBounds, SceneNode};
+    use crate::scene::{SceneBounds, SceneNode, ScenePathNode};
     use crate::types::{FillRule, PathCommand};
 
     /// Create a test scene node with given bounds.
-    fn create_test_path_node(entity_id: u64, x_min: i64, y_min: i64, x_max: i64, y_max: i64) -> SceneNode {
+    fn create_test_path_node(
+        entity_id: u64,
+        x_min: i64,
+        y_min: i64,
+        x_max: i64,
+        y_max: i64,
+    ) -> SceneNode {
         SceneNode::Path(ScenePathNode {
             entity_id: EntityId(entity_id),
             z_order: 0,
@@ -782,7 +794,11 @@ mod tests {
         let result = evaluate_derived(&rule, &q_values, &scene_nodes);
 
         match result {
-            QValue::Float(v) => assert!((v - 1.0).abs() < 1e-10, "Expected 1.0 for inside, got {}", v),
+            QValue::Float(v) => assert!(
+                (v - 1.0).abs() < 1e-10,
+                "Expected 1.0 for inside, got {}",
+                v
+            ),
             _ => panic!("Expected Float result"),
         }
     }
@@ -830,7 +846,9 @@ mod tests {
         let result = evaluate_derived(&rule, &q_values, &scene_nodes);
 
         match result {
-            QValue::Float(v) => assert!((v - 1.0).abs() < 1e-10, "Expected 1.0 for edge, got {}", v),
+            QValue::Float(v) => {
+                assert!((v - 1.0).abs() < 1e-10, "Expected 1.0 for edge, got {}", v)
+            }
             _ => panic!("Expected Float result"),
         }
     }
@@ -854,7 +872,11 @@ mod tests {
 
         // Should return 0.0 when entity not found
         match result {
-            QValue::Float(v) => assert!(v.abs() < 1e-10, "Expected 0.0 for missing entity, got {}", v),
+            QValue::Float(v) => assert!(
+                v.abs() < 1e-10,
+                "Expected 0.0 for missing entity, got {}",
+                v
+            ),
             _ => panic!("Expected Float result"),
         }
     }
@@ -878,7 +900,11 @@ mod tests {
 
         // Should return 0.0 when pointer data is incomplete
         match result {
-            QValue::Float(v) => assert!(v.abs() < 1e-10, "Expected 0.0 for missing pointer, got {}", v),
+            QValue::Float(v) => assert!(
+                v.abs() < 1e-10,
+                "Expected 0.0 for missing pointer, got {}",
+                v
+            ),
             _ => panic!("Expected Float result"),
         }
     }
@@ -892,7 +918,11 @@ mod tests {
         assert_eq!(derived.target_var.entity, EntityId(2000));
 
         match &derived.rule {
-            DerivedRule::HitTest { pointer_x, pointer_y, entity_id } => {
+            DerivedRule::HitTest {
+                pointer_x,
+                pointer_y,
+                entity_id,
+            } => {
                 assert_eq!(pointer_x, "input.pointer.x");
                 assert_eq!(pointer_y, "input.pointer.y");
                 assert_eq!(*entity_id, EntityId(1000));

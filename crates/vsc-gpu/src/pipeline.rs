@@ -109,24 +109,40 @@ impl PipelineManager {
         let radial = Self::create_radial_pipeline(device, format, &transform_bind_group_layout);
 
         // Create stencil write pipeline
-        let stencil_write = Self::create_stencil_write_pipeline(device, format, &transform_bind_group_layout);
+        let stencil_write =
+            Self::create_stencil_write_pipeline(device, format, &transform_bind_group_layout);
 
         // Create Loop-Blinn curve pipeline
-        let loop_blinn = Self::create_loop_blinn_pipeline(device, format, &transform_bind_group_layout);
+        let loop_blinn =
+            Self::create_loop_blinn_pipeline(device, format, &transform_bind_group_layout);
 
         // Create Loop-Blinn cubic curve pipeline
-        let loop_blinn_cubic = Self::create_loop_blinn_cubic_pipeline(device, format, &transform_bind_group_layout);
+        let loop_blinn_cubic =
+            Self::create_loop_blinn_cubic_pipeline(device, format, &transform_bind_group_layout);
 
         // Create SDF stroke pipeline (quadratic)
-        let sdf_stroke = Self::create_sdf_stroke_pipeline(device, format, &transform_bind_group_layout);
+        let sdf_stroke =
+            Self::create_sdf_stroke_pipeline(device, format, &transform_bind_group_layout);
 
         // Create SDF stroke cubic pipeline
-        let sdf_stroke_cubic = Self::create_sdf_stroke_cubic_pipeline(device, format, &transform_bind_group_layout);
+        let sdf_stroke_cubic =
+            Self::create_sdf_stroke_cubic_pipeline(device, format, &transform_bind_group_layout);
 
         // Create texture sampling pipeline
         let texture = Self::create_texture_pipeline(device, format, &transform_bind_group_layout);
 
-        Self { format, solid, gradient, radial, stencil_write, loop_blinn, loop_blinn_cubic, sdf_stroke, sdf_stroke_cubic, texture }
+        Self {
+            format,
+            solid,
+            gradient,
+            radial,
+            stencil_write,
+            loop_blinn,
+            loop_blinn_cubic,
+            sdf_stroke,
+            sdf_stroke_cubic,
+            texture,
+        }
     }
 
     /// Get the target texture format.
@@ -147,9 +163,7 @@ impl PipelineManager {
             FillStyle::Pattern { .. } => {
                 unimplemented!("Pattern pipeline not yet implemented")
             }
-            FillStyle::ExternalTexture { .. } => {
-                &self.texture
-            }
+            FillStyle::ExternalTexture { .. } => &self.texture,
         }
     }
 
@@ -622,7 +636,7 @@ impl PipelineManager {
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
-                    blend: None, // No blending needed
+                    blend: None,                            // No blending needed
                     write_mask: wgpu::ColorWrites::empty(), // No color output
                 })],
             }),
@@ -1373,7 +1387,8 @@ mod tests {
                 "select_pipeline_by_key(Solid) and select_pipeline_for_fill(Solid) must return the same PipelineSet"
             );
 
-            let grad_by_key = manager.select_pipeline_by_key(crate::batcher::PipelineKey::LinearGradient);
+            let grad_by_key =
+                manager.select_pipeline_by_key(crate::batcher::PipelineKey::LinearGradient);
             let grad_by_fill = manager.select_pipeline_for_fill(&FillStyle::LinearGradient {
                 stops: vec![],
                 start: None,
@@ -1384,7 +1399,8 @@ mod tests {
                 "select_pipeline_by_key(LinearGradient) and select_pipeline_for_fill(LinearGradient) must return the same PipelineSet"
             );
 
-            let radial_by_key = manager.select_pipeline_by_key(crate::batcher::PipelineKey::RadialGradient);
+            let radial_by_key =
+                manager.select_pipeline_by_key(crate::batcher::PipelineKey::RadialGradient);
             let radial_by_fill = manager.select_pipeline_for_fill(&FillStyle::RadialGradient {
                 stops: vec![],
                 center: None,
@@ -1396,7 +1412,8 @@ mod tests {
             );
 
             // LoopBlinn pipeline (no corresponding FillStyle - used for curve triangles)
-            let loop_blinn_by_key = manager.select_pipeline_by_key(crate::batcher::PipelineKey::LoopBlinn);
+            let loop_blinn_by_key =
+                manager.select_pipeline_by_key(crate::batcher::PipelineKey::LoopBlinn);
             let loop_blinn_direct = manager.loop_blinn_pipeline();
             assert!(
                 std::ptr::eq(loop_blinn_by_key, loop_blinn_direct),
@@ -1404,7 +1421,8 @@ mod tests {
             );
 
             // LoopBlinnCubic pipeline (no corresponding FillStyle - used for cubic curve triangles)
-            let loop_blinn_cubic_by_key = manager.select_pipeline_by_key(crate::batcher::PipelineKey::LoopBlinnCubic);
+            let loop_blinn_cubic_by_key =
+                manager.select_pipeline_by_key(crate::batcher::PipelineKey::LoopBlinnCubic);
             let loop_blinn_cubic_direct = manager.loop_blinn_cubic_pipeline();
             assert!(
                 std::ptr::eq(loop_blinn_cubic_by_key, loop_blinn_cubic_direct),
@@ -1412,7 +1430,8 @@ mod tests {
             );
 
             // SdfStroke pipeline (no corresponding FillStyle - used for quadratic curve strokes)
-            let sdf_stroke_by_key = manager.select_pipeline_by_key(crate::batcher::PipelineKey::SdfStroke);
+            let sdf_stroke_by_key =
+                manager.select_pipeline_by_key(crate::batcher::PipelineKey::SdfStroke);
             let sdf_stroke_direct = manager.sdf_stroke_pipeline();
             assert!(
                 std::ptr::eq(sdf_stroke_by_key, sdf_stroke_direct),
@@ -1420,7 +1439,8 @@ mod tests {
             );
 
             // SdfStrokeCubic pipeline (no corresponding FillStyle - used for cubic curve strokes)
-            let sdf_stroke_cubic_by_key = manager.select_pipeline_by_key(crate::batcher::PipelineKey::SdfStrokeCubic);
+            let sdf_stroke_cubic_by_key =
+                manager.select_pipeline_by_key(crate::batcher::PipelineKey::SdfStrokeCubic);
             let sdf_stroke_cubic_direct = manager.sdf_stroke_cubic_pipeline();
             assert!(
                 std::ptr::eq(sdf_stroke_cubic_by_key, sdf_stroke_cubic_direct),
@@ -1444,7 +1464,10 @@ mod tests {
 
     #[test]
     fn test_loop_blinn_wgsl_not_empty() {
-        assert!(!LOOP_BLINN_WGSL.is_empty(), "LOOP_BLINN_WGSL should not be empty");
+        assert!(
+            !LOOP_BLINN_WGSL.is_empty(),
+            "LOOP_BLINN_WGSL should not be empty"
+        );
         assert!(
             LOOP_BLINN_WGSL.contains("vs_main"),
             "LOOP_BLINN_WGSL should contain vs_main"
@@ -1457,7 +1480,10 @@ mod tests {
 
     #[test]
     fn test_loop_blinn_cubic_wgsl_not_empty() {
-        assert!(!LOOP_BLINN_CUBIC_WGSL.is_empty(), "LOOP_BLINN_CUBIC_WGSL should not be empty");
+        assert!(
+            !LOOP_BLINN_CUBIC_WGSL.is_empty(),
+            "LOOP_BLINN_CUBIC_WGSL should not be empty"
+        );
         assert!(
             LOOP_BLINN_CUBIC_WGSL.contains("vs_main"),
             "LOOP_BLINN_CUBIC_WGSL should contain vs_main"
@@ -1490,7 +1516,10 @@ mod tests {
 
     #[test]
     fn test_sdf_stroke_wgsl_not_empty() {
-        assert!(!SDF_STROKE_WGSL.is_empty(), "SDF_STROKE_WGSL should not be empty");
+        assert!(
+            !SDF_STROKE_WGSL.is_empty(),
+            "SDF_STROKE_WGSL should not be empty"
+        );
         assert!(
             SDF_STROKE_WGSL.contains("vs_main"),
             "SDF_STROKE_WGSL should contain vs_main"
@@ -1523,7 +1552,10 @@ mod tests {
 
     #[test]
     fn test_sdf_stroke_cubic_wgsl_not_empty() {
-        assert!(!SDF_STROKE_CUBIC_WGSL.is_empty(), "SDF_STROKE_CUBIC_WGSL should not be empty");
+        assert!(
+            !SDF_STROKE_CUBIC_WGSL.is_empty(),
+            "SDF_STROKE_CUBIC_WGSL should not be empty"
+        );
         assert!(
             SDF_STROKE_CUBIC_WGSL.contains("vs_main"),
             "SDF_STROKE_CUBIC_WGSL should contain vs_main"
@@ -1623,7 +1655,8 @@ mod tests {
             let manager = PipelineManager::new(&device, format);
 
             // Verify PipelineKey::Texture returns the texture pipeline
-            let texture_by_key = manager.select_pipeline_by_key(crate::batcher::PipelineKey::Texture);
+            let texture_by_key =
+                manager.select_pipeline_by_key(crate::batcher::PipelineKey::Texture);
             let texture_direct = manager.texture_pipeline();
             assert!(
                 std::ptr::eq(texture_by_key, texture_direct),

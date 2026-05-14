@@ -28,8 +28,8 @@ use vsc_core::{EntityId, Rational, UvTransform};
 use crate::rasterizer::{round_with_topology_preservation, RoundingResult, TopoConstraint};
 use crate::shaders::hex_to_rgba;
 use crate::{
-    CanvasGroupNode, CanvasNode, CanvasNodeBase, CanvasPathNode, ChunkId, FillStyle,
-    GradientPoint, GradientStop, PVector, PVectorBounds, RasterBounds, StrokeStyle,
+    CanvasGroupNode, CanvasNode, CanvasNodeBase, CanvasPathNode, ChunkId, FillStyle, GradientPoint,
+    GradientStop, PVector, PVectorBounds, RasterBounds, StrokeStyle,
 };
 
 // =============================================================================
@@ -56,7 +56,9 @@ pub struct SceneConverter {
 impl SceneConverter {
     /// Create a new scene converter.
     pub fn new() -> Self {
-        Self { chunk_id_counter: 0 }
+        Self {
+            chunk_id_counter: 0,
+        }
     }
 
     /// Convert a list of scene nodes to canvas nodes (without topology rounding).
@@ -112,7 +114,11 @@ impl SceneConverter {
             round_with_topology_preservation(&entities, topo_constraints, device_pixel_ratio);
 
         // Step 4: Update canvas nodes with rounded bounds
-        Self::apply_rounded_bounds(&mut canvas_nodes, &rounding_result.bounds, device_pixel_ratio);
+        Self::apply_rounded_bounds(
+            &mut canvas_nodes,
+            &rounding_result.bounds,
+            device_pixel_ratio,
+        );
 
         // Step 5: Warn if topology violations were detected
         if !rounding_result.violations.is_empty() {
@@ -475,9 +481,18 @@ mod tests {
 
         // Verify path_data (should be identical)
         assert_eq!(canvas_path.path_data.len(), 4);
-        assert!(matches!(canvas_path.path_data[0], PathCommand::MoveTo { .. }));
-        assert!(matches!(canvas_path.path_data[1], PathCommand::LineTo { .. }));
-        assert!(matches!(canvas_path.path_data[2], PathCommand::LineTo { .. }));
+        assert!(matches!(
+            canvas_path.path_data[0],
+            PathCommand::MoveTo { .. }
+        ));
+        assert!(matches!(
+            canvas_path.path_data[1],
+            PathCommand::LineTo { .. }
+        ));
+        assert!(matches!(
+            canvas_path.path_data[2],
+            PathCommand::LineTo { .. }
+        ));
         assert!(matches!(canvas_path.path_data[3], PathCommand::Close));
 
         // Verify fill
@@ -611,7 +626,9 @@ mod tests {
     /// Task 1: ChunkId wraps around at u32::MAX without panic.
     #[test]
     fn test_chunk_id_wraps_at_u32_max() {
-        let mut converter = SceneConverter { chunk_id_counter: u32::MAX };
+        let mut converter = SceneConverter {
+            chunk_id_counter: u32::MAX,
+        };
 
         // Allocate at u32::MAX
         let id_max = converter.allocate_chunk_id();

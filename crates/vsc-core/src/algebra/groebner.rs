@@ -552,9 +552,7 @@ fn find_rational_roots(poly: &Polynomial, var: u32) -> Option<Vec<Rational>> {
 
     // For simplicity, try small integer candidates
     // A full implementation would factor the constant and leading coefficient
-    let candidates: Vec<i64> = vec![
-        1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6, 10, -10,
-    ];
+    let candidates: Vec<i64> = vec![1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6, 10, -10];
 
     for p in &candidates {
         for q in &[1i64, 2, 3, 4, 5, 6, 10] {
@@ -614,8 +612,8 @@ mod tests {
         let y = Polynomial::var(1);
         let two = Polynomial::constant(Rational::from_int(2));
 
-        let p1 = x.add(&y).sub(&two);  // x + y - 2
-        let p2 = x.sub(&y);             // x - y
+        let p1 = x.add(&y).sub(&two); // x + y - 2
+        let p2 = x.sub(&y); // x - y
 
         let config = GroebnerConfig::default();
         let result = compute_groebner_basis(&[p1, p2], &config);
@@ -633,8 +631,8 @@ mod tests {
         let three = Polynomial::constant(Rational::from_int(3));
         let one = Polynomial::constant(Rational::from_int(1));
 
-        let p1 = x.add(&y).sub(&three);  // x + y - 3
-        let p2 = x.sub(&y).sub(&one);    // x - y - 1
+        let p1 = x.add(&y).sub(&three); // x + y - 3
+        let p2 = x.sub(&y).sub(&one); // x - y - 1
 
         // First compute Gröbner basis to debug
         let config = GroebnerConfig::default();
@@ -650,8 +648,11 @@ mod tests {
                 assert!(!solutions.is_empty(), "Should have at least one solution");
                 let sol = &solutions[0].values;
                 // Check both variables are solved
-                assert!(sol.contains_key(&0) || sol.contains_key(&1),
-                    "Should solve at least one variable. Basis: {:?}", gb_result.basis);
+                assert!(
+                    sol.contains_key(&0) || sol.contains_key(&1),
+                    "Should solve at least one variable. Basis: {:?}",
+                    gb_result.basis
+                );
                 if sol.contains_key(&0) {
                     assert_eq!(sol.get(&0), Some(&Rational::from_int(2)));
                 }
@@ -662,7 +663,10 @@ mod tests {
             SolveResult::NoSolution => {
                 panic!("Got NoSolution. Basis: {:?}", gb_result.basis);
             }
-            other => panic!("Expected FiniteSolutions, got {:?}. Basis: {:?}", other, gb_result.basis),
+            other => panic!(
+                "Expected FiniteSolutions, got {:?}. Basis: {:?}",
+                other, gb_result.basis
+            ),
         }
     }
 
@@ -673,14 +677,17 @@ mod tests {
         let x = Polynomial::var(0);
         let four = Polynomial::constant(Rational::from_int(4));
 
-        let p = x.mul(&x).sub(&four);  // x² - 4
+        let p = x.mul(&x).sub(&four); // x² - 4
 
         let result = solve_polynomial_system(&[p]);
 
         match result {
             SolveResult::FiniteSolutions(solutions) => {
                 assert_eq!(solutions.len(), 2);
-                let vals: Vec<_> = solutions.iter().map(|s| s.values.get(&0).unwrap().clone()).collect();
+                let vals: Vec<_> = solutions
+                    .iter()
+                    .map(|s| s.values.get(&0).unwrap().clone())
+                    .collect();
                 assert!(vals.contains(&Rational::from_int(2)));
                 assert!(vals.contains(&Rational::from_int(-2)));
             }
@@ -695,8 +702,8 @@ mod tests {
         let one = Polynomial::constant(Rational::from_int(1));
         let two = Polynomial::constant(Rational::from_int(2));
 
-        let p1 = x.sub(&one);  // x - 1
-        let p2 = x.sub(&two);  // x - 2
+        let p1 = x.sub(&one); // x - 1
+        let p2 = x.sub(&two); // x - 2
 
         let result = solve_polynomial_system(&[p1, p2]);
 

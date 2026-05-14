@@ -253,9 +253,21 @@ pub enum CodlPathSegment {
     /// Line to a point.
     LineTo { x: String, y: String },
     /// Quadratic Bezier curve.
-    QuadTo { cx: String, cy: String, x: String, y: String },
+    QuadTo {
+        cx: String,
+        cy: String,
+        x: String,
+        y: String,
+    },
     /// Cubic Bezier curve.
-    CubicTo { c1x: String, c1y: String, c2x: String, c2y: String, x: String, y: String },
+    CubicTo {
+        c1x: String,
+        c1y: String,
+        c2x: String,
+        c2y: String,
+        x: String,
+        y: String,
+    },
     /// Close the current subpath.
     Close,
 }
@@ -284,7 +296,12 @@ pub struct CodlFillSpecYield {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CodlFillType {
     /// Solid color fill.
-    Solid { r: String, g: String, b: String, a: String },
+    Solid {
+        r: String,
+        g: String,
+        b: String,
+        a: String,
+    },
     /// Gradient reference.
     Gradient { gradient_id: String },
 }

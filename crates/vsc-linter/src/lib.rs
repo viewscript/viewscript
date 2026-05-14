@@ -18,8 +18,8 @@
 
 pub mod checks;
 
-use std::path::Path;
 use colored::Colorize;
+use std::path::Path;
 
 /// A lint violation found during static analysis.
 #[derive(Debug, Clone)]
@@ -112,23 +112,28 @@ pub struct LintResult {
 
 impl LintResult {
     pub fn has_errors(&self) -> bool {
-        self.violations.iter().any(|v| v.severity == Severity::Error)
+        self.violations
+            .iter()
+            .any(|v| v.severity == Severity::Error)
     }
 
     pub fn error_count(&self) -> usize {
-        self.violations.iter().filter(|v| v.severity == Severity::Error).count()
+        self.violations
+            .iter()
+            .filter(|v| v.severity == Severity::Error)
+            .count()
     }
 
     pub fn warning_count(&self) -> usize {
-        self.violations.iter().filter(|v| v.severity == Severity::Warning).count()
+        self.violations
+            .iter()
+            .filter(|v| v.severity == Severity::Warning)
+            .count()
     }
 }
 
 /// Run lint checks on a directory.
-pub fn run_checks(
-    path: &Path,
-    checks: &[LintCheck],
-) -> Result<LintResult, std::io::Error> {
+pub fn run_checks(path: &Path, checks: &[LintCheck]) -> Result<LintResult, std::io::Error> {
     use walkdir::WalkDir;
 
     let mut result = LintResult::default();
@@ -157,7 +162,8 @@ pub fn run_checks(
         for check in checks {
             match check {
                 LintCheck::FloatContamination => {
-                    let violations = checks::float_contamination::check(&syntax, &file_str, &content);
+                    let violations =
+                        checks::float_contamination::check(&syntax, &file_str, &content);
                     result.violations.extend(violations);
                 }
                 LintCheck::GlobalState => {
@@ -169,7 +175,8 @@ pub fn run_checks(
                     result.violations.extend(violations);
                 }
                 LintCheck::NonLinearConstraint => {
-                    let violations = checks::nonlinear_constraint::check(&syntax, &file_str, &content);
+                    let violations =
+                        checks::nonlinear_constraint::check(&syntax, &file_str, &content);
                     result.violations.extend(violations);
                 }
                 LintCheck::LocusProhibition => {

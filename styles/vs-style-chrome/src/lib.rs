@@ -483,7 +483,10 @@ fn constraint_to_linear(constraint: &Constraint) -> Option<LinearConstraint> {
                 relation,
             })
         }
-        ConstraintTerm::Ref { entity_id, component } => {
+        ConstraintTerm::Ref {
+            entity_id,
+            component,
+        } => {
             // target.component = ref.component
             // Rewrite as: target - ref = 0
             let ref_var = VarId::new(*entity_id, *component);
@@ -505,7 +508,10 @@ fn constraint_to_linear(constraint: &Constraint) -> Option<LinearConstraint> {
             let ref_var = VarId::new(*entity_id, *component);
             Some(LinearConstraint {
                 id: constraint.id,
-                terms: vec![(var, Rational::one()), (ref_var, neg_one.clone() * coefficient.clone())],
+                terms: vec![
+                    (var, Rational::one()),
+                    (ref_var, neg_one.clone() * coefficient.clone()),
+                ],
                 constant: neg_one * offset.clone(),
                 relation: LinearRelation::Eq,
             })
@@ -579,7 +585,14 @@ pub fn apply_chrome_style(build_info: &mut VsBuildInfo) -> StyleBundle {
         (body.margin_bottom, "body.margin-bottom"),
         (body.margin_left, "body.margin-left"),
     ] {
-        let op = make_default_constraint(seq, constraint_id, entity, body_margin.clone(), timestamp, name);
+        let op = make_default_constraint(
+            seq,
+            constraint_id,
+            entity,
+            body_margin.clone(),
+            timestamp,
+            name,
+        );
         // Convert to LinearConstraint for solver
         if let Some(lc) = constraint_to_linear(&op.constraint) {
             bundle.linear_constraints.push(lc);
@@ -597,7 +610,14 @@ pub fn apply_chrome_style(build_info: &mut VsBuildInfo) -> StyleBundle {
         (body.border_bottom, "body.border-bottom"),
         (body.border_left, "body.border-left"),
     ] {
-        let op = make_default_constraint(seq, constraint_id, entity, default_border.clone(), timestamp, name);
+        let op = make_default_constraint(
+            seq,
+            constraint_id,
+            entity,
+            default_border.clone(),
+            timestamp,
+            name,
+        );
         if let Some(lc) = constraint_to_linear(&op.constraint) {
             bundle.linear_constraints.push(lc);
         }
@@ -614,7 +634,14 @@ pub fn apply_chrome_style(build_info: &mut VsBuildInfo) -> StyleBundle {
         (body.padding_bottom, "body.padding-bottom"),
         (body.padding_left, "body.padding-left"),
     ] {
-        let op = make_default_constraint(seq, constraint_id, entity, default_padding.clone(), timestamp, name);
+        let op = make_default_constraint(
+            seq,
+            constraint_id,
+            entity,
+            default_padding.clone(),
+            timestamp,
+            name,
+        );
         if let Some(lc) = constraint_to_linear(&op.constraint) {
             bundle.linear_constraints.push(lc);
         }
@@ -923,8 +950,7 @@ mod tests {
         assert_eq!(constraint.terms.len(), 8);
 
         // All box dimensions should have coefficient +1
-        let term_map: std::collections::HashMap<_, _> =
-            constraint.terms.iter().cloned().collect();
+        let term_map: std::collections::HashMap<_, _> = constraint.terms.iter().cloned().collect();
 
         assert_eq!(
             term_map.get(&BoxModelEntity::var_id(box_model.margin_left)),
@@ -1067,7 +1093,11 @@ mod tests {
 
         let bundle = apply_chrome_style(&mut build_info);
 
-        let ids: Vec<_> = bundle.operations.iter().map(|op| op.constraint.id).collect();
+        let ids: Vec<_> = bundle
+            .operations
+            .iter()
+            .map(|op| op.constraint.id)
+            .collect();
         let unique: HashSet<_> = ids.iter().collect();
 
         assert_eq!(
@@ -1184,7 +1214,10 @@ mod tests {
 
         assert_eq!(lc.id, 1);
         assert_eq!(lc.terms.len(), 1);
-        assert_eq!(lc.terms[0].0, VarId::new(EntityId(100), VectorComponent::Value));
+        assert_eq!(
+            lc.terms[0].0,
+            VarId::new(EntityId(100), VectorComponent::Value)
+        );
         assert_eq!(lc.terms[0].1, Rational::one());
         assert_eq!(lc.constant, Rational::from_int(-8)); // target - 8 = 0
         assert_eq!(lc.relation, LinearRelation::Eq);

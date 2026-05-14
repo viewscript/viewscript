@@ -47,7 +47,6 @@ pub struct VsBuildInfo {
     // =========================================================================
     // Phase 17: Gradient Entities
     // =========================================================================
-
     /// Control points (gradient start/end, center, etc.).
     #[serde(default)]
     pub control_points: Vec<ControlPointEntry>,
@@ -79,7 +78,6 @@ pub struct VsBuildInfo {
     // =========================================================================
     // Target System
     // =========================================================================
-
     /// Registered render targets (e.g., "vs-web", "vs-native").
     #[serde(default)]
     pub targets: Vec<String>,
@@ -87,7 +85,6 @@ pub struct VsBuildInfo {
     // =========================================================================
     // Style System
     // =========================================================================
-
     /// Registered style packages (e.g., "vs-style-chrome", "vs-style-firefox").
     #[serde(default)]
     pub styles: Vec<String>,
@@ -95,7 +92,6 @@ pub struct VsBuildInfo {
     // =========================================================================
     // Q-Dimension FFI
     // =========================================================================
-
     /// Q-dimension variable declarations.
     /// These define external inputs that can bind to T-dimension variables.
     #[serde(default)]
@@ -486,9 +482,9 @@ impl VsBuildInfo {
 
     /// Find the operation that added a specific constraint.
     pub fn find_add_operation(&self, constraint_id: u64) -> Option<&ConstraintOperation> {
-        self.operations.iter().find(|op| {
-            op.constraint.id == constraint_id && op.op_type == OperationType::Add
-        })
+        self.operations
+            .iter()
+            .find(|op| op.constraint.id == constraint_id && op.op_type == OperationType::Add)
     }
 
     /// Get all operations in reverse chronological order (newest first).
@@ -597,11 +593,14 @@ impl VsBuildInfo {
         // Check if this ID came from optimization
         if let Some(original_id) = self.find_original_id(target_id) {
             // Find which optimization run created this mapping
-            let affected_run_id = self.optimization_runs.iter().rev()
+            let affected_run_id = self
+                .optimization_runs
+                .iter()
+                .rev()
                 .find(|run| {
-                    run.id_mapping.iter().any(|(orig, mapped)| {
-                        *orig == original_id && *mapped == Some(target_id)
-                    })
+                    run.id_mapping
+                        .iter()
+                        .any(|(orig, mapped)| *orig == original_id && *mapped == Some(target_id))
                 })
                 .map(|run| run.run_id);
 
@@ -615,7 +614,9 @@ impl VsBuildInfo {
                     target: EntityId(0), // Placeholder; actual value not needed for delete
                     component: VectorComponent::X,
                     relation: RelationType::Eq,
-                    term: ConstraintTerm::Const { value: Rational::zero() },
+                    term: ConstraintTerm::Const {
+                        value: Rational::zero(),
+                    },
                     priority: ConstraintPriority::Hard,
                     source_scope: None,
                 },
@@ -640,14 +641,17 @@ impl VsBuildInfo {
         } else {
             // Target ID is an original constraint (not from optimization)
             // Simple delete, no rollback needed
-            let constraint = self.find_add_operation(target_id)
+            let constraint = self
+                .find_add_operation(target_id)
                 .map(|op| op.constraint.clone())
                 .unwrap_or_else(|| Constraint {
                     id: target_id,
                     target: EntityId(0),
                     component: VectorComponent::X,
                     relation: RelationType::Eq,
-                    term: ConstraintTerm::Const { value: Rational::zero() },
+                    term: ConstraintTerm::Const {
+                        value: Rational::zero(),
+                    },
                     priority: ConstraintPriority::Hard,
                     source_scope: None,
                 });
@@ -747,7 +751,10 @@ impl VsBuildInfo {
         intent: Option<String>,
     ) -> Option<Vec<u64>> {
         // Find the layout macro
-        let macro_idx = self.layout_macros.iter().position(|lm| lm.seq == macro_seq)?;
+        let macro_idx = self
+            .layout_macros
+            .iter()
+            .position(|lm| lm.seq == macro_seq)?;
         let macro_op = self.layout_macros.remove(macro_idx);
 
         let deleted_ids = macro_op.expanded_constraints.clone();
@@ -757,7 +764,8 @@ impl VsBuildInfo {
             let seq = self.next_seq();
 
             // Find the original constraint to include in the delete record
-            let original = self.find_add_operation(*constraint_id)
+            let original = self
+                .find_add_operation(*constraint_id)
                 .map(|op| op.constraint.clone());
 
             if let Some(constraint) = original {
@@ -783,7 +791,8 @@ impl VsBuildInfo {
     ///
     /// Returns the macro sequence number if the constraint belongs to a macro.
     pub fn find_parent_layout_macro(&self, constraint_id: u64) -> Option<u64> {
-        self.layout_macros.iter()
+        self.layout_macros
+            .iter()
             .find(|lm| lm.expanded_constraints.contains(&constraint_id))
             .map(|lm| lm.seq)
     }
@@ -815,7 +824,9 @@ mod tests {
             target: EntityId(1),
             component: VectorComponent::X,
             relation: RelationType::Eq,
-            term: ConstraintTerm::Const { value: Rational::from_int(100) },
+            term: ConstraintTerm::Const {
+                value: Rational::from_int(100),
+            },
             priority: ConstraintPriority::Hard,
             source_scope: None,
         }
@@ -840,9 +851,9 @@ mod tests {
             constraints_before: 5,
             constraints_after: 3,
             id_mapping: vec![
-                (10, Some(100)),  // Original 10 became 100
-                (11, Some(101)),  // Original 11 became 101
-                (12, None),       // Original 12 was deleted
+                (10, Some(100)), // Original 10 became 100
+                (11, Some(101)), // Original 11 became 101
+                (12, None),      // Original 12 was deleted
             ],
         });
 
@@ -918,11 +929,8 @@ mod tests {
         });
 
         // Rollback the original constraint (not optimized)
-        let result = buildinfo.rollback_apply_reoptimize(
-            42,
-            "2026-05-10T01:00:00Z".to_string(),
-            None,
-        );
+        let result =
+            buildinfo.rollback_apply_reoptimize(42, "2026-05-10T01:00:00Z".to_string(), None);
 
         // Should NOT require reoptimization (was never optimized)
         assert!(!result.reoptimize_required);
@@ -999,7 +1007,9 @@ mod tests {
             target: EntityId(1),
             component: VectorComponent::X,
             relation: RelationType::Eq,
-            term: ConstraintTerm::Const { value: Rational::from_int(200) },
+            term: ConstraintTerm::Const {
+                value: Rational::from_int(200),
+            },
             priority: ConstraintPriority::Hard,
             source_scope: None,
         };
@@ -1023,7 +1033,9 @@ mod tests {
                 target: EntityId(1),
                 component: VectorComponent::X,
                 relation: RelationType::Eq,
-                term: ConstraintTerm::Const { value: Rational::from_int(300) },
+                term: ConstraintTerm::Const {
+                    value: Rational::from_int(300),
+                },
                 priority: ConstraintPriority::Hard,
                 source_scope: None,
             },
@@ -1038,7 +1050,12 @@ mod tests {
         assert!(restored.is_some());
         let restored = restored.unwrap();
         // Should return the modified constraint (value=200), not the optimized one (value=300)
-        assert_eq!(restored.term, ConstraintTerm::Const { value: Rational::from_int(200) });
+        assert_eq!(
+            restored.term,
+            ConstraintTerm::Const {
+                value: Rational::from_int(200)
+            }
+        );
     }
 
     #[test]

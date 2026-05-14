@@ -37,7 +37,9 @@ pub struct VsConfig {
     pub build: BuildConfig,
 }
 
-fn default_schema_version() -> u32 { 1 }
+fn default_schema_version() -> u32 {
+    1
+}
 
 /// Project metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,7 +56,9 @@ pub struct ProjectConfig {
     pub description: Option<String>,
 }
 
-fn default_version() -> String { "0.1.0".to_string() }
+fn default_version() -> String {
+    "0.1.0".to_string()
+}
 
 /// Entry point configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,7 +85,9 @@ pub struct ViewportConfig {
     pub time_origin: TimeOrigin,
 }
 
-fn default_units_per_pixel() -> f64 { 1.0 }
+fn default_units_per_pixel() -> f64 {
+    1.0
+}
 
 /// How T=0 is interpreted.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -118,9 +124,15 @@ pub struct BuildConfig {
     pub minify: bool,
 }
 
-fn default_target() -> String { "vs-web".to_string() }
-fn default_outdir() -> String { "dist".to_string() }
-fn default_minify() -> bool { true }
+fn default_target() -> String {
+    "vs-web".to_string()
+}
+fn default_outdir() -> String {
+    "dist".to_string()
+}
+fn default_minify() -> bool {
+    true
+}
 
 impl Default for VsConfig {
     fn default() -> Self {
@@ -162,7 +174,10 @@ mod tests {
 
         // Verify round-trip
         let parsed: VsConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.resolution_strategy_weights.deletion, Rational::from_int(1000));
+        assert_eq!(
+            parsed.resolution_strategy_weights.deletion,
+            Rational::from_int(1000)
+        );
     }
 
     #[test]
@@ -180,9 +195,18 @@ mod tests {
         }"#;
 
         let config: VsConfig = serde_json::from_str(json).unwrap();
-        assert_eq!(config.resolution_strategy_weights.deletion, Rational::from_int(500));
-        assert_eq!(config.resolution_strategy_weights.relation_change, Rational::from_int(50));
+        assert_eq!(
+            config.resolution_strategy_weights.deletion,
+            Rational::from_int(500)
+        );
+        assert_eq!(
+            config.resolution_strategy_weights.relation_change,
+            Rational::from_int(50)
+        );
         // Defaults still apply for unspecified fields
-        assert_eq!(config.resolution_strategy_weights.constant_modification, Rational::from_int(10));
+        assert_eq!(
+            config.resolution_strategy_weights.constant_modification,
+            Rational::from_int(10)
+        );
     }
 }

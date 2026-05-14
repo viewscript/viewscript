@@ -152,8 +152,10 @@ fn bench_tessellation_time(c: &mut Criterion) {
                     let lb_output = tessellate_quadratic_beziers(black_box(*path));
 
                     // Step 2: Lyon tessellation of interior (with QuadTo -> LineTo)
-                    let interior_result =
-                        tessellate_path(black_box(&lb_output.interior_commands), Some(black_box(*fill)));
+                    let interior_result = tessellate_path(
+                        black_box(&lb_output.interior_commands),
+                        Some(black_box(*fill)),
+                    );
 
                     black_box((lb_output, interior_result))
                 });
@@ -200,8 +202,10 @@ fn bench_tessellation_time_cubic(c: &mut Criterion) {
                     let lb_output = tessellate_cubic_beziers(black_box(*path));
 
                     // Step 2: Lyon tessellation of interior (with CubicTo -> LineTo)
-                    let interior_result =
-                        tessellate_path(black_box(&lb_output.interior_commands), Some(black_box(*fill)));
+                    let interior_result = tessellate_path(
+                        black_box(&lb_output.interior_commands),
+                        Some(black_box(*fill)),
+                    );
 
                     black_box((lb_output, interior_result))
                 });

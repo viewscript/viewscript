@@ -60,12 +60,7 @@ impl LoopBlinnVertex {
     /// Create the three vertices for a quadratic Bezier curve.
     ///
     /// Returns vertices for P₀, P₁, P₂ with fixed texture coordinate assignment.
-    pub fn from_quadratic(
-        p0: [f32; 2],
-        p1: [f32; 2],
-        p2: [f32; 2],
-        curve_sign: f32,
-    ) -> [Self; 3] {
+    pub fn from_quadratic(p0: [f32; 2], p1: [f32; 2], p2: [f32; 2], curve_sign: f32) -> [Self; 3] {
         [
             Self::new(p0[0], p0[1], 0.0, 0.0, curve_sign),
             Self::new(p1[0], p1[1], 0.5, 0.0, curve_sign),

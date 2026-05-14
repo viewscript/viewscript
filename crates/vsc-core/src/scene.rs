@@ -56,7 +56,10 @@ pub enum SceneError {
 impl std::fmt::Display for SceneError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SceneError::MissingCoordinate { entity_id, component } => {
+            SceneError::MissingCoordinate {
+                entity_id,
+                component,
+            } => {
                 write!(
                     f,
                     "Missing coordinate: EntityId({}).{:?} not in solver output",
@@ -389,14 +392,15 @@ impl<'a> SceneBuilder<'a> {
     /// Build a single path node from a PathEntityEntry.
     fn build_path_node(&self, entry: &PathEntityEntry) -> Result<ScenePathNode, SceneError> {
         // Resolve path segments to path commands
-        let path_data = crate::types::resolve_path_commands(&entry.segments, entry.closed, |id, component| {
-            let var_id = VarId::new(id, component);
-            self.solutions.get(&var_id).cloned()
-        })
-        .map_err(|e| SceneError::PathResolutionFailed {
-            entity_id: entry.id,
-            reason: e.to_string(),
-        })?;
+        let path_data =
+            crate::types::resolve_path_commands(&entry.segments, entry.closed, |id, component| {
+                let var_id = VarId::new(id, component);
+                self.solutions.get(&var_id).cloned()
+            })
+            .map_err(|e| SceneError::PathResolutionFailed {
+                entity_id: entry.id,
+                reason: e.to_string(),
+            })?;
 
         // Calculate bounding box
         let bounds = SceneBounds::from_path_commands(&path_data);
@@ -429,7 +433,10 @@ impl<'a> SceneBuilder<'a> {
                 color: color.clone(),
             }),
             FillSpec::Gradient { gradient_id } => self.resolve_gradient(*gradient_id),
-            FillSpec::ExternalTexture { handle_name, uv_transform } => {
+            FillSpec::ExternalTexture {
+                handle_name,
+                uv_transform,
+            } => {
                 // External texture: copy handle reference and UV transform.
                 // Actual texture binding happens at render time via Q-dimension lookup.
                 // Width/height are placeholders - the renderer fetches from TextureHandle.
@@ -504,7 +511,10 @@ impl<'a> SceneBuilder<'a> {
     }
 
     /// Resolve a control point to (x, y) coordinates.
-    fn resolve_control_point(&self, point_id: EntityId) -> Result<(Rational, Rational), SceneError> {
+    fn resolve_control_point(
+        &self,
+        point_id: EntityId,
+    ) -> Result<(Rational, Rational), SceneError> {
         // First try solver output
         let x_var = VarId::new(point_id, VectorComponent::X);
         let y_var = VarId::new(point_id, VectorComponent::Y);
@@ -716,7 +726,9 @@ pub fn derive_value_equality_constraints(
 
         // Sort for deterministic output (entity id first, then component via debug string)
         var_ids.sort_by(|a, b| {
-            a.entity.0.cmp(&b.entity.0)
+            a.entity
+                .0
+                .cmp(&b.entity.0)
                 .then_with(|| format!("{:?}", a.component).cmp(&format!("{:?}", b.component)))
         });
 
@@ -765,9 +777,9 @@ mod tests {
     fn test_build_triangle_with_solid_fill() {
         // Create a triangle with 3 control points
         let solutions = make_solutions(&[
-            (1, 0, 0),     // Point 1: (0, 0)
-            (2, 100, 0),   // Point 2: (100, 0)
-            (3, 50, 100),  // Point 3: (50, 100)
+            (1, 0, 0),    // Point 1: (0, 0)
+            (2, 100, 0),  // Point 2: (100, 0)
+            (3, 50, 100), // Point 3: (50, 100)
         ]);
 
         let mut build_info = VsBuildInfo::default();
@@ -977,14 +989,28 @@ mod tests {
         build_info.path_entities.push(PathEntityEntry {
             id: EntityId(100),
             segments: vec![
-                PathSegment::Line { from: EntityId(1), to: EntityId(2) },
-                PathSegment::Line { from: EntityId(2), to: EntityId(3) },
-                PathSegment::Line { from: EntityId(3), to: EntityId(4) },
-                PathSegment::Line { from: EntityId(4), to: EntityId(1) },
+                PathSegment::Line {
+                    from: EntityId(1),
+                    to: EntityId(2),
+                },
+                PathSegment::Line {
+                    from: EntityId(2),
+                    to: EntityId(3),
+                },
+                PathSegment::Line {
+                    from: EntityId(3),
+                    to: EntityId(4),
+                },
+                PathSegment::Line {
+                    from: EntityId(4),
+                    to: EntityId(1),
+                },
             ],
             closed: true,
             fill_rule: FillRule::NonZero,
-            fill: Some(FillSpec::Solid { color: "#ff0000".to_string() }),
+            fill: Some(FillSpec::Solid {
+                color: "#ff0000".to_string(),
+            }),
             stroke: None,
         });
 
@@ -992,14 +1018,28 @@ mod tests {
         build_info.path_entities.push(PathEntityEntry {
             id: EntityId(200),
             segments: vec![
-                PathSegment::Line { from: EntityId(2), to: EntityId(5) },
-                PathSegment::Line { from: EntityId(5), to: EntityId(6) },
-                PathSegment::Line { from: EntityId(6), to: EntityId(3) },
-                PathSegment::Line { from: EntityId(3), to: EntityId(2) },
+                PathSegment::Line {
+                    from: EntityId(2),
+                    to: EntityId(5),
+                },
+                PathSegment::Line {
+                    from: EntityId(5),
+                    to: EntityId(6),
+                },
+                PathSegment::Line {
+                    from: EntityId(6),
+                    to: EntityId(3),
+                },
+                PathSegment::Line {
+                    from: EntityId(3),
+                    to: EntityId(2),
+                },
             ],
             closed: true,
             fill_rule: FillRule::NonZero,
-            fill: Some(FillSpec::Solid { color: "#00ff00".to_string() }),
+            fill: Some(FillSpec::Solid {
+                color: "#00ff00".to_string(),
+            }),
             stroke: None,
         });
 
@@ -1053,12 +1093,10 @@ mod tests {
         let mut build_info = VsBuildInfo::default();
         build_info.path_entities.push(PathEntityEntry {
             id: EntityId(200),
-            segments: vec![
-                PathSegment::Line {
-                    from: EntityId(1),
-                    to: EntityId(99), // NOT in solutions
-                },
-            ],
+            segments: vec![PathSegment::Line {
+                from: EntityId(1),
+                to: EntityId(99), // NOT in solutions
+            }],
             closed: false,
             fill_rule: FillRule::NonZero,
             fill: None,
@@ -1076,10 +1114,7 @@ mod tests {
             SceneError::PathResolutionFailed { entity_id, .. } => {
                 assert_eq!(entity_id, EntityId(200));
             }
-            other => panic!(
-                "Expected PathResolutionFailed, got {:?}",
-                other
-            ),
+            other => panic!("Expected PathResolutionFailed, got {:?}", other),
         }
     }
 
@@ -1198,10 +1233,22 @@ mod tests {
         build_info.path_entities.push(PathEntityEntry {
             id: EntityId(100),
             segments: vec![
-                PathSegment::Line { from: EntityId(1), to: EntityId(2) },
-                PathSegment::Line { from: EntityId(2), to: EntityId(3) },
-                PathSegment::Line { from: EntityId(3), to: EntityId(4) },
-                PathSegment::Line { from: EntityId(4), to: EntityId(1) },
+                PathSegment::Line {
+                    from: EntityId(1),
+                    to: EntityId(2),
+                },
+                PathSegment::Line {
+                    from: EntityId(2),
+                    to: EntityId(3),
+                },
+                PathSegment::Line {
+                    from: EntityId(3),
+                    to: EntityId(4),
+                },
+                PathSegment::Line {
+                    from: EntityId(4),
+                    to: EntityId(1),
+                },
             ],
             closed: true,
             fill_rule: FillRule::NonZero,
@@ -1213,10 +1260,22 @@ mod tests {
         build_info.path_entities.push(PathEntityEntry {
             id: EntityId(200),
             segments: vec![
-                PathSegment::Line { from: EntityId(5), to: EntityId(6) },
-                PathSegment::Line { from: EntityId(6), to: EntityId(7) },
-                PathSegment::Line { from: EntityId(7), to: EntityId(8) },
-                PathSegment::Line { from: EntityId(8), to: EntityId(5) },
+                PathSegment::Line {
+                    from: EntityId(5),
+                    to: EntityId(6),
+                },
+                PathSegment::Line {
+                    from: EntityId(6),
+                    to: EntityId(7),
+                },
+                PathSegment::Line {
+                    from: EntityId(7),
+                    to: EntityId(8),
+                },
+                PathSegment::Line {
+                    from: EntityId(8),
+                    to: EntityId(5),
+                },
             ],
             closed: true,
             fill_rule: FillRule::NonZero,

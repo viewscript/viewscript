@@ -359,7 +359,14 @@ pub fn tessellate_cubic_beziers(commands: &[PathCommand]) -> CubicLoopBlinnOutpu
                 output.interior_commands.push(cmd.clone());
             }
 
-            PathCommand::CubicTo { x1, y1, x2, y2, x, y } => {
+            PathCommand::CubicTo {
+                x1,
+                y1,
+                x2,
+                y2,
+                x,
+                y,
+            } => {
                 // Convert control points to f32
                 let p0 = [pen_x, pen_y];
                 let p1 = [
@@ -390,7 +397,10 @@ pub fn tessellate_cubic_beziers(commands: &[PathCommand]) -> CubicLoopBlinnOutpu
                         // Valid curve: generate Loop-Blinn triangles (2 triangles, 4 vertices)
                         let base_index = output.vertices.len() as u32;
                         let vertices = CubicLoopBlinnVertex::from_cubic(
-                            p0, p1, p2, p3,
+                            p0,
+                            p1,
+                            p2,
+                            p3,
                             &classification.klm,
                             classification.curve_sign,
                         );
@@ -466,10 +476,7 @@ mod tests {
     fn test_line_only_path() {
         let commands = vec![
             PathCommand::MoveTo { x: r(0), y: r(0) },
-            PathCommand::LineTo {
-                x: r(100),
-                y: r(0),
-            },
+            PathCommand::LineTo { x: r(100), y: r(0) },
             PathCommand::LineTo {
                 x: r(100),
                 y: r(100),
@@ -700,10 +707,7 @@ mod tests {
     #[test]
     fn test_subpath_tracking_with_close() {
         let commands = vec![
-            PathCommand::MoveTo {
-                x: r(10),
-                y: r(20),
-            },
+            PathCommand::MoveTo { x: r(10), y: r(20) },
             PathCommand::LineTo {
                 x: r(100),
                 y: r(20),
@@ -742,7 +746,10 @@ mod tests {
         let commands = vec![
             PathCommand::MoveTo { x: r(0), y: r(0) },
             PathCommand::LineTo { x: r(100), y: r(0) },
-            PathCommand::LineTo { x: r(100), y: r(100) },
+            PathCommand::LineTo {
+                x: r(100),
+                y: r(100),
+            },
             PathCommand::Close,
         ];
 
@@ -870,18 +877,9 @@ mod tests {
 
         // Verify vertices have finite (k, l, m) texture coordinates
         for vertex in &output.vertices {
-            assert!(
-                vertex.curve_klm[0].is_finite(),
-                "k should be finite"
-            );
-            assert!(
-                vertex.curve_klm[1].is_finite(),
-                "l should be finite"
-            );
-            assert!(
-                vertex.curve_klm[2].is_finite(),
-                "m should be finite"
-            );
+            assert!(vertex.curve_klm[0].is_finite(), "k should be finite");
+            assert!(vertex.curve_klm[1].is_finite(), "l should be finite");
+            assert!(vertex.curve_klm[2].is_finite(), "m should be finite");
         }
     }
 
@@ -912,18 +910,21 @@ mod tests {
         // Verify indices form valid triangles
         // First curve: (0,1,2), (0,2,3)
         // Second curve: (4,5,6), (4,6,7)
-        assert_eq!(
-            output.indices,
-            vec![0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]
-        );
+        assert_eq!(output.indices, vec![0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]);
     }
 
     #[test]
     fn test_cubic_pen_tracking() {
         // Test that pen position is correctly tracked for cubics
         let commands = vec![
-            PathCommand::MoveTo { x: r(100), y: r(100) },
-            PathCommand::LineTo { x: r(200), y: r(100) },
+            PathCommand::MoveTo {
+                x: r(100),
+                y: r(100),
+            },
+            PathCommand::LineTo {
+                x: r(200),
+                y: r(100),
+            },
             PathCommand::CubicTo {
                 x1: r(250),
                 y1: r(150),

@@ -110,13 +110,8 @@ impl SelfHealingAgent {
                 };
             }
 
-            let (exit_code, stdout, stderr) = self.run_vsc(&[
-                "add-constraint",
-                target,
-                component,
-                relation,
-                term,
-            ]);
+            let (exit_code, stdout, stderr) =
+                self.run_vsc(&["add-constraint", target, component, relation, term]);
 
             if exit_code == 0 {
                 // Success! Constraint was added without collision.
@@ -208,10 +203,8 @@ impl SelfHealingAgent {
                 if let Some(ids) = action.get("constraint_ids").and_then(|v| v.as_array()) {
                     for id in ids {
                         if let Some(id_num) = id.as_u64() {
-                            let (code, _, _) = self.run_vsc(&[
-                                "delete-constraint",
-                                &id_num.to_string(),
-                            ]);
+                            let (code, _, _) =
+                                self.run_vsc(&["delete-constraint", &id_num.to_string()]);
                             if code != 0 {
                                 return AppliedRepair {
                                     attempt: self.repair_history.len() as u32 + 1,
@@ -227,7 +220,10 @@ impl SelfHealingAgent {
             }
             "modify_constants" => {
                 // Modify constraint constants
-                if let Some(affected) = suggestion.get("affected_constraints").and_then(|v| v.as_array()) {
+                if let Some(affected) = suggestion
+                    .get("affected_constraints")
+                    .and_then(|v| v.as_array())
+                {
                     for modification in affected {
                         let constraint_id = modification
                             .get("constraint_id")
@@ -288,7 +284,9 @@ impl SelfHealingAgent {
             }
             "break_cycle" => {
                 // Redirect a dependency
-                if let Some(constraint_id) = action.get("constraint_to_modify").and_then(|v| v.as_u64()) {
+                if let Some(constraint_id) =
+                    action.get("constraint_to_modify").and_then(|v| v.as_u64())
+                {
                     if let Some(new_term) = action.get("new_term") {
                         let term_json = serde_json::to_string(new_term).unwrap_or_default();
                         let (code, _, _) = self.run_vsc(&[
@@ -362,7 +360,9 @@ mod tests {
 
         // Add first constraint: A.x = 100
         let result1 = agent.add_constraint_with_healing(
-            "1", "x", "eq",
+            "1",
+            "x",
+            "eq",
             r#"{"type":"const","value":"100/1"}"#,
         );
         assert!(result1.healed, "First constraint should succeed");
@@ -385,7 +385,11 @@ mod tests {
         // 1. Heal by rejecting the incoming constraint, OR
         // 2. Heal by modifying existing constraints
         assert!(
-            result3.healed || result3.repairs.iter().any(|r| r.action_type == "reject_incoming"),
+            result3.healed
+                || result3
+                    .repairs
+                    .iter()
+                    .any(|r| r.action_type == "reject_incoming"),
             "System should self-heal or reject incoming: {:?}",
             result3
         );
@@ -404,7 +408,9 @@ mod tests {
 
         // A.x = 200 (direct contradiction)
         let result = agent.add_constraint_with_healing(
-            "1", "x", "eq",
+            "1",
+            "x",
+            "eq",
             r#"{"type":"const","value":"200/1"}"#,
         );
 
@@ -432,13 +438,17 @@ mod tests {
 
         // Add constraint that references another entity
         agent.add_constraint_with_healing(
-            "3", "x", "eq",
+            "3",
+            "x",
+            "eq",
             r#"{"type":"ref","entity_id":1,"component":"x"}"#,
         );
 
         // Inject collision
         let result = agent.add_constraint_with_healing(
-            "1", "x", "eq",
+            "1",
+            "x",
+            "eq",
             r#"{"type":"ref","entity_id":3,"component":"x"}"#,
         );
 

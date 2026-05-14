@@ -30,10 +30,9 @@
 //! nodes with different transforms but identical other state to be merged.
 //! The shader receives identity transform (viewport conversion only).
 
-
 use crate::loop_blinn::{
-    tessellate_cubic_beziers, tessellate_quadratic_beziers,
-    CubicLoopBlinnOutput, CubicLoopBlinnVertex, LoopBlinnOutput, LoopBlinnVertex,
+    tessellate_cubic_beziers, tessellate_quadratic_beziers, CubicLoopBlinnOutput,
+    CubicLoopBlinnVertex, LoopBlinnOutput, LoopBlinnVertex,
 };
 use crate::opacity::OpacityStack;
 use crate::pipeline::{PipelineManager, PipelineSet};
@@ -48,7 +47,9 @@ use crate::shaders::{
 use crate::stencil::StencilStack;
 use crate::tessellation::{tessellate_path, tessellate_path_stroke, GpuVertex, TessellationOutput};
 use crate::transform::TransformStack;
-use crate::{AffineTransform, CanvasGroupNode, CanvasNode, CanvasPathNode, FillStyle, GradientStop};
+use crate::{
+    AffineTransform, CanvasGroupNode, CanvasNode, CanvasPathNode, FillStyle, GradientStop,
+};
 use vsc_core::PathCommand;
 use wgpu::util::DeviceExt;
 
@@ -199,7 +200,9 @@ impl BatchVertices {
 ///
 /// Used to determine whether to use Loop-Blinn rendering path.
 fn has_quadratic_bezier(commands: &[PathCommand]) -> bool {
-    commands.iter().any(|cmd| matches!(cmd, PathCommand::QuadTo { .. }))
+    commands
+        .iter()
+        .any(|cmd| matches!(cmd, PathCommand::QuadTo { .. }))
 }
 
 /// Check if a path contains any CubicTo commands.
@@ -254,10 +257,9 @@ impl PartialEq for UniformData {
             (UniformData::RadialGradient(a), UniformData::RadialGradient(b)) => {
                 bytemuck::bytes_of(a) == bytemuck::bytes_of(b)
             }
-            (
-                UniformData::Texture { texture_id: a },
-                UniformData::Texture { texture_id: b },
-            ) => a == b,
+            (UniformData::Texture { texture_id: a }, UniformData::Texture { texture_id: b }) => {
+                a == b
+            }
             _ => false,
         }
     }
@@ -298,7 +300,12 @@ struct BatchKey {
 
 impl BatchKey {
     fn new(uniform_data: &UniformData, stencil_ref: u32, opacity: f32) -> Self {
-        Self::with_pipeline(uniform_data.pipeline_key(), uniform_data, stencil_ref, opacity)
+        Self::with_pipeline(
+            uniform_data.pipeline_key(),
+            uniform_data,
+            stencil_ref,
+            opacity,
+        )
     }
 
     fn new_loop_blinn(uniform_data: &UniformData, stencil_ref: u32, opacity: f32) -> Self {
@@ -306,7 +313,12 @@ impl BatchKey {
     }
 
     fn new_loop_blinn_cubic(uniform_data: &UniformData, stencil_ref: u32, opacity: f32) -> Self {
-        Self::with_pipeline(PipelineKey::LoopBlinnCubic, uniform_data, stencil_ref, opacity)
+        Self::with_pipeline(
+            PipelineKey::LoopBlinnCubic,
+            uniform_data,
+            stencil_ref,
+            opacity,
+        )
     }
 
     fn new_sdf_stroke(uniform_data: &UniformData, stencil_ref: u32, opacity: f32) -> Self {
@@ -314,7 +326,12 @@ impl BatchKey {
     }
 
     fn new_sdf_stroke_cubic(uniform_data: &UniformData, stencil_ref: u32, opacity: f32) -> Self {
-        Self::with_pipeline(PipelineKey::SdfStrokeCubic, uniform_data, stencil_ref, opacity)
+        Self::with_pipeline(
+            PipelineKey::SdfStrokeCubic,
+            uniform_data,
+            stencil_ref,
+            opacity,
+        )
     }
 
     fn with_pipeline(
@@ -461,10 +478,8 @@ impl DrawBatch {
 
         // Transform vertices to world space and add to batch
         for vertex in &tessellation.vertices {
-            let (wx, wy) = transform.transform_point(
-                vertex.position[0] as f64,
-                vertex.position[1] as f64,
-            );
+            let (wx, wy) =
+                transform.transform_point(vertex.position[0] as f64, vertex.position[1] as f64);
             vertices.push(GpuVertex {
                 position: [wx as f32, wy as f32],
                 uv: vertex.uv,
@@ -490,10 +505,8 @@ impl DrawBatch {
 
         // Transform vertices to world space and add to batch
         for vertex in &output.vertices {
-            let (wx, wy) = transform.transform_point(
-                vertex.position[0] as f64,
-                vertex.position[1] as f64,
-            );
+            let (wx, wy) =
+                transform.transform_point(vertex.position[0] as f64, vertex.position[1] as f64);
             vertices.push(LoopBlinnVertex {
                 position: [wx as f32, wy as f32],
                 curve_uv: vertex.curve_uv,
@@ -509,7 +522,11 @@ impl DrawBatch {
     /// Merge cubic Loop-Blinn tessellation output into this batch.
     ///
     /// Applies the given transform to vertices on CPU and adjusts indices.
-    fn merge_cubic_loop_blinn(&mut self, output: &CubicLoopBlinnOutput, transform: &AffineTransform) {
+    fn merge_cubic_loop_blinn(
+        &mut self,
+        output: &CubicLoopBlinnOutput,
+        transform: &AffineTransform,
+    ) {
         let BatchVertices::LoopBlinnCubic(ref mut vertices) = self.vertices else {
             // Should not happen: merging cubic LoopBlinn tessellation into wrong batch type
             log::warn!("Attempting to merge cubic LoopBlinn tessellation into non-cubic batch");
@@ -520,10 +537,8 @@ impl DrawBatch {
 
         // Transform vertices to world space and add to batch
         for vertex in &output.vertices {
-            let (wx, wy) = transform.transform_point(
-                vertex.position[0] as f64,
-                vertex.position[1] as f64,
-            );
+            let (wx, wy) =
+                transform.transform_point(vertex.position[0] as f64, vertex.position[1] as f64);
             vertices.push(CubicLoopBlinnVertex {
                 position: [wx as f32, wy as f32],
                 curve_klm: vertex.curve_klm,
@@ -553,17 +568,15 @@ impl DrawBatch {
 
         // Transform only position to world space; keep other attributes in local space
         for vertex in &output.vertices {
-            let (wx, wy) = transform.transform_point(
-                vertex.position[0] as f64,
-                vertex.position[1] as f64,
-            );
+            let (wx, wy) =
+                transform.transform_point(vertex.position[0] as f64, vertex.position[1] as f64);
             vertices.push(SdfStrokeVertex {
-                position: [wx as f32, wy as f32],  // World space
-                local_pos: vertex.local_pos,       // Local space (for SDF)
-                p0: vertex.p0,                     // Local space
-                p1: vertex.p1,                     // Local space
-                p2: vertex.p2,                     // Local space
-                half_width: vertex.half_width,     // Local space
+                position: [wx as f32, wy as f32], // World space
+                local_pos: vertex.local_pos,      // Local space (for SDF)
+                p0: vertex.p0,                    // Local space
+                p1: vertex.p1,                    // Local space
+                p2: vertex.p2,                    // Local space
+                half_width: vertex.half_width,    // Local space
             });
         }
 
@@ -579,9 +592,15 @@ impl DrawBatch {
     /// - `local_pos`, `p0`, `p1`, `p2`, `p3`, `half_width`: Keep in local space (for distance calculation)
     ///
     /// This ensures the SDF distance calculation is correct under non-uniform scaling.
-    fn merge_sdf_stroke_cubic(&mut self, output: &CubicSdfStrokeOutput, transform: &AffineTransform) {
+    fn merge_sdf_stroke_cubic(
+        &mut self,
+        output: &CubicSdfStrokeOutput,
+        transform: &AffineTransform,
+    ) {
         let BatchVertices::SdfStrokeCubic(ref mut vertices) = self.vertices else {
-            log::warn!("Attempting to merge SdfStrokeCubic tessellation into non-SdfStrokeCubic batch");
+            log::warn!(
+                "Attempting to merge SdfStrokeCubic tessellation into non-SdfStrokeCubic batch"
+            );
             return;
         };
 
@@ -589,18 +608,16 @@ impl DrawBatch {
 
         // Transform only position to world space; keep other attributes in local space
         for vertex in &output.vertices {
-            let (wx, wy) = transform.transform_point(
-                vertex.position[0] as f64,
-                vertex.position[1] as f64,
-            );
+            let (wx, wy) =
+                transform.transform_point(vertex.position[0] as f64, vertex.position[1] as f64);
             vertices.push(CubicSdfStrokeVertex::new(
-                [wx as f32, wy as f32],  // World space
-                vertex.local_pos,        // Local space (for SDF)
-                vertex.p0,               // Local space
-                vertex.p1,               // Local space
-                vertex.p2,               // Local space
-                vertex.p3,               // Local space
-                vertex.half_width,       // Local space
+                [wx as f32, wy as f32], // World space
+                vertex.local_pos,       // Local space (for SDF)
+                vertex.p0,              // Local space
+                vertex.p1,              // Local space
+                vertex.p2,              // Local space
+                vertex.p3,              // Local space
+                vertex.half_width,      // Local space
             ));
         }
 
@@ -1218,12 +1235,13 @@ impl DrawBatcher {
         // Check if we can merge with the current (last) batch
         let should_create_new = match &self.current_key {
             Some(current) if current == &key => false, // Same key, merge
-            _ => true,                                  // Different key or no current batch
+            _ => true,                                 // Different key or no current batch
         };
 
         if should_create_new {
             // Create new batch
-            self.batches.push(DrawBatch::new(uniform_data.clone(), stencil_ref, opacity));
+            self.batches
+                .push(DrawBatch::new(uniform_data.clone(), stencil_ref, opacity));
             self.current_key = Some(key);
         }
 
@@ -1250,13 +1268,16 @@ impl DrawBatcher {
         // Check if we can merge with the current (last) batch
         let should_create_new = match &self.current_key {
             Some(current) if current == &key => false, // Same key, merge
-            _ => true,                                  // Different key or no current batch
+            _ => true,                                 // Different key or no current batch
         };
 
         if should_create_new {
             // Create new Loop-Blinn batch
-            self.batches
-                .push(DrawBatch::new_loop_blinn(uniform_data.clone(), stencil_ref, opacity));
+            self.batches.push(DrawBatch::new_loop_blinn(
+                uniform_data.clone(),
+                stencil_ref,
+                opacity,
+            ));
             self.current_key = Some(key);
         }
 
@@ -1283,13 +1304,16 @@ impl DrawBatcher {
         // Check if we can merge with the current (last) batch
         let should_create_new = match &self.current_key {
             Some(current) if current == &key => false, // Same key, merge
-            _ => true,                                  // Different key or no current batch
+            _ => true,                                 // Different key or no current batch
         };
 
         if should_create_new {
             // Create new cubic Loop-Blinn batch
-            self.batches
-                .push(DrawBatch::new_loop_blinn_cubic(uniform_data.clone(), stencil_ref, opacity));
+            self.batches.push(DrawBatch::new_loop_blinn_cubic(
+                uniform_data.clone(),
+                stencil_ref,
+                opacity,
+            ));
             self.current_key = Some(key);
         }
 
@@ -1316,13 +1340,16 @@ impl DrawBatcher {
         // Check if we can merge with the current (last) batch
         let should_create_new = match &self.current_key {
             Some(current) if current == &key => false, // Same key, merge
-            _ => true,                                  // Different key or no current batch
+            _ => true,                                 // Different key or no current batch
         };
 
         if should_create_new {
             // Create new SDF stroke batch
-            self.batches
-                .push(DrawBatch::new_sdf_stroke(uniform_data.clone(), stencil_ref, opacity));
+            self.batches.push(DrawBatch::new_sdf_stroke(
+                uniform_data.clone(),
+                stencil_ref,
+                opacity,
+            ));
             self.current_key = Some(key);
         }
 
@@ -1349,13 +1376,16 @@ impl DrawBatcher {
         // Check if we can merge with the current (last) batch
         let should_create_new = match &self.current_key {
             Some(current) if current == &key => false, // Same key, merge
-            _ => true,                                  // Different key or no current batch
+            _ => true,                                 // Different key or no current batch
         };
 
         if should_create_new {
             // Create new SDF stroke cubic batch
-            self.batches
-                .push(DrawBatch::new_sdf_stroke_cubic(uniform_data.clone(), stencil_ref, opacity));
+            self.batches.push(DrawBatch::new_sdf_stroke_cubic(
+                uniform_data.clone(),
+                stencil_ref,
+                opacity,
+            ));
             self.current_key = Some(key);
         }
 
@@ -1395,9 +1425,9 @@ impl DrawBatcher {
                 // Fallback to black for unsupported patterns
                 UniformData::Solid(SolidColorUniform::new(0.0, 0.0, 0.0, 1.0))
             }
-            FillStyle::ExternalTexture { texture_id, .. } => {
-                UniformData::Texture { texture_id: *texture_id }
-            }
+            FillStyle::ExternalTexture { texture_id, .. } => UniformData::Texture {
+                texture_id: *texture_id,
+            },
         }
     }
 
@@ -1431,16 +1461,12 @@ impl DrawBatcher {
     pub fn drain(&mut self) -> Vec<DrawBatch> {
         // Finalize transform uniforms for each batch
         for batch in &mut self.batches {
-            batch.transform =
-                TransformUniform::identity(self.viewport_width, self.viewport_height);
+            batch.transform = TransformUniform::identity(self.viewport_width, self.viewport_height);
             batch.transform.opacity = batch.opacity;
         }
 
         // Take batches, leaving empty vec
-        let result: Vec<DrawBatch> = self.batches
-            .drain(..)
-            .filter(|b| !b.is_empty())
-            .collect();
+        let result: Vec<DrawBatch> = self.batches.drain(..).filter(|b| !b.is_empty()).collect();
 
         self.current_key = None;
         result
@@ -1475,7 +1501,14 @@ mod tests {
     use vsc_core::{EntityId, Rational};
 
     /// Helper to create a simple rectangle path node.
-    fn create_rect_path(entity_id: u64, rgba: [u8; 4], x: f32, y: f32, w: f32, h: f32) -> CanvasPathNode {
+    fn create_rect_path(
+        entity_id: u64,
+        rgba: [u8; 4],
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+    ) -> CanvasPathNode {
         CanvasPathNode {
             base: CanvasNodeBase {
                 entity_id: EntityId(entity_id),
@@ -1526,16 +1559,41 @@ mod tests {
 
         // Create 3 CONSECUTIVE rectangles with the same color
         let nodes = vec![
-            CanvasNode::Path(create_rect_path(1, [255, 0, 0, 255], 0.0, 0.0, 100.0, 100.0)),
-            CanvasNode::Path(create_rect_path(2, [255, 0, 0, 255], 100.0, 0.0, 100.0, 100.0)),
-            CanvasNode::Path(create_rect_path(3, [255, 0, 0, 255], 200.0, 0.0, 100.0, 100.0)),
+            CanvasNode::Path(create_rect_path(
+                1,
+                [255, 0, 0, 255],
+                0.0,
+                0.0,
+                100.0,
+                100.0,
+            )),
+            CanvasNode::Path(create_rect_path(
+                2,
+                [255, 0, 0, 255],
+                100.0,
+                0.0,
+                100.0,
+                100.0,
+            )),
+            CanvasNode::Path(create_rect_path(
+                3,
+                [255, 0, 0, 255],
+                200.0,
+                0.0,
+                100.0,
+                100.0,
+            )),
         ];
 
         batcher.collect_nodes(&nodes, 800.0, 600.0);
         let batches = batcher.drain();
 
         // Should produce exactly 1 batch (consecutive same-color)
-        assert_eq!(batches.len(), 1, "Expected 1 batch for consecutive same-color rects");
+        assert_eq!(
+            batches.len(),
+            1,
+            "Expected 1 batch for consecutive same-color rects"
+        );
 
         // Verify batch contains vertices from all 3 rectangles
         let batch = &batches[0];
@@ -1555,8 +1613,22 @@ mod tests {
 
         // Create 2 rectangles with different colors
         let nodes = vec![
-            CanvasNode::Path(create_rect_path(1, [255, 0, 0, 255], 0.0, 0.0, 100.0, 100.0)),
-            CanvasNode::Path(create_rect_path(2, [0, 255, 0, 255], 100.0, 0.0, 100.0, 100.0)),
+            CanvasNode::Path(create_rect_path(
+                1,
+                [255, 0, 0, 255],
+                0.0,
+                0.0,
+                100.0,
+                100.0,
+            )),
+            CanvasNode::Path(create_rect_path(
+                2,
+                [0, 255, 0, 255],
+                100.0,
+                0.0,
+                100.0,
+                100.0,
+            )),
         ];
 
         batcher.collect_nodes(&nodes, 800.0, 600.0);
@@ -1575,8 +1647,22 @@ mod tests {
 
         // Create 2 rectangles with same color (consecutive = merged)
         let nodes = vec![
-            CanvasNode::Path(create_rect_path(1, [255, 0, 0, 255], 0.0, 0.0, 100.0, 100.0)),
-            CanvasNode::Path(create_rect_path(2, [255, 0, 0, 255], 100.0, 0.0, 100.0, 100.0)),
+            CanvasNode::Path(create_rect_path(
+                1,
+                [255, 0, 0, 255],
+                0.0,
+                0.0,
+                100.0,
+                100.0,
+            )),
+            CanvasNode::Path(create_rect_path(
+                2,
+                [255, 0, 0, 255],
+                100.0,
+                0.0,
+                100.0,
+                100.0,
+            )),
         ];
 
         batcher.collect_nodes(&nodes, 800.0, 600.0);
@@ -1597,7 +1683,10 @@ mod tests {
         }
 
         // All indices must form complete triangles
-        assert!(batch.indices.len() % 3 == 0, "Indices should form complete triangles");
+        assert!(
+            batch.indices.len() % 3 == 0,
+            "Indices should form complete triangles"
+        );
     }
 
     #[test]
@@ -1636,9 +1725,18 @@ mod tests {
 
         // Verify vertices are transformed (should be offset by 50, 50)
         // Original rect is at (0,0)-(100,100), transformed should be (50,50)-(150,150)
-        let vertices = batch.vertices.as_standard().expect("Expected standard vertices");
-        let min_x = vertices.iter().map(|v| v.position[0]).fold(f32::INFINITY, f32::min);
-        let min_y = vertices.iter().map(|v| v.position[1]).fold(f32::INFINITY, f32::min);
+        let vertices = batch
+            .vertices
+            .as_standard()
+            .expect("Expected standard vertices");
+        let min_x = vertices
+            .iter()
+            .map(|v| v.position[0])
+            .fold(f32::INFINITY, f32::min);
+        let min_y = vertices
+            .iter()
+            .map(|v| v.position[1])
+            .fold(f32::INFINITY, f32::min);
 
         // Allow some tolerance for tessellation artifacts
         assert!(
@@ -1713,7 +1811,11 @@ mod tests {
         let batches = batcher.drain();
 
         // Should produce 2 batches (different opacity)
-        assert_eq!(batches.len(), 2, "Expected 2 batches for different opacities");
+        assert_eq!(
+            batches.len(),
+            2,
+            "Expected 2 batches for different opacities"
+        );
     }
 
     #[test]
@@ -1734,7 +1836,10 @@ mod tests {
         let key3 = BatchKey::new(&uniform3, 0, 1.0);
 
         assert_eq!(key1, key2, "Same uniform data should produce same key");
-        assert_ne!(key1, key3, "Different uniform data should produce different key");
+        assert_ne!(
+            key1, key3,
+            "Different uniform data should produce different key"
+        );
     }
 
     /// Test z-order preservation: interleaved colors must NOT be merged.
@@ -1753,9 +1858,30 @@ mod tests {
         // Create interleaved color nodes (processed in tree order = z-order)
         // z=1: red, z=2: blue, z=3: red
         let nodes = vec![
-            CanvasNode::Path(create_rect_path(1, [255, 0, 0, 255], 0.0, 0.0, 100.0, 100.0)),   // red A
-            CanvasNode::Path(create_rect_path(2, [0, 0, 255, 255], 50.0, 50.0, 100.0, 100.0)), // blue B
-            CanvasNode::Path(create_rect_path(3, [255, 0, 0, 255], 100.0, 100.0, 100.0, 100.0)), // red C
+            CanvasNode::Path(create_rect_path(
+                1,
+                [255, 0, 0, 255],
+                0.0,
+                0.0,
+                100.0,
+                100.0,
+            )), // red A
+            CanvasNode::Path(create_rect_path(
+                2,
+                [0, 0, 255, 255],
+                50.0,
+                50.0,
+                100.0,
+                100.0,
+            )), // blue B
+            CanvasNode::Path(create_rect_path(
+                3,
+                [255, 0, 0, 255],
+                100.0,
+                100.0,
+                100.0,
+                100.0,
+            )), // red C
         ];
 
         batcher.collect_nodes(&nodes, 800.0, 600.0);
@@ -1792,7 +1918,8 @@ mod tests {
         assert!(
             (v0 as i32 - v2 as i32).abs() < 10,
             "First and third batch should have similar vertex counts (not merged). v0={}, v2={}",
-            v0, v2
+            v0,
+            v2
         );
     }
 
@@ -1842,8 +1969,14 @@ mod tests {
         let batch = &batches[0];
 
         // Verify world-space positions are shifted
-        let vertices = batch.vertices.as_standard().expect("Expected standard vertices");
-        let min_x = vertices.iter().map(|v| v.position[0]).fold(f32::INFINITY, f32::min);
+        let vertices = batch
+            .vertices
+            .as_standard()
+            .expect("Expected standard vertices");
+        let min_x = vertices
+            .iter()
+            .map(|v| v.position[0])
+            .fold(f32::INFINITY, f32::min);
         assert!(
             min_x > 400.0,
             "World position should be shifted by 500, min_x={}",
@@ -1855,12 +1988,16 @@ mod tests {
             assert!(
                 vertex.uv[0] >= 0.0 && vertex.uv[0] <= 1.0,
                 "Vertex[{}] UV.u out of range: {} (position.x={})",
-                i, vertex.uv[0], vertex.position[0]
+                i,
+                vertex.uv[0],
+                vertex.position[0]
             );
             assert!(
                 vertex.uv[1] >= 0.0 && vertex.uv[1] <= 1.0,
                 "Vertex[{}] UV.v out of range: {} (position.y={})",
-                i, vertex.uv[1], vertex.position[1]
+                i,
+                vertex.uv[1],
+                vertex.position[1]
             );
         }
     }
@@ -2031,11 +2168,18 @@ mod tests {
         );
 
         // Find the Loop-Blinn batch and Standard batch
-        let loop_blinn_batch = batches.iter().find(|b| b.pipeline_key == PipelineKey::LoopBlinn);
-        let standard_batch = batches.iter().find(|b| b.pipeline_key == PipelineKey::Solid);
+        let loop_blinn_batch = batches
+            .iter()
+            .find(|b| b.pipeline_key == PipelineKey::LoopBlinn);
+        let standard_batch = batches
+            .iter()
+            .find(|b| b.pipeline_key == PipelineKey::Solid);
 
         assert!(loop_blinn_batch.is_some(), "Expected a Loop-Blinn batch");
-        assert!(standard_batch.is_some(), "Expected a Standard (solid) batch");
+        assert!(
+            standard_batch.is_some(),
+            "Expected a Standard (solid) batch"
+        );
 
         let loop_blinn = loop_blinn_batch.unwrap();
         let standard = standard_batch.unwrap();
@@ -2047,7 +2191,11 @@ mod tests {
         );
         let lb_vertices = loop_blinn.vertices.as_loop_blinn().unwrap();
         // One QuadTo = 3 vertices (one triangle)
-        assert_eq!(lb_vertices.len(), 3, "Expected 3 Loop-Blinn vertices for one curve");
+        assert_eq!(
+            lb_vertices.len(),
+            3,
+            "Expected 3 Loop-Blinn vertices for one curve"
+        );
 
         // Verify standard batch contains interior fill vertices
         assert!(
@@ -2133,16 +2281,21 @@ mod tests {
             solid_count
         );
         assert_eq!(
-            batches.len(), 6,
+            batches.len(),
+            6,
             "Expected 6 total batches (2 per path), got {}",
             batches.len()
         );
 
         // Verify each Loop-Blinn batch has 3 vertices (1 curve)
-        for batch in batches.iter().filter(|b| b.pipeline_key == PipelineKey::LoopBlinn) {
+        for batch in batches
+            .iter()
+            .filter(|b| b.pipeline_key == PipelineKey::LoopBlinn)
+        {
             let lb_vertices = batch.vertices.as_loop_blinn().unwrap();
             assert_eq!(
-                lb_vertices.len(), 3,
+                lb_vertices.len(),
+                3,
                 "Expected 3 Loop-Blinn vertices per curve, got {}",
                 lb_vertices.len()
             );
@@ -2170,7 +2323,8 @@ mod tests {
         // Different colors = no merging
         // Total: 4 batches
         assert_eq!(
-            batches.len(), 4,
+            batches.len(),
+            4,
             "Expected 4 batches for 2 different-color QuadTo paths, got {}",
             batches.len()
         );
@@ -2179,7 +2333,10 @@ mod tests {
             .iter()
             .filter(|b| b.pipeline_key == PipelineKey::LoopBlinn)
             .count();
-        assert_eq!(loop_blinn_count, 2, "Expected 2 Loop-Blinn batches (one per color)");
+        assert_eq!(
+            loop_blinn_count, 2,
+            "Expected 2 Loop-Blinn batches (one per color)"
+        );
     }
 
     // =========================================================================
@@ -2187,7 +2344,11 @@ mod tests {
     // =========================================================================
 
     /// Helper to create a path with QuadTo and stroke (no fill).
-    fn create_quad_curve_stroke_only(entity_id: u64, stroke_rgba: [u8; 4], stroke_width: f32) -> CanvasPathNode {
+    fn create_quad_curve_stroke_only(
+        entity_id: u64,
+        stroke_rgba: [u8; 4],
+        stroke_width: f32,
+    ) -> CanvasPathNode {
         CanvasPathNode {
             base: CanvasNodeBase {
                 entity_id: EntityId(entity_id),
@@ -2354,13 +2515,28 @@ mod tests {
         );
 
         // Find each batch type
-        let loop_blinn_batch = batches.iter().find(|b| b.pipeline_key == PipelineKey::LoopBlinn);
-        let solid_batch = batches.iter().find(|b| b.pipeline_key == PipelineKey::Solid);
-        let sdf_stroke_batch = batches.iter().find(|b| b.pipeline_key == PipelineKey::SdfStroke);
+        let loop_blinn_batch = batches
+            .iter()
+            .find(|b| b.pipeline_key == PipelineKey::LoopBlinn);
+        let solid_batch = batches
+            .iter()
+            .find(|b| b.pipeline_key == PipelineKey::Solid);
+        let sdf_stroke_batch = batches
+            .iter()
+            .find(|b| b.pipeline_key == PipelineKey::SdfStroke);
 
-        assert!(loop_blinn_batch.is_some(), "Expected a LoopBlinn batch for curve fill");
-        assert!(solid_batch.is_some(), "Expected a Solid batch for interior fill");
-        assert!(sdf_stroke_batch.is_some(), "Expected a SdfStroke batch for curve stroke");
+        assert!(
+            loop_blinn_batch.is_some(),
+            "Expected a LoopBlinn batch for curve fill"
+        );
+        assert!(
+            solid_batch.is_some(),
+            "Expected a Solid batch for interior fill"
+        );
+        assert!(
+            sdf_stroke_batch.is_some(),
+            "Expected a SdfStroke batch for curve stroke"
+        );
 
         // Verify vertex types
         assert!(
@@ -2399,9 +2575,17 @@ mod tests {
             UniformData::Solid(color) => {
                 // #00ff00 = green (r=0, g=1, b=0)
                 assert!(color.r.abs() < 0.01, "Red should be ~0, got {}", color.r);
-                assert!((color.g - 1.0).abs() < 0.01, "Green should be ~1, got {}", color.g);
+                assert!(
+                    (color.g - 1.0).abs() < 0.01,
+                    "Green should be ~1, got {}",
+                    color.g
+                );
                 assert!(color.b.abs() < 0.01, "Blue should be ~0, got {}", color.b);
-                assert!((color.a - 1.0).abs() < 0.01, "Alpha should be ~1, got {}", color.a);
+                assert!(
+                    (color.a - 1.0).abs() < 0.01,
+                    "Alpha should be ~1, got {}",
+                    color.a
+                );
             }
             _ => panic!("Expected Solid uniform data for SdfStroke"),
         }
@@ -2431,11 +2615,20 @@ mod tests {
         assert_eq!(batches.len(), 2, "Expected 2 batches for rect fill+stroke");
 
         // Neither should be SdfStroke (no QuadTo)
-        let sdf_count = batches.iter().filter(|b| b.pipeline_key == PipelineKey::SdfStroke).count();
+        let sdf_count = batches
+            .iter()
+            .filter(|b| b.pipeline_key == PipelineKey::SdfStroke)
+            .count();
         assert_eq!(sdf_count, 0, "No SdfStroke batches for path without QuadTo");
 
         // Both should be Solid (fill and stroke use lyon tessellation)
-        let solid_count = batches.iter().filter(|b| b.pipeline_key == PipelineKey::Solid).count();
-        assert_eq!(solid_count, 2, "Expected 2 Solid batches (fill + stroke via lyon)");
+        let solid_count = batches
+            .iter()
+            .filter(|b| b.pipeline_key == PipelineKey::Solid)
+            .count();
+        assert_eq!(
+            solid_count, 2,
+            "Expected 2 Solid batches (fill + stroke via lyon)"
+        );
     }
 }

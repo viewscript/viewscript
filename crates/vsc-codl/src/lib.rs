@@ -46,14 +46,14 @@
 //! ```
 
 pub mod ast;
-pub mod parser;
-pub mod validator;
-pub mod interpreter;
 pub mod error;
+pub mod interpreter;
+pub mod parser;
 pub mod schema;
+pub mod validator;
 
 pub use ast::*;
+pub use error::*;
+pub use interpreter::*;
 pub use parser::*;
 pub use validator::*;
-pub use interpreter::*;
-pub use error::*;

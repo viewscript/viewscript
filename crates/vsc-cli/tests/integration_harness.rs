@@ -123,8 +123,7 @@ impl TestProject {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).expect("Failed to create parent directories");
         }
-        fs::write(&path, content)
-            .unwrap_or_else(|_| panic!("Failed to write {}", relative_path));
+        fs::write(&path, content).unwrap_or_else(|_| panic!("Failed to write {}", relative_path));
     }
 }
 
@@ -159,14 +158,22 @@ impl CommandResult {
 
     /// Parse stdout as JSON.
     pub fn stdout_json(&self) -> Value {
-        serde_json::from_str(&self.stdout)
-            .unwrap_or_else(|e| panic!("Failed to parse stdout as JSON: {}\nstdout: {}", e, self.stdout))
+        serde_json::from_str(&self.stdout).unwrap_or_else(|e| {
+            panic!(
+                "Failed to parse stdout as JSON: {}\nstdout: {}",
+                e, self.stdout
+            )
+        })
     }
 
     /// Parse stderr as JSON.
     pub fn stderr_json(&self) -> Value {
-        serde_json::from_str(&self.stderr)
-            .unwrap_or_else(|e| panic!("Failed to parse stderr as JSON: {}\nstderr: {}", e, self.stderr))
+        serde_json::from_str(&self.stderr).unwrap_or_else(|e| {
+            panic!(
+                "Failed to parse stderr as JSON: {}\nstderr: {}",
+                e, self.stderr
+            )
+        })
     }
 
     /// Assert stdout contains a substring.
@@ -174,7 +181,8 @@ impl CommandResult {
         assert!(
             self.stdout.contains(substring),
             "Expected stdout to contain '{}' but got:\n{}",
-            substring, self.stdout
+            substring,
+            self.stdout
         );
         self
     }
@@ -198,8 +206,8 @@ impl SchemaValidator {
         let schema_content = fs::read_to_string(&schema_path)
             .unwrap_or_else(|_| panic!("Failed to read schema at {:?}", schema_path));
 
-        let collision_error_schema: Value = serde_json::from_str(&schema_content)
-            .expect("Failed to parse collision error schema");
+        let collision_error_schema: Value =
+            serde_json::from_str(&schema_content).expect("Failed to parse collision error schema");
 
         Self {
             collision_error_schema,
@@ -215,8 +223,14 @@ impl SchemaValidator {
 
     fn validate_structure(&self, json: &Value, _schema: &Value) -> Result<(), String> {
         // Basic structural validation (full jsonschema validation in production)
-        let required_fields = ["error_type", "message", "incoming_constraint",
-                               "conflicting_constraints", "repair_suggestions", "analysis"];
+        let required_fields = [
+            "error_type",
+            "message",
+            "incoming_constraint",
+            "conflicting_constraints",
+            "repair_suggestions",
+            "analysis",
+        ];
 
         for field in required_fields {
             if json.get(field).is_none() {
@@ -225,8 +239,13 @@ impl SchemaValidator {
         }
 
         // Validate error_type enum
-        let valid_error_types = ["circular_reference", "direct_contradiction",
-                                 "relation_mismatch", "overdetermined", "self_reference"];
+        let valid_error_types = [
+            "circular_reference",
+            "direct_contradiction",
+            "relation_mismatch",
+            "overdetermined",
+            "self_reference",
+        ];
         if let Some(error_type) = json.get("error_type").and_then(|v| v.as_str()) {
             if !valid_error_types.contains(&error_type) {
                 return Err(format!("Invalid error_type: {}", error_type));
@@ -234,7 +253,11 @@ impl SchemaValidator {
         }
 
         // Validate repair_suggestions is an array
-        if !json.get("repair_suggestions").map(|v| v.is_array()).unwrap_or(false) {
+        if !json
+            .get("repair_suggestions")
+            .map(|v| v.is_array())
+            .unwrap_or(false)
+        {
             return Err("repair_suggestions must be an array".to_string());
         }
 
@@ -263,7 +286,10 @@ mod tests {
         result.assert_success();
 
         // Verify files were created
-        assert!(project.file_exists("vsconfig.json"), "vsconfig.json should exist");
+        assert!(
+            project.file_exists("vsconfig.json"),
+            "vsconfig.json should exist"
+        );
     }
 
     #[test]
@@ -274,11 +300,12 @@ mod tests {
         // Add first constraint
         let result1 = project.run_vsc(&[
             "add-constraint",
-            "1",           // target entity
-            "x",           // component
-            "eq",          // relation
-            r#"{"type":"const","value":"100/1"}"#,  // term (Rational format)
-            "--intent", "Set entity 1 x to 100"
+            "1",                                   // target entity
+            "x",                                   // component
+            "eq",                                  // relation
+            r#"{"type":"const","value":"100/1"}"#, // term (Rational format)
+            "--intent",
+            "Set entity 1 x to 100",
         ]);
         result1.assert_success();
 
@@ -288,8 +315,9 @@ mod tests {
             "2",
             "x",
             "eq",
-            r#"{"type":"const","value":"200/1"}"#,  // Rational format
-            "--intent", "Set entity 2 x to 200"
+            r#"{"type":"const","value":"200/1"}"#, // Rational format
+            "--intent",
+            "Set entity 2 x to 200",
         ]);
         result2.assert_success();
 
@@ -303,16 +331,22 @@ mod tests {
         project.init().assert_success();
 
         // Add: A.x < B.x
-        project.run_vsc(&[
-            "add-constraint",
-            "1", "x", "lt",
-            r#"{"type":"ref","entity_id":2,"component":"x"}"#,
-        ]).assert_success();
+        project
+            .run_vsc(&[
+                "add-constraint",
+                "1",
+                "x",
+                "lt",
+                r#"{"type":"ref","entity_id":2,"component":"x"}"#,
+            ])
+            .assert_success();
 
         // Add: B.x < A.x (creates circular reference)
         let result = project.run_vsc(&[
             "add-constraint",
-            "2", "x", "lt",
+            "2",
+            "x",
+            "lt",
             r#"{"type":"ref","entity_id":1,"component":"x"}"#,
         ]);
 
@@ -322,7 +356,8 @@ mod tests {
         let error_json = result.stderr_json();
         let validator = SchemaValidator::new();
 
-        validator.validate_collision_error(&error_json)
+        validator
+            .validate_collision_error(&error_json)
             .expect("Collision error should match schema");
 
         // Verify it's a circular reference
@@ -339,11 +374,15 @@ mod tests {
 
         // Add some constraints
         // Rational format: 100123456789/1000000000 = 100.123456789
-        project.run_vsc(&[
-            "add-constraint",
-            "1", "x", "eq",
-            r#"{"type":"const","value":"100123456789/1000000000"}"#,
-        ]).assert_success();
+        project
+            .run_vsc(&[
+                "add-constraint",
+                "1",
+                "x",
+                "eq",
+                r#"{"type":"const","value":"100123456789/1000000000"}"#,
+            ])
+            .assert_success();
 
         // Run optimize
         let result = project.run_vsc(&["optimize"]);
@@ -370,45 +409,67 @@ mod tests {
         // Laman number = 2*4 - 3 = 5, so 5 edges are allowed
 
         // Edge 1-2 (side 1)
-        project.run_vsc(&[
-            "add-constraint",
-            "1", "x", "eq",
-            r#"{"type":"ref","entity_id":2,"component":"x"}"#,
-        ]).assert_success();
+        project
+            .run_vsc(&[
+                "add-constraint",
+                "1",
+                "x",
+                "eq",
+                r#"{"type":"ref","entity_id":2,"component":"x"}"#,
+            ])
+            .assert_success();
 
         // Edge 2-3 (side 2)
-        project.run_vsc(&[
-            "add-constraint",
-            "2", "x", "eq",
-            r#"{"type":"ref","entity_id":3,"component":"x"}"#,
-        ]).assert_success();
+        project
+            .run_vsc(&[
+                "add-constraint",
+                "2",
+                "x",
+                "eq",
+                r#"{"type":"ref","entity_id":3,"component":"x"}"#,
+            ])
+            .assert_success();
 
         // Edge 3-4 (side 3)
-        project.run_vsc(&[
-            "add-constraint",
-            "3", "x", "eq",
-            r#"{"type":"ref","entity_id":4,"component":"x"}"#,
-        ]).assert_success();
+        project
+            .run_vsc(&[
+                "add-constraint",
+                "3",
+                "x",
+                "eq",
+                r#"{"type":"ref","entity_id":4,"component":"x"}"#,
+            ])
+            .assert_success();
 
         // Edge 4-1 (side 4)
-        project.run_vsc(&[
-            "add-constraint",
-            "4", "x", "eq",
-            r#"{"type":"ref","entity_id":1,"component":"x"}"#,
-        ]).assert_success();
+        project
+            .run_vsc(&[
+                "add-constraint",
+                "4",
+                "x",
+                "eq",
+                r#"{"type":"ref","entity_id":1,"component":"x"}"#,
+            ])
+            .assert_success();
 
         // Edge 1-3 (diagonal 1) - 5th edge, still within Laman bound
-        project.run_vsc(&[
-            "add-constraint",
-            "1", "y", "eq",
-            r#"{"type":"ref","entity_id":3,"component":"y"}"#,
-        ]).assert_success();
+        project
+            .run_vsc(&[
+                "add-constraint",
+                "1",
+                "y",
+                "eq",
+                r#"{"type":"ref","entity_id":3,"component":"y"}"#,
+            ])
+            .assert_success();
 
         // Edge 2-4 (diagonal 2) - 6th edge, exceeds Laman bound
         // This should fail with OVERCONSTRAINED_TOPOLOGY
         let result = project.run_vsc(&[
             "add-constraint",
-            "2", "y", "eq",
+            "2",
+            "y",
+            "eq",
             r#"{"type":"ref","entity_id":4,"component":"y"}"#,
         ]);
 
@@ -422,7 +483,9 @@ mod tests {
             "Should report overdetermined error type"
         );
         assert!(
-            error_json.get("message").and_then(|v| v.as_str())
+            error_json
+                .get("message")
+                .and_then(|v| v.as_str())
                 .map(|s| s.contains("overconstrained"))
                 .unwrap_or(false),
             "Message should mention 'overconstrained'"
@@ -438,18 +501,26 @@ mod tests {
         // The rigidity check will catch duplicate edges, so we use different entities
 
         // Constraint 1: x1 = 100
-        project.run_vsc(&[
-            "add-constraint",
-            "1", "x", "eq",
-            r#"{"type":"const","value":"100/1"}"#,
-        ]).assert_success();
+        project
+            .run_vsc(&[
+                "add-constraint",
+                "1",
+                "x",
+                "eq",
+                r#"{"type":"const","value":"100/1"}"#,
+            ])
+            .assert_success();
 
         // Constraint 2: x2 = 200
-        project.run_vsc(&[
-            "add-constraint",
-            "2", "x", "eq",
-            r#"{"type":"const","value":"200/1"}"#,
-        ]).assert_success();
+        project
+            .run_vsc(&[
+                "add-constraint",
+                "2",
+                "x",
+                "eq",
+                r#"{"type":"const","value":"200/1"}"#,
+            ])
+            .assert_success();
 
         // Constraint 3: x1 = x2 (this creates a contradiction but not a singularity)
         // Actually, this creates an overdetermined system: x1=100, x2=200, x1=x2
@@ -485,17 +556,23 @@ mod tests {
         project.init().assert_success();
 
         // Constraint 1: x1 = x2
-        project.run_vsc(&[
-            "add-constraint",
-            "1", "x", "eq",
-            r#"{"type":"ref","entity_id":2,"component":"x"}"#,
-        ]).assert_success();
+        project
+            .run_vsc(&[
+                "add-constraint",
+                "1",
+                "x",
+                "eq",
+                r#"{"type":"ref","entity_id":2,"component":"x"}"#,
+            ])
+            .assert_success();
 
         // Constraint 2: Try to add duplicate x1 = x2
         // This should be rejected as overconstrained (creates redundant edge in rigidity graph)
         let result = project.run_vsc(&[
             "add-constraint",
-            "1", "x", "eq",
+            "1",
+            "x",
+            "eq",
             r#"{"type":"ref","entity_id":2,"component":"x"}"#,
         ]);
 
@@ -522,12 +599,18 @@ mod tests {
         // Add a text entity
         let result = project.run_vsc(&[
             "add-entity",
-            "-t", "text",
-            "-c", "Hello",
-            "--font-family", "monospace",
-            "--font-size", "16",
-            "-x", "100",
-            "-y", "50",
+            "-t",
+            "text",
+            "-c",
+            "Hello",
+            "--font-family",
+            "monospace",
+            "--font-size",
+            "16",
+            "-x",
+            "100",
+            "-y",
+            "50",
         ]);
 
         result.assert_success();
@@ -583,15 +666,14 @@ mod tests {
         project.init().assert_success();
 
         // Add a text entity
-        let add_result = project.run_vsc(&[
-            "add-entity",
-            "-t", "text",
-            "-c", "Test",
-        ]);
+        let add_result = project.run_vsc(&["add-entity", "-t", "text", "-c", "Test"]);
         add_result.assert_success();
 
         let add_output = add_result.stdout_json();
-        let entity_id = add_output.get("entity_id").and_then(|v| v.as_u64()).unwrap();
+        let entity_id = add_output
+            .get("entity_id")
+            .and_then(|v| v.as_u64())
+            .unwrap();
 
         // Update metrics (simulating Renderer measurement)
         let update_result = project.run_vsc(&[
@@ -617,7 +699,9 @@ mod tests {
             "entity_id should match"
         );
         assert_eq!(
-            update_output.get("constraints_added").and_then(|v| v.as_u64()),
+            update_output
+                .get("constraints_added")
+                .and_then(|v| v.as_u64()),
             Some(8),
             "should add 8 constraints (2 width, 2 height, 4 alignment)"
         );
@@ -625,7 +709,10 @@ mod tests {
         // Verify buildinfo was updated
         let buildinfo = project.read_json(".vsbuildinfo");
         let text_entities = buildinfo.get("text_entities").and_then(|v| v.as_array());
-        assert!(text_entities.is_some(), "text_entities should exist in buildinfo");
+        assert!(
+            text_entities.is_some(),
+            "text_entities should exist in buildinfo"
+        );
         assert_eq!(text_entities.unwrap().len(), 1, "should have 1 text entity");
 
         let text_entry = &text_entities.unwrap()[0];
@@ -652,19 +739,17 @@ mod tests {
         project.init().assert_success();
 
         // Try to update metrics for non-existent entity
-        let result = project.run_vsc(&[
-            "update-metrics",
-            "--id=99999",
-            "--width=100",
-            "--height=20",
-        ]);
+        let result =
+            project.run_vsc(&["update-metrics", "--id=99999", "--width=100", "--height=20"]);
 
         result.assert_failure();
 
         // Verify error message
         let error_json = result.stderr_json();
         assert!(
-            error_json.get("message").and_then(|v| v.as_str())
+            error_json
+                .get("message")
+                .and_then(|v| v.as_str())
                 .map(|s| s.contains("not found"))
                 .unwrap_or(false),
             "Error should mention entity not found"
@@ -679,31 +764,42 @@ mod tests {
         // Add text entity
         let add_result = project.run_vsc(&[
             "add-entity",
-            "-t", "text",
-            "-c", "Hello, World!",
-            "-x", "10",
-            "-y", "20",
+            "-t",
+            "text",
+            "-c",
+            "Hello, World!",
+            "-x",
+            "10",
+            "-y",
+            "20",
         ]);
         add_result.assert_success();
-        let entity_id = add_result.stdout_json().get("entity_id")
-            .and_then(|v| v.as_u64()).unwrap();
+        let entity_id = add_result
+            .stdout_json()
+            .get("entity_id")
+            .and_then(|v| v.as_u64())
+            .unwrap();
 
         // Update metrics
-        project.run_vsc(&[
-            "update-metrics",
-            &format!("--id={}", entity_id),
-            "--width=130",
-            "--height=24",
-        ]).assert_success();
+        project
+            .run_vsc(&[
+                "update-metrics",
+                &format!("--id={}", entity_id),
+                "--width=130",
+                "--height=24",
+            ])
+            .assert_success();
 
         // Read buildinfo and count constraints
         let buildinfo = project.read_json(".vsbuildinfo");
-        let operations = buildinfo.get("operations")
+        let operations = buildinfo
+            .get("operations")
             .and_then(|v| v.as_array())
             .unwrap();
 
         // Count add operations
-        let add_count = operations.iter()
+        let add_count = operations
+            .iter()
             .filter(|op| op.get("op_type").and_then(|v| v.as_str()) == Some("add"))
             .count();
 
@@ -723,26 +819,36 @@ mod tests {
         // Add a text entity (creates Soft constraints for position)
         let add_result = project.run_vsc(&[
             "add-entity",
-            "-t", "text",
-            "-c", "Test",
-            "-x", "100",
-            "-y", "50",
+            "-t",
+            "text",
+            "-c",
+            "Test",
+            "-x",
+            "100",
+            "-y",
+            "50",
         ]);
         add_result.assert_success();
-        let entity_id = add_result.stdout_json().get("entity_id")
-            .and_then(|v| v.as_u64()).unwrap();
+        let entity_id = add_result
+            .stdout_json()
+            .get("entity_id")
+            .and_then(|v| v.as_u64())
+            .unwrap();
 
         // Update metrics (creates Soft constraints for width/height, Hard for alignment)
-        project.run_vsc(&[
-            "update-metrics",
-            &format!("--id={}", entity_id),
-            "--width=80",
-            "--height=20",
-        ]).assert_success();
+        project
+            .run_vsc(&[
+                "update-metrics",
+                &format!("--id={}", entity_id),
+                "--width=80",
+                "--height=20",
+            ])
+            .assert_success();
 
         // Read buildinfo and verify constraint priorities
         let buildinfo = project.read_json(".vsbuildinfo");
-        let operations = buildinfo.get("operations")
+        let operations = buildinfo
+            .get("operations")
             .and_then(|v| v.as_array())
             .unwrap();
 
@@ -766,8 +872,16 @@ mod tests {
         // - 2 Soft constraints for TL position (x, y)
         // - 4 Soft constraints for width/height (from metrics)
         // - 4 Hard constraints for alignment (structural)
-        assert!(soft_count >= 6, "should have at least 6 Soft constraints, got {}", soft_count);
-        assert!(hard_count >= 4, "should have at least 4 Hard constraints, got {}", hard_count);
+        assert!(
+            soft_count >= 6,
+            "should have at least 6 Soft constraints, got {}",
+            soft_count
+        );
+        assert!(
+            hard_count >= 4,
+            "should have at least 4 Hard constraints, got {}",
+            hard_count
+        );
     }
 
     #[test]
@@ -781,23 +895,23 @@ mod tests {
         project.init().assert_success();
 
         // Add first text entity
-        let add1 = project.run_vsc(&[
-            "add-entity",
-            "-t", "text",
-            "-c", "First",
-        ]);
+        let add1 = project.run_vsc(&["add-entity", "-t", "text", "-c", "First"]);
         add1.assert_success();
-        let id1 = add1.stdout_json().get("entity_id").and_then(|v| v.as_u64()).unwrap();
+        let id1 = add1
+            .stdout_json()
+            .get("entity_id")
+            .and_then(|v| v.as_u64())
+            .unwrap();
         let corners1: Vec<u64> = (1..=4).map(|i| id1 + i).collect();
 
         // Add second text entity
-        let add2 = project.run_vsc(&[
-            "add-entity",
-            "-t", "text",
-            "-c", "Second",
-        ]);
+        let add2 = project.run_vsc(&["add-entity", "-t", "text", "-c", "Second"]);
         add2.assert_success();
-        let id2 = add2.stdout_json().get("entity_id").and_then(|v| v.as_u64()).unwrap();
+        let id2 = add2
+            .stdout_json()
+            .get("entity_id")
+            .and_then(|v| v.as_u64())
+            .unwrap();
         let corners2: Vec<u64> = (1..=4).map(|i| id2 + i).collect();
 
         // Verify IDs don't overlap (namespace isolation)
@@ -809,7 +923,11 @@ mod tests {
         }
 
         // Verify ID allocation is sequential with 5-ID blocks (text + 4 corners)
-        assert_eq!(id2 - id1, 5, "Second text entity should be 5 IDs after first");
+        assert_eq!(
+            id2 - id1,
+            5,
+            "Second text entity should be 5 IDs after first"
+        );
     }
 
     #[test]
@@ -824,10 +942,14 @@ mod tests {
         // Add text entity at position (100, 50) - these are Soft constraints
         let add_result = project.run_vsc(&[
             "add-entity",
-            "-t", "text",
-            "-c", "Hello",
-            "-x", "100",
-            "-y", "50",
+            "-t",
+            "text",
+            "-c",
+            "Hello",
+            "-x",
+            "100",
+            "-y",
+            "50",
         ]);
         add_result.assert_success();
         let output = add_result.stdout_json();
@@ -841,7 +963,8 @@ mod tests {
             "x",
             "eq",
             r#"{"type":"const","value":"200/1"}"#,
-            "--intent", "Override text position to 200",
+            "--intent",
+            "Override text position to 200",
         ]);
 
         // This should succeed - Hard overrides Soft
@@ -850,12 +973,14 @@ mod tests {
         // Verify we now have both constraints in buildinfo
         // (the Soft one is not deleted, but would be shadowed during solving)
         let buildinfo = project.read_json(".vsbuildinfo");
-        let operations = buildinfo.get("operations")
+        let operations = buildinfo
+            .get("operations")
             .and_then(|v| v.as_array())
             .unwrap();
 
         // Find constraints targeting corner_tl's X component
-        let tl_x_constraints: Vec<_> = operations.iter()
+        let tl_x_constraints: Vec<_> = operations
+            .iter()
             .filter(|op| {
                 if let Some(c) = op.get("constraint") {
                     c.get("target").and_then(|t| t.as_u64()) == Some(corner_tl)
@@ -867,7 +992,11 @@ mod tests {
             .collect();
 
         // Should have 2 constraints: original Soft (100) and override Hard (200)
-        assert_eq!(tl_x_constraints.len(), 2, "Should have both original and override constraints");
+        assert_eq!(
+            tl_x_constraints.len(),
+            2,
+            "Should have both original and override constraints"
+        );
     }
 
     // =========================================================================
@@ -883,11 +1012,16 @@ mod tests {
         let result = project.run_vsc(&[
             "apply-layout",
             "stack_vertical",
-            "--instances", "[101, 102, 103]",
-            "--anchor", "TL",
-            "--gap", "16",
-            "--origin-y", "100",
-            "--intent", "Vertical menu layout",
+            "--instances",
+            "[101, 102, 103]",
+            "--anchor",
+            "TL",
+            "--gap",
+            "16",
+            "--origin-y",
+            "100",
+            "--intent",
+            "Vertical menu layout",
         ]);
 
         result.assert_success();
@@ -907,21 +1041,30 @@ mod tests {
 
         // Verify expanded constraints count
         // For N=3: origin_y(1) + adjacency(2) + alignment(2) = 5 constraints
-        let expanded = output.get("expanded_constraints")
+        let expanded = output
+            .get("expanded_constraints")
             .and_then(|v| v.as_array())
             .expect("should have expanded_constraints");
-        assert_eq!(expanded.len(), 5, "should generate 5 constraints for 3 instances with origin");
+        assert_eq!(
+            expanded.len(),
+            5,
+            "should generate 5 constraints for 3 instances with origin"
+        );
 
         // Verify layout_macros in buildinfo
         let buildinfo = project.read_json(".vsbuildinfo");
-        let layout_macros = buildinfo.get("layout_macros")
+        let layout_macros = buildinfo
+            .get("layout_macros")
             .and_then(|v| v.as_array())
             .expect("should have layout_macros");
         assert_eq!(layout_macros.len(), 1, "should have 1 layout macro");
 
         let macro_op = &layout_macros[0];
         assert_eq!(
-            macro_op.get("layout").and_then(|l| l.get("type")).and_then(|t| t.as_str()),
+            macro_op
+                .get("layout")
+                .and_then(|l| l.get("type"))
+                .and_then(|t| t.as_str()),
             Some("stack_vertical"),
             "layout type should be stack_vertical"
         );
@@ -933,22 +1076,28 @@ mod tests {
         project.init().assert_success();
 
         // Apply layout
-        project.run_vsc(&[
-            "apply-layout",
-            "stack_vertical",
-            "--instances", "[1, 2]",
-            "--gap", "10",
-        ]).assert_success();
+        project
+            .run_vsc(&[
+                "apply-layout",
+                "stack_vertical",
+                "--instances",
+                "[1, 2]",
+                "--gap",
+                "10",
+            ])
+            .assert_success();
 
         // Verify all expanded constraints are Soft priority
         let buildinfo = project.read_json(".vsbuildinfo");
-        let operations = buildinfo.get("operations")
+        let operations = buildinfo
+            .get("operations")
             .and_then(|v| v.as_array())
             .unwrap();
 
         for op in operations.iter() {
             if let Some(constraint) = op.get("constraint") {
-                if let Some(source_scope) = constraint.get("source_scope").and_then(|s| s.as_str()) {
+                if let Some(source_scope) = constraint.get("source_scope").and_then(|s| s.as_str())
+                {
                     if source_scope.starts_with("layout_macro:") {
                         assert_eq!(
                             constraint.get("priority").and_then(|p| p.as_str()),
@@ -977,29 +1126,37 @@ mod tests {
         let layout_result = project.run_vsc(&[
             "apply-layout",
             "stack_vertical",
-            "--instances", "[101, 102, 103]",
-            "--anchor", "TL",
-            "--gap", "16",
-            "--origin-x", "50",
-            "--origin-y", "100",
+            "--instances",
+            "[101, 102, 103]",
+            "--anchor",
+            "TL",
+            "--gap",
+            "16",
+            "--origin-x",
+            "50",
+            "--origin-y",
+            "100",
         ]);
         layout_result.assert_success();
 
-        let macro_seq = layout_result.stdout_json()
+        let macro_seq = layout_result
+            .stdout_json()
             .get("macro_seq")
             .and_then(|v| v.as_u64())
             .unwrap();
 
         // Verify source_scope is set correctly for shadowing support
         let buildinfo = project.read_json(".vsbuildinfo");
-        let operations = buildinfo.get("operations")
+        let operations = buildinfo
+            .get("operations")
             .and_then(|v| v.as_array())
             .unwrap();
 
         // All layout constraints should have source_scope = "layout_macro:{seq}"
         let expected_scope = format!("layout_macro:{}", macro_seq);
 
-        let layout_constraints: Vec<_> = operations.iter()
+        let layout_constraints: Vec<_> = operations
+            .iter()
             .filter(|op| {
                 if let Some(c) = op.get("constraint") {
                     c.get("source_scope")
@@ -1022,7 +1179,8 @@ mod tests {
 
         // Verify all have Soft priority (enabling shadowing)
         for op in &layout_constraints {
-            let priority = op.get("constraint")
+            let priority = op
+                .get("constraint")
                 .and_then(|c| c.get("priority"))
                 .and_then(|p| p.as_str());
             assert_eq!(
@@ -1033,7 +1191,8 @@ mod tests {
         }
 
         // Verify inst 103 has alignment constraint that could be shadowed
-        let inst_103_x_soft: Vec<_> = operations.iter()
+        let inst_103_x_soft: Vec<_> = operations
+            .iter()
             .filter(|op| {
                 if let Some(c) = op.get("constraint") {
                     c.get("target").and_then(|t| t.as_u64()) == Some(103)
@@ -1060,12 +1219,15 @@ mod tests {
         let layout_result = project.run_vsc(&[
             "apply-layout",
             "stack_vertical",
-            "--instances", "[1, 2, 3]",
-            "--gap", "20",
+            "--instances",
+            "[1, 2, 3]",
+            "--gap",
+            "20",
         ]);
         layout_result.assert_success();
 
-        let macro_seq = layout_result.stdout_json()
+        let macro_seq = layout_result
+            .stdout_json()
             .get("macro_seq")
             .and_then(|v| v.as_u64())
             .unwrap();
@@ -1073,10 +1235,7 @@ mod tests {
         let initial_count = project.buildinfo_operation_count();
 
         // Remove the layout macro
-        let remove_result = project.run_vsc(&[
-            "remove-constraint",
-            &macro_seq.to_string(),
-        ]);
+        let remove_result = project.run_vsc(&["remove-constraint", &macro_seq.to_string()]);
 
         remove_result.assert_success();
 
@@ -1090,17 +1249,27 @@ mod tests {
         );
 
         // Verify constraints_removed count
-        let removed = remove_output.get("constraints_removed")
+        let removed = remove_output
+            .get("constraints_removed")
             .and_then(|v| v.as_array())
             .expect("should list removed constraints");
-        assert_eq!(removed.len(), 4, "Should remove 4 constraints (2 adjacency + 2 alignment for N=3)");
+        assert_eq!(
+            removed.len(),
+            4,
+            "Should remove 4 constraints (2 adjacency + 2 alignment for N=3)"
+        );
 
         // Verify layout_macros array is empty
         let buildinfo = project.read_json(".vsbuildinfo");
-        let layout_macros = buildinfo.get("layout_macros")
+        let layout_macros = buildinfo
+            .get("layout_macros")
             .and_then(|v| v.as_array())
             .expect("should have layout_macros");
-        assert_eq!(layout_macros.len(), 0, "layout_macros should be empty after removal");
+        assert_eq!(
+            layout_macros.len(),
+            0,
+            "layout_macros should be empty after removal"
+        );
     }
 
     #[test]
@@ -1115,8 +1284,10 @@ mod tests {
         let layout_result = project.run_vsc(&[
             "apply-layout",
             "stack_vertical",
-            "--instances", "[1, 2]",
-            "--gap", "10",
+            "--instances",
+            "[1, 2]",
+            "--gap",
+            "10",
         ]);
         layout_result.assert_success();
 
@@ -1129,27 +1300,31 @@ mod tests {
         // Try to remove an individual constraint from the layout
         let individual_constraint_id = expanded[0].as_u64().unwrap();
 
-        let remove_result = project.run_vsc(&[
-            "remove-constraint",
-            &individual_constraint_id.to_string(),
-        ]);
+        let remove_result =
+            project.run_vsc(&["remove-constraint", &individual_constraint_id.to_string()]);
 
         // Should fail with helpful error
         remove_result.assert_failure();
 
         let error_json = remove_result.stderr_json();
         assert!(
-            error_json.get("message").and_then(|v| v.as_str())
+            error_json
+                .get("message")
+                .and_then(|v| v.as_str())
                 .map(|s| s.contains("layout_macro"))
                 .unwrap_or(false),
             "Error should mention layout_macro"
         );
 
         // Verify repair suggestion points to the macro
-        let suggestions = error_json.get("repair_suggestions")
+        let suggestions = error_json
+            .get("repair_suggestions")
             .and_then(|v| v.as_array())
             .expect("should have repair suggestions");
-        assert!(!suggestions.is_empty(), "Should suggest removing the macro instead");
+        assert!(
+            !suggestions.is_empty(),
+            "Should suggest removing the macro instead"
+        );
     }
 
     #[test]
@@ -1158,17 +1333,15 @@ mod tests {
         project.init().assert_success();
 
         // Try to apply layout with only 1 instance
-        let result = project.run_vsc(&[
-            "apply-layout",
-            "stack_vertical",
-            "--instances", "[101]",
-        ]);
+        let result = project.run_vsc(&["apply-layout", "stack_vertical", "--instances", "[101]"]);
 
         result.assert_failure();
 
         let error_json = result.stderr_json();
         assert!(
-            error_json.get("message").and_then(|v| v.as_str())
+            error_json
+                .get("message")
+                .and_then(|v| v.as_str())
                 .map(|s| s.contains("at least 2"))
                 .unwrap_or(false),
             "Error should mention minimum instance requirement"
@@ -1184,9 +1357,12 @@ mod tests {
         let result = project.run_vsc(&[
             "apply-layout",
             "stack_horizontal",
-            "--instances", "[1, 2, 3, 4]",
-            "--gap", "8",
-            "--origin-x", "0",
+            "--instances",
+            "[1, 2, 3, 4]",
+            "--gap",
+            "8",
+            "--origin-x",
+            "0",
         ]);
 
         result.assert_success();
@@ -1194,18 +1370,25 @@ mod tests {
         let output = result.stdout_json();
 
         // For N=4: origin_x(1) + adjacency(3) + alignment(3) = 7 constraints
-        let expanded = output.get("expanded_constraints")
+        let expanded = output
+            .get("expanded_constraints")
             .and_then(|v| v.as_array())
             .expect("should have expanded_constraints");
-        assert_eq!(expanded.len(), 7, "should generate 7 constraints for 4 instances with origin");
+        assert_eq!(
+            expanded.len(),
+            7,
+            "should generate 7 constraints for 4 instances with origin"
+        );
 
         // Verify layout type in buildinfo
         let buildinfo = project.read_json(".vsbuildinfo");
-        let layout_macros = buildinfo.get("layout_macros")
+        let layout_macros = buildinfo
+            .get("layout_macros")
             .and_then(|v| v.as_array())
             .unwrap();
         assert_eq!(
-            layout_macros[0].get("layout")
+            layout_macros[0]
+                .get("layout")
                 .and_then(|l| l.get("type"))
                 .and_then(|t| t.as_str()),
             Some("stack_horizontal"),
@@ -1269,7 +1452,10 @@ operations:
 
         // Verify success response
         assert_eq!(json.get("status").and_then(|v| v.as_str()), Some("success"));
-        assert_eq!(json.get("command_name").and_then(|v| v.as_str()), Some("stack_vertical"));
+        assert_eq!(
+            json.get("command_name").and_then(|v| v.as_str()),
+            Some("stack_vertical")
+        );
 
         // Should generate 2 constraints for 3 instances (i=1 and i=2)
         assert_eq!(
@@ -1278,7 +1464,8 @@ operations:
             "should generate 2 constraints for 3 instances"
         );
 
-        let constraint_ids = json.get("constraint_ids")
+        let constraint_ids = json
+            .get("constraint_ids")
             .and_then(|v| v.as_array())
             .unwrap();
         assert_eq!(constraint_ids.len(), 2);
@@ -1330,16 +1517,19 @@ operations:
         project.write_file("stack_vertical.vscmd.yaml", codl_yaml);
 
         // Run CODL command
-        project.run_vsc(&[
-            "run-command",
-            "stack_vertical.vscmd.yaml",
-            "--args",
-            r#"{"instances": [10, 20], "gap": 8}"#,
-        ]).assert_success();
+        project
+            .run_vsc(&[
+                "run-command",
+                "stack_vertical.vscmd.yaml",
+                "--args",
+                r#"{"instances": [10, 20], "gap": 8}"#,
+            ])
+            .assert_success();
 
         // Verify constraints were added to buildinfo
         let buildinfo = project.read_buildinfo();
-        let operations = buildinfo.get("operations")
+        let operations = buildinfo
+            .get("operations")
             .and_then(|v| v.as_array())
             .unwrap();
 
@@ -1350,7 +1540,8 @@ operations:
 
         // Verify constraint properties
         assert_eq!(
-            last_op.get("constraint")
+            last_op
+                .get("constraint")
                 .and_then(|c| c.get("component"))
                 .and_then(|v| v.as_str()),
             Some("y"),
@@ -1358,7 +1549,8 @@ operations:
         );
 
         assert_eq!(
-            last_op.get("constraint")
+            last_op
+                .get("constraint")
                 .and_then(|c| c.get("priority"))
                 .and_then(|v| v.as_str()),
             Some("soft"),
@@ -1367,7 +1559,8 @@ operations:
 
         // Verify source_scope exists
         assert!(
-            last_op.get("constraint")
+            last_op
+                .get("constraint")
                 .and_then(|c| c.get("source_scope"))
                 .is_some(),
             "source_scope should be present"
@@ -1375,7 +1568,8 @@ operations:
 
         // Verify term is Linear
         assert_eq!(
-            last_op.get("constraint")
+            last_op
+                .get("constraint")
                 .and_then(|c| c.get("term"))
                 .and_then(|t| t.get("type"))
                 .and_then(|v| v.as_str()),
@@ -1479,15 +1673,16 @@ operations:
 
         // Verify the constraint used the default value
         let buildinfo = project.read_buildinfo();
-        let operations = buildinfo.get("operations")
+        let operations = buildinfo
+            .get("operations")
             .and_then(|v| v.as_array())
             .unwrap();
 
-        let constraint = operations.last().unwrap()
-            .get("constraint").unwrap();
+        let constraint = operations.last().unwrap().get("constraint").unwrap();
 
         assert_eq!(
-            constraint.get("term")
+            constraint
+                .get("term")
                 .and_then(|t| t.get("value"))
                 .and_then(|v| v.as_str()),
             Some("100/1"),
@@ -1501,12 +1696,7 @@ operations:
         project.init().assert_success();
 
         // Try to run a non-existent CODL file
-        let result = project.run_vsc(&[
-            "run-command",
-            "nonexistent.vscmd.yaml",
-            "--args",
-            "{}",
-        ]);
+        let result = project.run_vsc(&["run-command", "nonexistent.vscmd.yaml", "--args", "{}"]);
 
         result.assert_failure();
         let json = result.stderr_json();
@@ -1537,11 +1727,17 @@ operations:
 
         // First, add a constraint that will conflict with CODL-generated constraints
         // Entity 100.x = 0 (hard constraint)
-        project.run_vsc(&[
-            "add-constraint", "100", "x", "eq",
-            r#"{"type": "const", "value": "0/1"}"#,
-            "--intent", "Entity 100 X at origin"
-        ]).assert_success();
+        project
+            .run_vsc(&[
+                "add-constraint",
+                "100",
+                "x",
+                "eq",
+                r#"{"type": "const", "value": "0/1"}"#,
+                "--intent",
+                "Entity 100 X at origin",
+            ])
+            .assert_success();
 
         // Capture buildinfo state BEFORE CODL execution
         let buildinfo_before = project.read_file(".vsbuildinfo");
@@ -1600,9 +1796,12 @@ operations:
         result.assert_failure();
         let error_json = result.stderr_json();
         assert!(
-            error_json.get("message")
+            error_json
+                .get("message")
                 .and_then(|v| v.as_str())
-                .map(|s| s.contains("overconstrained") || s.contains("REJECTED") || s.contains("circular"))
+                .map(|s| s.contains("overconstrained")
+                    || s.contains("REJECTED")
+                    || s.contains("circular"))
                 .unwrap_or(false),
             "Error should mention overconstrained or rejected: {:?}",
             error_json.get("message")
@@ -1674,7 +1873,8 @@ operations:
         // Verify constraints were committed
         let ops_count_after = project.buildinfo_operation_count();
         assert_eq!(
-            ops_count_after, ops_count_before + 3,
+            ops_count_after,
+            ops_count_before + 3,
             "3 constraints should be committed"
         );
     }

@@ -99,7 +99,10 @@ fn arb_constraint() -> impl Strategy<Value = Constraint> {
 }
 
 /// Strategy for generating constraint graphs of varying sizes.
-fn arb_constraint_graph(max_entities: usize, max_constraints: usize) -> impl Strategy<Value = ConstraintGraph> {
+fn arb_constraint_graph(
+    max_entities: usize,
+    max_constraints: usize,
+) -> impl Strategy<Value = ConstraintGraph> {
     let entities = proptest::collection::vec(arb_entity_id(), 1..=max_entities);
     let constraints = proptest::collection::vec(arb_constraint(), 0..=max_constraints);
     (entities, constraints).prop_map(|(entities, constraints)| ConstraintGraph {
@@ -270,11 +273,17 @@ fn check_satisfiability(graph: &ConstraintGraph) -> SatisfiabilityResult {
 
     for c in &graph.constraints {
         // Self-reference with strict inequality is unsatisfiable
-        if let ConstraintTerm::Ref { entity_id, component } = &c.term {
+        if let ConstraintTerm::Ref {
+            entity_id,
+            component,
+        } = &c.term
+        {
             if *entity_id == c.target && *component == c.component {
                 match c.relation {
                     RelationType::Lt | RelationType::Gt => {
-                        return SatisfiabilityResult { is_satisfiable: false };
+                        return SatisfiabilityResult {
+                            is_satisfiable: false,
+                        };
                     }
                     _ => {}
                 }
@@ -289,8 +298,14 @@ fn check_satisfiability(graph: &ConstraintGraph) -> SatisfiabilityResult {
                 continue;
             }
             if let (
-                ConstraintTerm::Ref { entity_id: ref1, component: comp1 },
-                ConstraintTerm::Ref { entity_id: ref2, component: comp2 },
+                ConstraintTerm::Ref {
+                    entity_id: ref1,
+                    component: comp1,
+                },
+                ConstraintTerm::Ref {
+                    entity_id: ref2,
+                    component: comp2,
+                },
             ) = (&c1.term, &c2.term)
             {
                 if c1.target == *ref2
@@ -307,7 +322,9 @@ fn check_satisfiability(graph: &ConstraintGraph) -> SatisfiabilityResult {
                         | (RelationType::Le, RelationType::Lt)
                         | (RelationType::Gt, RelationType::Ge)
                         | (RelationType::Ge, RelationType::Gt) => {
-                            return SatisfiabilityResult { is_satisfiable: false };
+                            return SatisfiabilityResult {
+                                is_satisfiable: false,
+                            };
                         }
                         _ => {}
                     }
@@ -317,7 +334,9 @@ fn check_satisfiability(graph: &ConstraintGraph) -> SatisfiabilityResult {
     }
 
     // Default: assume satisfiable (conservative for stub)
-    SatisfiabilityResult { is_satisfiable: true }
+    SatisfiabilityResult {
+        is_satisfiable: true,
+    }
 }
 
 #[cfg(test)]

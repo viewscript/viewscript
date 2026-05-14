@@ -390,7 +390,12 @@ pub fn distribute_with_largest_remainder(group: &SiblingGroup) -> DistributionRe
     let dimensions: Vec<DistributedDimension> = items
         .iter()
         .map(|item| {
-            let pixels = item.floor + if extra_pixels.contains(&item.entity_id) { 1 } else { 0 };
+            let pixels = item.floor
+                + if extra_pixels.contains(&item.entity_id) {
+                    1
+                } else {
+                    0
+                };
             DistributedDimension::new(item.entity_id, pixels, item.original)
         })
         .collect();
@@ -470,9 +475,7 @@ mod tests {
     use super::*;
 
     fn make_group(dimensions: &[f64], parent_dimension: i32) -> SiblingGroup {
-        let child_ids: Vec<EntityId> = (0..dimensions.len())
-            .map(|i| EntityId(i as u64))
-            .collect();
+        let child_ids: Vec<EntityId> = (0..dimensions.len()).map(|i| EntityId(i as u64)).collect();
         let child_dimensions: HashMap<EntityId, f64> = child_ids
             .iter()
             .zip(dimensions.iter())

@@ -211,8 +211,9 @@ impl<'a> TextShaper<'a> {
         let face = ttf_parser::Face::parse(font_data, 0)
             .map_err(|e| TextShapingError::FontParseError(format!("{:?}", e)))?;
 
-        let buzz_face = rustybuzz::Face::from_slice(font_data, 0)
-            .ok_or_else(|| TextShapingError::FontParseError("rustybuzz failed to parse font".into()))?;
+        let buzz_face = rustybuzz::Face::from_slice(font_data, 0).ok_or_else(|| {
+            TextShapingError::FontParseError("rustybuzz failed to parse font".into())
+        })?;
 
         let units_per_em = face.units_per_em();
 
@@ -663,10 +664,8 @@ impl TextToCanvasConverter {
 
         // Pre-compute scaled paths for all prototypes
         for (glyph_id, prototype) in &expanded.prototypes {
-            let scaled_commands = Self::scale_path_commands(
-                &prototype.path_commands,
-                &expanded.scale_factor,
-            );
+            let scaled_commands =
+                Self::scale_path_commands(&prototype.path_commands, &expanded.scale_factor);
             scaled_path_cache.insert(*glyph_id, scaled_commands);
         }
 
@@ -725,10 +724,7 @@ impl TextToCanvasConverter {
     }
 
     /// Scale all coordinates in path commands by scale_factor.
-    fn scale_path_commands(
-        commands: &[PathCommand],
-        scale: &Rational,
-    ) -> Vec<PathCommand> {
+    fn scale_path_commands(commands: &[PathCommand], scale: &Rational) -> Vec<PathCommand> {
         commands
             .iter()
             .map(|cmd| Self::scale_command(cmd, scale))
@@ -841,14 +837,14 @@ mod tests {
         assert_eq!(
             commands[0],
             PathCommand::MoveTo {
-                x: Rational::new(1, 2),  // 0.5 = 1/2
-                y: Rational::new(3, 4),  // 0.75 = 3/4
+                x: Rational::new(1, 2), // 0.5 = 1/2
+                y: Rational::new(3, 4), // 0.75 = 3/4
             }
         );
 
         if let PathCommand::QuadTo { x1, y1, x, y } = &commands[1] {
-            assert_eq!(*x1, Rational::new(5, 4));  // 1.25 = 5/4
-            assert_eq!(*y1, Rational::new(5, 2));  // 2.5 = 5/2
+            assert_eq!(*x1, Rational::new(5, 4)); // 1.25 = 5/4
+            assert_eq!(*y1, Rational::new(5, 2)); // 2.5 = 5/2
             assert_eq!(*x, Rational::from_int(3));
             assert_eq!(*y, Rational::from_int(4));
         } else {
@@ -1143,11 +1139,16 @@ mod tests {
         );
 
         // Convert to canvas
-        let canvas = TextToCanvasConverter::convert(&expanded, &text_entity, Some("#000000".to_string()));
+        let canvas =
+            TextToCanvasConverter::convert(&expanded, &text_entity, Some("#000000".to_string()));
 
         // Verify structure
         assert_eq!(canvas.entity_id, EntityId(1));
-        assert_eq!(canvas.children.len(), 2, "Should have 2 child groups for 'ab'");
+        assert_eq!(
+            canvas.children.len(),
+            2,
+            "Should have 2 child groups for 'ab'"
+        );
 
         // Check first child (glyph 'a')
         if let TextCanvasNode::Group(group_a) = &canvas.children[0] {
@@ -1284,18 +1285,13 @@ mod tests {
         assert_eq!(identity.tx, Rational::zero());
         assert_eq!(identity.ty, Rational::zero());
 
-        let translate = TextAffineTransform::translate(
-            Rational::from_int(10),
-            Rational::from_int(20),
-        );
+        let translate =
+            TextAffineTransform::translate(Rational::from_int(10), Rational::from_int(20));
         assert_eq!(translate.tx, Rational::from_int(10));
         assert_eq!(translate.ty, Rational::from_int(20));
         assert_eq!(translate.a, Rational::one());
 
-        let scale = TextAffineTransform::scale(
-            Rational::new(1, 2),
-            Rational::new(1, 4),
-        );
+        let scale = TextAffineTransform::scale(Rational::new(1, 2), Rational::new(1, 4));
         assert_eq!(scale.a, Rational::new(1, 2));
         assert_eq!(scale.d, Rational::new(1, 4));
         assert_eq!(scale.tx, Rational::zero());
@@ -1392,7 +1388,8 @@ mod tests {
             Rational::from_int(16),
         );
 
-        let canvas = TextToCanvasConverter::convert(&expanded, &text_entity, Some("#000000".to_string()));
+        let canvas =
+            TextToCanvasConverter::convert(&expanded, &text_entity, Some("#000000".to_string()));
 
         // Glyphs with empty outlines must be skipped → no children
         assert_eq!(
@@ -1513,7 +1510,11 @@ mod tests {
         // Must not panic
         let scaled = TextToCanvasConverter::scale_path_commands(&commands, &Rational::zero());
 
-        assert_eq!(scaled.len(), commands.len(), "Command count must be preserved");
+        assert_eq!(
+            scaled.len(),
+            commands.len(),
+            "Command count must be preserved"
+        );
 
         // All coordinate-bearing commands should have zero coordinates
         assert_eq!(
@@ -1538,7 +1539,15 @@ mod tests {
         } else {
             panic!("Expected QuadTo at index 2");
         }
-        if let PathCommand::CubicTo { x1, y1, x2, y2, x, y } = &scaled[3] {
+        if let PathCommand::CubicTo {
+            x1,
+            y1,
+            x2,
+            y2,
+            x,
+            y,
+        } = &scaled[3]
+        {
             assert_eq!(*x1, Rational::zero());
             assert_eq!(*y1, Rational::zero());
             assert_eq!(*x2, Rational::zero());
@@ -1568,7 +1577,16 @@ mod tests {
 
         let scaled = TextToCanvasConverter::scale_path_commands(&commands, &Rational::zero());
 
-        if let PathCommand::ArcTo { rx, ry, rotation, large_arc, sweep, x, y } = &scaled[0] {
+        if let PathCommand::ArcTo {
+            rx,
+            ry,
+            rotation,
+            large_arc,
+            sweep,
+            x,
+            y,
+        } = &scaled[0]
+        {
             assert_eq!(*rx, Rational::zero());
             assert_eq!(*ry, Rational::zero());
             assert_eq!(*rotation, 45.0_f64, "rotation must not be scaled");

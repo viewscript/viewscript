@@ -156,7 +156,14 @@ pub fn tessellate_cubic_stroke_segments(
                 pen_y = y.to_f64_for_rasterization() as f32;
             }
 
-            PathCommand::CubicTo { x1, y1, x2, y2, x, y } => {
+            PathCommand::CubicTo {
+                x1,
+                y1,
+                x2,
+                y2,
+                x,
+                y,
+            } => {
                 let p0 = [pen_x, pen_y];
                 let p1 = [
                     x1.to_f64_for_rasterization() as f32,
@@ -396,12 +403,18 @@ mod tests {
         let v = &output.vertices;
 
         // Check bounding box expansion
-        let min_x = v.iter().map(|v| v.position[0]).fold(f32::INFINITY, f32::min);
+        let min_x = v
+            .iter()
+            .map(|v| v.position[0])
+            .fold(f32::INFINITY, f32::min);
         let max_x = v
             .iter()
             .map(|v| v.position[0])
             .fold(f32::NEG_INFINITY, f32::max);
-        let min_y = v.iter().map(|v| v.position[1]).fold(f32::INFINITY, f32::min);
+        let min_y = v
+            .iter()
+            .map(|v| v.position[1])
+            .fold(f32::INFINITY, f32::min);
         let max_y = v
             .iter()
             .map(|v| v.position[1])
@@ -508,8 +521,14 @@ mod tests {
     fn test_pen_tracking() {
         // Verify pen position is tracked correctly across segments
         let commands = vec![
-            PathCommand::MoveTo { x: r(100), y: r(200) },
-            PathCommand::LineTo { x: r(150), y: r(200) }, // Pen moves to (150, 200)
+            PathCommand::MoveTo {
+                x: r(100),
+                y: r(200),
+            },
+            PathCommand::LineTo {
+                x: r(150),
+                y: r(200),
+            }, // Pen moves to (150, 200)
             PathCommand::CubicTo {
                 x1: r(160),
                 y1: r(230),
@@ -534,7 +553,10 @@ mod tests {
     fn test_close_resets_pen() {
         let commands = vec![
             PathCommand::MoveTo { x: r(10), y: r(20) },
-            PathCommand::LineTo { x: r(100), y: r(20) },
+            PathCommand::LineTo {
+                x: r(100),
+                y: r(20),
+            },
             PathCommand::Close, // Pen returns to (10, 20)
             PathCommand::CubicTo {
                 x1: r(30),

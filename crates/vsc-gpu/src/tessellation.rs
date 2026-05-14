@@ -40,11 +40,10 @@
 //! A path with both fill and stroke requires two tessellation passes.
 
 use lyon::geom::{point, Angle};
-use lyon::path::{ArcFlags, Path as LyonPath, builder::SvgPathBuilder};
+use lyon::path::{builder::SvgPathBuilder, ArcFlags, Path as LyonPath};
 use lyon::tessellation::{
-    BuffersBuilder, FillOptions, FillTessellator, FillVertex, FillVertexConstructor,
-    StrokeOptions, StrokeTessellator, StrokeVertex, StrokeVertexConstructor,
-    VertexBuffers,
+    BuffersBuilder, FillOptions, FillTessellator, FillVertex, FillVertexConstructor, StrokeOptions,
+    StrokeTessellator, StrokeVertex, StrokeVertexConstructor, VertexBuffers,
 };
 use thiserror::Error;
 use vsc_core::Rational;
@@ -782,7 +781,10 @@ mod tests {
         };
 
         let result = tessellate_path(&commands, Some(&fill));
-        assert!(matches!(result, Err(TessellationError::MissingInitialMoveTo)));
+        assert!(matches!(
+            result,
+            Err(TessellationError::MissingInitialMoveTo)
+        ));
     }
 
     #[test]
@@ -886,12 +888,16 @@ mod tests {
             assert!(
                 vertex.uv[0] >= 0.0 && vertex.uv[0] <= 1.0,
                 "UV.x out of range: {} at position ({}, {})",
-                vertex.uv[0], vertex.position[0], vertex.position[1]
+                vertex.uv[0],
+                vertex.position[0],
+                vertex.position[1]
             );
             assert!(
                 vertex.uv[1] >= 0.0 && vertex.uv[1] <= 1.0,
                 "UV.y out of range: {} at position ({}, {})",
-                vertex.uv[1], vertex.position[0], vertex.position[1]
+                vertex.uv[1],
+                vertex.position[0],
+                vertex.position[1]
             );
         }
 
@@ -961,7 +967,10 @@ mod tests {
         // (lyon reported a tessellation error). Both are acceptable.
         match result {
             Ok(output) => {
-                println!("ArcTo rx=0: lyon fallback to line, {} vertices", output.vertices.len());
+                println!(
+                    "ArcTo rx=0: lyon fallback to line, {} vertices",
+                    output.vertices.len()
+                );
             }
             Err(e) => {
                 println!("ArcTo rx=0: tessellation error (expected): {:?}", e);
@@ -1005,7 +1014,10 @@ mod tests {
         let result = tessellate_path(&commands, Some(&fill));
         match result {
             Ok(output) => {
-                println!("ArcTo ry=0: lyon fallback to line, {} vertices", output.vertices.len());
+                println!(
+                    "ArcTo ry=0: lyon fallback to line, {} vertices",
+                    output.vertices.len()
+                );
             }
             Err(e) => {
                 println!("ArcTo ry=0: tessellation error (expected): {:?}", e);
@@ -1062,7 +1074,8 @@ mod tests {
                 }
                 println!(
                     "Degenerate width (all x={}): {} vertices, no NaN UV",
-                    50, output.vertices.len()
+                    50,
+                    output.vertices.len()
                 );
             }
             Err(e) => {
@@ -1090,9 +1103,9 @@ mod tests {
             },
             PathCommand::CubicTo {
                 x1: Rational::from_int(30),
-                y1: Rational::zero(),          // control point 1 above
+                y1: Rational::zero(), // control point 1 above
                 x2: Rational::from_int(70),
-                y2: Rational::from_int(100),   // control point 2 below
+                y2: Rational::from_int(100), // control point 2 below
                 x: Rational::from_int(100),
                 y: Rational::from_int(50),
             },
@@ -1102,7 +1115,7 @@ mod tests {
             },
             PathCommand::CubicTo {
                 x1: Rational::from_int(70),
-                y1: Rational::from_int(110),   // mirrored control points
+                y1: Rational::from_int(110), // mirrored control points
                 x2: Rational::from_int(30),
                 y2: Rational::from_int(10),
                 x: Rational::zero(),
@@ -1118,14 +1131,21 @@ mod tests {
         let output = tessellate_path(&commands, Some(&fill)).unwrap();
 
         // Non-degenerate tessellation should produce multiple triangles
-        assert!(!output.is_empty(), "CubicTo S-curve should not produce empty output");
-        assert!(output.triangle_count >= 2,
+        assert!(
+            !output.is_empty(),
+            "CubicTo S-curve should not produce empty output"
+        );
+        assert!(
+            output.triangle_count >= 2,
             "CubicTo S-curve should produce at least 2 triangles, got {}",
-            output.triangle_count);
+            output.triangle_count
+        );
 
         // Verify we have a reasonable number of vertices (curves need more vertices than lines)
-        assert!(output.vertices.len() >= 4,
-            "CubicTo should produce at least 4 vertices for proper curve representation");
+        assert!(
+            output.vertices.len() >= 4,
+            "CubicTo should produce at least 4 vertices for proper curve representation"
+        );
 
         println!(
             "CubicTo S-curve: {} vertices, {} indices, {} triangles",
@@ -1148,9 +1168,9 @@ mod tests {
             },
             PathCommand::QuadTo {
                 x1: Rational::from_int(50),
-                y1: Rational::from_int(100),  // control point above
+                y1: Rational::from_int(100), // control point above
                 x: Rational::from_int(100),
-                y: Rational::zero(),          // endpoint
+                y: Rational::zero(), // endpoint
             },
             PathCommand::LineTo {
                 x: Rational::from_int(100),
@@ -1188,15 +1208,27 @@ mod tests {
 
         // Y should span from 0 to at least 40 (quadratic bezier reaches ~50% of control point height)
         assert!(min_y < 1.0, "Minimum y should be near 0 (endpoints)");
-        assert!(max_y > 40.0, "Maximum y should show curve influence (got {:.1})", max_y);
+        assert!(
+            max_y > 40.0,
+            "Maximum y should show curve influence (got {:.1})",
+            max_y
+        );
 
         // Verify the path was properly tessellated with multiple triangles
         // (curved shapes need more than the minimum 2 triangles of a quad)
-        assert!(output.triangle_count >= 2, "QuadTo should produce multiple triangles");
+        assert!(
+            output.triangle_count >= 2,
+            "QuadTo should produce multiple triangles"
+        );
 
         println!(
             "QuadTo: {} vertices, {} triangles, bounds x=[{:.1}, {:.1}] y=[{:.1}, {:.1}]",
-            output.vertices.len(), output.triangle_count, min_x, max_x, min_y, max_y
+            output.vertices.len(),
+            output.triangle_count,
+            min_x,
+            max_x,
+            min_y,
+            max_y
         );
     }
 
@@ -1222,7 +1254,7 @@ mod tests {
                 rx: Rational::from_int(100),
                 ry: Rational::from_int(100),
                 rotation: 0.0,
-                large_arc: false,  // small arc ~60°
+                large_arc: false, // small arc ~60°
                 sweep: true,
                 x: Rational::from_int(100),
                 y: Rational::zero(),
@@ -1253,7 +1285,7 @@ mod tests {
                 rx: Rational::from_int(100),
                 ry: Rational::from_int(100),
                 rotation: 0.0,
-                large_arc: true,  // large arc ~300°
+                large_arc: true, // large arc ~300°
                 sweep: true,
                 x: Rational::from_int(100),
                 y: Rational::zero(),
@@ -1295,12 +1327,18 @@ mod tests {
         );
 
         // Vertex counts should be reasonable
-        assert!(small_output.vertices.len() >= 4,
-            "Small arc should have at least 4 vertices");
-        assert!(large_output.vertices.len() >= 8,
-            "Large arc should have at least 8 vertices");
-        assert!(large_output.vertices.len() < 1000,
-            "Large arc vertex count should be reasonable (< 1000)");
+        assert!(
+            small_output.vertices.len() >= 4,
+            "Small arc should have at least 4 vertices"
+        );
+        assert!(
+            large_output.vertices.len() >= 8,
+            "Large arc should have at least 8 vertices"
+        );
+        assert!(
+            large_output.vertices.len() < 1000,
+            "Large arc vertex count should be reasonable (< 1000)"
+        );
 
         println!(
             "ArcTo: small_arc={} vertices, large_arc={} vertices (ratio: {:.2}x)",

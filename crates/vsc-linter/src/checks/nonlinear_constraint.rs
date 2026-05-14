@@ -26,11 +26,8 @@
 //! - Curve intersections
 //! - Tangent/normal directions
 
-use syn::{
-    visit::Visit,
-    File, ItemFn, Expr, ExprMethodCall, ExprCall,
-};
 use crate::{LintCheck, LintViolation, Severity};
+use syn::{visit::Visit, Expr, ExprCall, ExprMethodCall, File, ItemFn};
 
 /// Patterns indicating non-linear curve operations.
 const NONLINEAR_FUNCTION_PATTERNS: &[&str] = &[
@@ -41,7 +38,6 @@ const NONLINEAR_FUNCTION_PATTERNS: &[&str] = &[
     "point_at_t",
     "sample_curve",
     "parametric_point",
-
     // Intersection computations
     "curve_intersection",
     "path_intersection",
@@ -49,7 +45,6 @@ const NONLINEAR_FUNCTION_PATTERNS: &[&str] = &[
     "find_intersection",
     "intersect_curves",
     "line_curve_intersection",
-
     // Tangent/normal operations
     "tangent_at",
     "normal_at",
@@ -57,12 +52,10 @@ const NONLINEAR_FUNCTION_PATTERNS: &[&str] = &[
     "curvature_at",
     "curve_tangent",
     "curve_normal",
-
     // Arc length (requires numerical integration)
     "arc_length",
     "length_at_t",
     "total_length",
-
     // Closest point (requires polynomial root finding)
     "closest_point_on_curve",
     "project_to_curve",
@@ -128,7 +121,9 @@ impl NonLinearVisitor {
 
     fn is_nonlinear_function(&self, name: &str) -> bool {
         let lower = name.to_lowercase();
-        NONLINEAR_FUNCTION_PATTERNS.iter().any(|p| lower.contains(p))
+        NONLINEAR_FUNCTION_PATTERNS
+            .iter()
+            .any(|p| lower.contains(p))
     }
 
     fn check_constraint_context(&self, fn_name: &str) -> bool {
@@ -214,7 +209,9 @@ mod tests {
         "#;
         let violations = check_code(code);
         assert!(!violations.is_empty());
-        assert!(violations[0].message.contains("NON_LINEAR_CONSTRAINT_REJECTED"));
+        assert!(violations[0]
+            .message
+            .contains("NON_LINEAR_CONSTRAINT_REJECTED"));
     }
 
     #[test]
@@ -226,7 +223,9 @@ mod tests {
         "#;
         let violations = check_code(code);
         assert!(!violations.is_empty());
-        assert!(violations[0].message.contains("NON_LINEAR_CONSTRAINT_REJECTED"));
+        assert!(violations[0]
+            .message
+            .contains("NON_LINEAR_CONSTRAINT_REJECTED"));
     }
 
     #[test]
@@ -262,7 +261,10 @@ mod tests {
             }
         "#;
         let violations = check_code(code);
-        assert!(violations.is_empty(), "ControlPoint operations should be allowed");
+        assert!(
+            violations.is_empty(),
+            "ControlPoint operations should be allowed"
+        );
     }
 
     #[test]
@@ -285,7 +287,10 @@ mod tests {
             }
         "#;
         let violations = check_code(code);
-        assert!(violations.is_empty(), "Linear constraints should be allowed");
+        assert!(
+            violations.is_empty(),
+            "Linear constraints should be allowed"
+        );
     }
 
     #[test]

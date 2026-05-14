@@ -132,7 +132,9 @@ pub struct TelemetryConfig {
     pub local_only: bool,
 }
 
-fn default_include_weights() -> bool { true }
+fn default_include_weights() -> bool {
+    true
+}
 
 impl Default for TelemetryConfig {
     fn default() -> Self {

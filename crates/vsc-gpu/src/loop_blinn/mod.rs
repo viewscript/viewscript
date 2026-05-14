@@ -44,7 +44,6 @@ mod vertex;
 pub use convexity::compute_curve_sign;
 pub use cubic::{classify_cubic, CubicClassification, CubicCurveType};
 pub use tessellator::{
-    tessellate_cubic_beziers, tessellate_quadratic_beziers,
-    CubicLoopBlinnOutput, LoopBlinnOutput,
+    tessellate_cubic_beziers, tessellate_quadratic_beziers, CubicLoopBlinnOutput, LoopBlinnOutput,
 };
 pub use vertex::{CubicLoopBlinnVertex, LoopBlinnVertex};

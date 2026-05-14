@@ -152,13 +152,13 @@ mod tests {
         assert_eq!(layout.attributes.len(), 7);
 
         // Verify offsets
-        assert_eq!(layout.attributes[0].offset, 0);   // position
-        assert_eq!(layout.attributes[1].offset, 8);   // local_pos
-        assert_eq!(layout.attributes[2].offset, 16);  // p0
-        assert_eq!(layout.attributes[3].offset, 24);  // p1
-        assert_eq!(layout.attributes[4].offset, 32);  // p2
-        assert_eq!(layout.attributes[5].offset, 40);  // p3
-        assert_eq!(layout.attributes[6].offset, 48);  // half_width
+        assert_eq!(layout.attributes[0].offset, 0); // position
+        assert_eq!(layout.attributes[1].offset, 8); // local_pos
+        assert_eq!(layout.attributes[2].offset, 16); // p0
+        assert_eq!(layout.attributes[3].offset, 24); // p1
+        assert_eq!(layout.attributes[4].offset, 32); // p2
+        assert_eq!(layout.attributes[5].offset, 40); // p3
+        assert_eq!(layout.attributes[6].offset, 48); // half_width
 
         // Verify formats
         assert_eq!(layout.attributes[0].format, wgpu::VertexFormat::Float32x2);

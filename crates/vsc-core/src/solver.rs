@@ -84,7 +84,17 @@ impl VariableState {
 /// A unique identifier for a variable in the solver.
 ///
 /// Each variable corresponds to a component of an entity (e.g., Entity(5).X).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+    schemars::JsonSchema,
+)]
 pub struct VarId {
     pub entity: EntityId,
     pub component: VectorComponent,
@@ -357,8 +367,7 @@ impl BilinearConstraint {
             match (a_resolved, b_resolved) {
                 // Both resolved: becomes constant
                 (Some(a_val), Some(b_val)) => {
-                    constant = constant
-                        + term.coefficient.clone() * a_val.clone() * b_val.clone();
+                    constant = constant + term.coefficient.clone() * a_val.clone() * b_val.clone();
                 }
                 // A resolved: becomes linear in B
                 (Some(a_val), None) => {
@@ -486,25 +495,16 @@ impl QuadraticConstraint {
 #[derive(Clone, Debug)]
 pub enum SolverError {
     /// The constraint system has no solution (infeasible).
-    Infeasible {
-        constraint_id: u64,
-        message: String,
-    },
+    Infeasible { constraint_id: u64, message: String },
     /// Bilinear constraints remain after exhausting all linear constraints.
     ///
     /// This occurs when the system has free variables that prevent
     /// bilinear terms from being linearized.
-    NonLinearResidual {
-        remaining: Vec<BilinearConstraint>,
-    },
+    NonLinearResidual { remaining: Vec<BilinearConstraint> },
     /// Quadratic constraints remain that could not be evaluated.
-    QuadraticResidual {
-        remaining: Vec<QuadraticConstraint>,
-    },
+    QuadraticResidual { remaining: Vec<QuadraticConstraint> },
     /// A cyclic dependency was detected.
-    CyclicDependency {
-        variables: Vec<VarId>,
-    },
+    CyclicDependency { variables: Vec<VarId> },
     /// Inconsistent constraints on a resolved variable.
     InconsistentResolution {
         variable: VarId,
@@ -555,10 +555,7 @@ pub enum ResolutionEvent {
     /// A variable was resolved to a constant value.
     VariableResolved { var: VarId, value: Rational },
     /// A bilinear constraint was promoted to linear.
-    ConstraintPromoted {
-        bilinear_id: u64,
-        linear_id: u64,
-    },
+    ConstraintPromoted { bilinear_id: u64, linear_id: u64 },
     /// FM elimination step completed.
     FMEliminationStep {
         eliminated_var: VarId,
@@ -810,9 +807,7 @@ impl ConstraintSolver {
     /// This is called when L0 (FM elimination) and L1 (lazy substitution) cannot
     /// further reduce the system.
     fn solve_with_groebner(&mut self) -> Result<HashMap<VarId, Rational>, SolverError> {
-        use crate::algebra::{
-            solve_polynomial_system, SolveResult,
-        };
+        use crate::algebra::{solve_polynomial_system, SolveResult};
 
         // Convert constraints to polynomials
         let mut polynomials = Vec::new();
@@ -837,12 +832,10 @@ impl ConstraintSolver {
         let result = solve_polynomial_system(&polynomials);
 
         match result {
-            SolveResult::NoSolution => {
-                Err(SolverError::Infeasible {
-                    constraint_id: 0,
-                    message: "L2 Gröbner solver found no solution".to_string(),
-                })
-            }
+            SolveResult::NoSolution => Err(SolverError::Infeasible {
+                constraint_id: 0,
+                message: "L2 Gröbner solver found no solution".to_string(),
+            }),
             SolveResult::InfiniteSolutions => {
                 // System is underdetermined - extract what we have
                 self.extract_solution()
@@ -892,18 +885,19 @@ impl ConstraintSolver {
 
                 self.extract_solution()
             }
-            SolveResult::Undetermined { reason } => {
-                Err(SolverError::Infeasible {
-                    constraint_id: 0,
-                    message: format!("L2 Gröbner solver undetermined: {}", reason),
-                })
-            }
+            SolveResult::Undetermined { reason } => Err(SolverError::Infeasible {
+                constraint_id: 0,
+                message: format!("L2 Gröbner solver undetermined: {}", reason),
+            }),
         }
     }
 
     /// Convert a bilinear constraint to a polynomial.
-    fn bilinear_to_polynomial(&self, constraint: &BilinearConstraint) -> crate::algebra::Polynomial {
-        use crate::algebra::{Polynomial, Monomial};
+    fn bilinear_to_polynomial(
+        &self,
+        constraint: &BilinearConstraint,
+    ) -> crate::algebra::Polynomial {
+        use crate::algebra::{Monomial, Polynomial};
 
         let mut poly = Polynomial::constant(constraint.constant.clone());
 
@@ -931,14 +925,22 @@ impl ConstraintSolver {
     /// Convert a quadratic (circumference) constraint to a polynomial.
     ///
     /// (P.x - C.x)² + (P.y - C.y)² - R² = 0
-    fn quadratic_to_polynomial(&self, constraint: &QuadraticConstraint) -> crate::algebra::Polynomial {
-        use crate::algebra::{Polynomial, Monomial};
+    fn quadratic_to_polynomial(
+        &self,
+        constraint: &QuadraticConstraint,
+    ) -> crate::algebra::Polynomial {
+        use crate::algebra::{Monomial, Polynomial};
 
-        let px_idx = self.var_id_to_polynomial_var(&VarId::new(constraint.point, VectorComponent::X));
-        let py_idx = self.var_id_to_polynomial_var(&VarId::new(constraint.point, VectorComponent::Y));
-        let cx_idx = self.var_id_to_polynomial_var(&VarId::new(constraint.center, VectorComponent::X));
-        let cy_idx = self.var_id_to_polynomial_var(&VarId::new(constraint.center, VectorComponent::Y));
-        let r_idx = self.var_id_to_polynomial_var(&VarId::new(constraint.radius, VectorComponent::Value));
+        let px_idx =
+            self.var_id_to_polynomial_var(&VarId::new(constraint.point, VectorComponent::X));
+        let py_idx =
+            self.var_id_to_polynomial_var(&VarId::new(constraint.point, VectorComponent::Y));
+        let cx_idx =
+            self.var_id_to_polynomial_var(&VarId::new(constraint.center, VectorComponent::X));
+        let cy_idx =
+            self.var_id_to_polynomial_var(&VarId::new(constraint.center, VectorComponent::Y));
+        let r_idx =
+            self.var_id_to_polynomial_var(&VarId::new(constraint.radius, VectorComponent::Value));
 
         // Build (P.x - C.x)² + (P.y - C.y)² - R²
         // = P.x² - 2*P.x*C.x + C.x² + P.y² - 2*P.y*C.y + C.y² - R²
@@ -1109,7 +1111,9 @@ impl ConstraintSolver {
                 // All variables are resolved; verify constraint consistency
                 self.verify_resolved_constraint(&c)?;
                 self.resolution_log
-                    .push(ResolutionEvent::ConstraintVerified { constraint_id: c.id });
+                    .push(ResolutionEvent::ConstraintVerified {
+                        constraint_id: c.id,
+                    });
             } else if c.terms.len() == 1 {
                 // Single variable remaining: can be solved directly
                 let (var, coeff) = &c.terms[0];
@@ -1168,8 +1172,12 @@ impl ConstraintSolver {
             }
         }
 
-        self.variables
-            .insert(var, VariableState::Resolved { value: value.clone() });
+        self.variables.insert(
+            var,
+            VariableState::Resolved {
+                value: value.clone(),
+            },
+        );
         self.resolution_log
             .push(ResolutionEvent::VariableResolved { var, value });
 
@@ -1206,7 +1214,12 @@ impl ConstraintSolver {
 
         // Generate new constraints by combining pivot with each collected constraint
         for other in to_combine {
-            if let Some(other_coeff) = other.terms.iter().find(|(v, _)| *v == elim_var).map(|(_, c)| c.clone()) {
+            if let Some(other_coeff) = other
+                .terms
+                .iter()
+                .find(|(v, _)| *v == elim_var)
+                .map(|(_, c)| c.clone())
+            {
                 // Combine: pivot * other_coeff - other * elim_coeff
                 // This eliminates elim_var from the result
                 let mut new_terms: Vec<(VarId, Rational)> = Vec::new();
@@ -1243,10 +1256,11 @@ impl ConstraintSolver {
             }
         }
 
-        self.resolution_log.push(ResolutionEvent::FMEliminationStep {
-            eliminated_var: elim_var,
-            constraints_processed: 1,
-        });
+        self.resolution_log
+            .push(ResolutionEvent::FMEliminationStep {
+                eliminated_var: elim_var,
+                constraints_processed: 1,
+            });
 
         // Re-add the pivot (may be used again)
         // Note: In a full FM implementation, we would track bounds instead
@@ -1280,10 +1294,11 @@ impl ConstraintSolver {
         for bilinear in to_promote {
             let linear = bilinear.linearize(&self.variables);
 
-            self.resolution_log.push(ResolutionEvent::ConstraintPromoted {
-                bilinear_id: bilinear.id,
-                linear_id: linear.id,
-            });
+            self.resolution_log
+                .push(ResolutionEvent::ConstraintPromoted {
+                    bilinear_id: bilinear.id,
+                    linear_id: linear.id,
+                });
 
             self.active_queue.push_back(linear);
         }
@@ -1309,7 +1324,7 @@ impl ConstraintSolver {
 // Constraint Validation (for CLI/WASM/FFI-C integration)
 // =============================================================================
 
-use crate::{VsBuildInfo, ConstraintTerm, OperationType};
+use crate::{ConstraintTerm, OperationType, VsBuildInfo};
 
 /// Validate a new constraint against existing constraints in buildinfo.
 ///
@@ -1446,9 +1461,10 @@ mod tests {
         assert_eq!(solution.get(&p_y).unwrap(), &Rational::from_int(200));
 
         // Verify promotion occurred
-        let promoted = solver.resolution_log().iter().any(|e| {
-            matches!(e, ResolutionEvent::ConstraintPromoted { .. })
-        });
+        let promoted = solver
+            .resolution_log()
+            .iter()
+            .any(|e| matches!(e, ResolutionEvent::ConstraintPromoted { .. }));
         assert!(promoted, "Bilinear constraint should have been promoted");
     }
 
@@ -1480,8 +1496,11 @@ mod tests {
             }
             Err(SolverError::Infeasible { message, .. }) => {
                 // L2 may report undetermined
-                assert!(message.contains("undetermined") || message.contains("Undetermined"),
-                    "Expected undetermined message, got: {}", message);
+                assert!(
+                    message.contains("undetermined") || message.contains("Undetermined"),
+                    "Expected undetermined message, got: {}",
+                    message
+                );
             }
             Err(other) => {
                 // Other errors are also acceptable for truly unsolvable systems
@@ -1582,9 +1601,12 @@ mod tests {
         let b = var(2, VectorComponent::X);
 
         // Resolve variable A to 5
-        states.insert(a, VariableState::Resolved {
-            value: Rational::from_int(5),
-        });
+        states.insert(
+            a,
+            VariableState::Resolved {
+                value: Rational::from_int(5),
+            },
+        );
         states.insert(b, VariableState::Free);
 
         // Create bilinear constraint: 2 * A * B + 3 = 0
@@ -1659,7 +1681,11 @@ mod tests {
 
         // Solve - should succeed since point is on the circle
         let result = solver.solve();
-        assert!(result.is_ok(), "Point on circle should satisfy constraint: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Point on circle should satisfy constraint: {:?}",
+            result
+        );
     }
 
     /// Test: Circumference constraint violation
@@ -1708,7 +1734,11 @@ mod tests {
 
         // Solve - should succeed (3-4-5 right triangle)
         let result = solver.solve();
-        assert!(result.is_ok(), "3-4-5 triangle point should be on circle: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "3-4-5 triangle point should be on circle: {:?}",
+            result
+        );
     }
 
     /// Test: Arc constraints register two circumference constraints
@@ -1768,14 +1798,30 @@ mod tests {
 
         // Solve - should succeed
         let result = solver.solve();
-        assert!(result.is_ok(), "Arc endpoints should satisfy circumference: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Arc endpoints should satisfy circumference: {:?}",
+            result
+        );
 
         // Verify all points are resolved
         let solution = result.unwrap();
-        assert_eq!(solution.get(&var(3, VectorComponent::X)), Some(&Rational::from_int(10)));
-        assert_eq!(solution.get(&var(3, VectorComponent::Y)), Some(&Rational::zero()));
-        assert_eq!(solution.get(&var(4, VectorComponent::X)), Some(&Rational::zero()));
-        assert_eq!(solution.get(&var(4, VectorComponent::Y)), Some(&Rational::from_int(10)));
+        assert_eq!(
+            solution.get(&var(3, VectorComponent::X)),
+            Some(&Rational::from_int(10))
+        );
+        assert_eq!(
+            solution.get(&var(3, VectorComponent::Y)),
+            Some(&Rational::zero())
+        );
+        assert_eq!(
+            solution.get(&var(4, VectorComponent::X)),
+            Some(&Rational::zero())
+        );
+        assert_eq!(
+            solution.get(&var(4, VectorComponent::Y)),
+            Some(&Rational::from_int(10))
+        );
     }
 
     /// Test: L2 solver handles circle-circle tangency (simplified Apollonius)
@@ -1792,13 +1838,15 @@ mod tests {
         // finding a third circle tangent to two given circles.
 
         // For now, verify the polynomial infrastructure works
-        use crate::algebra::{Polynomial, Monomial, solve_polynomial_system, SolveResult};
+        use crate::algebra::{solve_polynomial_system, Monomial, Polynomial, SolveResult};
 
         // Equation: (c2x - 0)² + (0 - 0)² = (3 + 2)²
         // c2x² = 25
         // c2x² - 25 = 0
         let c2x = Polynomial::var(0);
-        let poly = c2x.mul(&c2x).sub(&Polynomial::constant(Rational::from_int(25)));
+        let poly = c2x
+            .mul(&c2x)
+            .sub(&Polynomial::constant(Rational::from_int(25)));
 
         let result = solve_polynomial_system(&[poly]);
 
@@ -1806,7 +1854,8 @@ mod tests {
             SolveResult::FiniteSolutions(solutions) => {
                 // Should have two solutions: c2x = 5 and c2x = -5
                 assert_eq!(solutions.len(), 2);
-                let vals: Vec<_> = solutions.iter()
+                let vals: Vec<_> = solutions
+                    .iter()
                     .filter_map(|s| s.values.get(&0).cloned())
                     .collect();
                 assert!(vals.contains(&Rational::from_int(5)));
@@ -1841,11 +1890,21 @@ mod tests {
         ));
 
         let result = solver.solve();
-        assert!(result.is_ok(), "Scalar constraints should solve: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Scalar constraints should solve: {:?}",
+            result
+        );
 
         let solution = result.unwrap();
-        assert_eq!(solution.get(&var(1, VectorComponent::Value)), Some(&Rational::from_int(100)));
-        assert_eq!(solution.get(&var(2, VectorComponent::Value)), Some(&Rational::from_int(50)));
+        assert_eq!(
+            solution.get(&var(1, VectorComponent::Value)),
+            Some(&Rational::from_int(100))
+        );
+        assert_eq!(
+            solution.get(&var(2, VectorComponent::Value)),
+            Some(&Rational::from_int(50))
+        );
     }
 
     /// Test: ConflictingConstraint error when adding duplicate equality constraints

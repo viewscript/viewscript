@@ -17,30 +17,63 @@
 //! `_for_rasterization` in their name are exempt, as rasterization is the
 //! only permitted f64 conversion point.
 
-use syn::{
-    visit::Visit,
-    ExprCast, ExprLit, ExprMethodCall, File, ItemFn, Lit, Type,
-    TypePath, Attribute,
-};
 use crate::{LintCheck, LintViolation, Severity};
+use syn::{
+    visit::Visit, Attribute, ExprCast, ExprLit, ExprMethodCall, File, ItemFn, Lit, Type, TypePath,
+};
 
 /// Float-specific methods that indicate float contamination.
 const FLOAT_METHODS: &[&str] = &[
-    "floor", "ceil", "round", "trunc", "fract",
-    "sin", "cos", "tan", "asin", "acos", "atan", "atan2",
-    "sinh", "cosh", "tanh", "asinh", "acosh", "atanh",
-    "sqrt", "cbrt", "hypot",
-    "exp", "exp2", "exp_m1", "ln", "ln_1p", "log", "log2", "log10",
-    "powi", "powf",
+    "floor",
+    "ceil",
+    "round",
+    "trunc",
+    "fract",
+    "sin",
+    "cos",
+    "tan",
+    "asin",
+    "acos",
+    "atan",
+    "atan2",
+    "sinh",
+    "cosh",
+    "tanh",
+    "asinh",
+    "acosh",
+    "atanh",
+    "sqrt",
+    "cbrt",
+    "hypot",
+    "exp",
+    "exp2",
+    "exp_m1",
+    "ln",
+    "ln_1p",
+    "log",
+    "log2",
+    "log10",
+    "powi",
+    "powf",
     "abs", // Note: abs exists for integers too, but context matters
     "signum",
     "copysign",
-    "mul_add", "div_euclid", "rem_euclid",
-    "to_degrees", "to_radians",
-    "is_nan", "is_infinite", "is_finite", "is_subnormal", "is_normal",
-    "classify", "is_sign_positive", "is_sign_negative",
+    "mul_add",
+    "div_euclid",
+    "rem_euclid",
+    "to_degrees",
+    "to_radians",
+    "is_nan",
+    "is_infinite",
+    "is_finite",
+    "is_subnormal",
+    "is_normal",
+    "classify",
+    "is_sign_positive",
+    "is_sign_negative",
     "recip",
-    "max", "min", // These exist for floats specifically as methods
+    "max",
+    "min", // These exist for floats specifically as methods
 ];
 
 /// Check a parsed Rust file for float contamination.
@@ -290,7 +323,10 @@ mod tests {
             }
         "#;
         let violations = check_code(code);
-        assert!(violations.is_empty(), "Rasterization functions should be allowed");
+        assert!(
+            violations.is_empty(),
+            "Rasterization functions should be allowed"
+        );
     }
 
     #[test]
@@ -302,7 +338,10 @@ mod tests {
             }
         "#;
         let violations = check_code(code);
-        assert!(violations.is_empty(), "Functions with allow attribute should be skipped");
+        assert!(
+            violations.is_empty(),
+            "Functions with allow attribute should be skipped"
+        );
     }
 
     #[test]

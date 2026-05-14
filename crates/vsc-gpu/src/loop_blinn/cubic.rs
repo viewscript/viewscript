@@ -718,10 +718,7 @@ mod tests {
         }
 
         // Log max error for debugging
-        println!(
-            "Serpentine implicit function max error: {}",
-            max_error
-        );
+        println!("Serpentine implicit function max error: {}", max_error);
     }
 
     /// Verify that Loop curves have correct implicit function behavior.

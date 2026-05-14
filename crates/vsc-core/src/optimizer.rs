@@ -129,8 +129,12 @@ pub struct OptimizerConfig {
     pub chain_length_warning: u32,
 }
 
-fn default_snap_warning_threshold() -> Rational { Rational::new(1, 1_000_000) }
-fn default_chain_length_warning() -> u32 { 100 }
+fn default_snap_warning_threshold() -> Rational {
+    Rational::new(1, 1_000_000)
+}
+fn default_chain_length_warning() -> u32 {
+    100
+}
 
 impl Default for OptimizerConfig {
     fn default() -> Self {
@@ -184,7 +188,12 @@ impl Optimizer {
         // Phase 2: AUTO-SNAP all export boundaries (MANDATORY per architect decision)
         // EXCEPT for T-dependent exports (they cannot be snapped)
         for (entity_id, analysis) in &export_analysis {
-            for component in [VectorComponent::X, VectorComponent::Y, VectorComponent::Z, VectorComponent::T] {
+            for component in [
+                VectorComponent::X,
+                VectorComponent::Y,
+                VectorComponent::Z,
+                VectorComponent::T,
+            ] {
                 // Check for T-dependency BEFORE attempting snap
                 let t_dependencies = self.find_t_dependencies(ir, *entity_id, component);
                 if !t_dependencies.is_empty() {
@@ -196,8 +205,10 @@ impl Optimizer {
                         message: format!(
                             "Export {}.{:?} depends on T-vector state and cannot be auto-snapped. \
                              T-dependent constraints: {:?}",
-                            entity_id.0, component,
-                            t_dependencies.iter()
+                            entity_id.0,
+                            component,
+                            t_dependencies
+                                .iter()
                                 .map(|d| format!("{}.{}", d.entity_id.0, d.t_state))
                                 .collect::<Vec<_>>()
                         ),
@@ -209,11 +220,13 @@ impl Optimizer {
                 if let Some(chain_info) = analysis.get_chain_info(component) {
                     // Warn if chain is unusually long
                     if chain_info.length > self.config.chain_length_warning {
-                        result.warnings.push(OptimizationWarning::LongDependencyChain {
-                            entity_id: *entity_id,
-                            chain_length: chain_info.length,
-                            accumulated_error: chain_info.accumulated_error.clone(),
-                        });
+                        result
+                            .warnings
+                            .push(OptimizationWarning::LongDependencyChain {
+                                entity_id: *entity_id,
+                                chain_length: chain_info.length,
+                                accumulated_error: chain_info.accumulated_error.clone(),
+                            });
                     }
 
                     // The "snap" in exact rational arithmetic is simply
@@ -334,8 +347,15 @@ impl Optimizer {
     ///
     /// Walk the constraint graph backwards from the target entity/component,
     /// looking for any reference to VectorComponent::T.
-    pub fn is_t_dependent(&self, ir: &IrModule, entity_id: EntityId, component: VectorComponent) -> bool {
-        !self.find_t_dependencies(ir, entity_id, component).is_empty()
+    pub fn is_t_dependent(
+        &self,
+        ir: &IrModule,
+        entity_id: EntityId,
+        component: VectorComponent,
+    ) -> bool {
+        !self
+            .find_t_dependencies(ir, entity_id, component)
+            .is_empty()
     }
 
     /// Find all T-vector dependencies for an entity/component.
@@ -351,7 +371,13 @@ impl Optimizer {
         let mut dependencies = Vec::new();
         let mut visited = std::collections::HashSet::new();
 
-        self.find_t_dependencies_recursive(ir, entity_id, component, &mut dependencies, &mut visited);
+        self.find_t_dependencies_recursive(
+            ir,
+            entity_id,
+            component,
+            &mut dependencies,
+            &mut visited,
+        );
 
         dependencies
     }
@@ -386,16 +412,31 @@ impl Optimizer {
             if constraint.target == entity_id && constraint.component == component {
                 // Check if the constraint term references other entities
                 match &constraint.term {
-                    ConstraintTerm::Ref { entity_id: ref_id, component: ref_comp } => {
+                    ConstraintTerm::Ref {
+                        entity_id: ref_id,
+                        component: ref_comp,
+                    } => {
                         // Recurse into the referenced entity
                         self.find_t_dependencies_recursive(
-                            ir, *ref_id, *ref_comp, dependencies, visited
+                            ir,
+                            *ref_id,
+                            *ref_comp,
+                            dependencies,
+                            visited,
                         );
                     }
-                    ConstraintTerm::Linear { entity_id: ref_id, component: ref_comp, .. } => {
+                    ConstraintTerm::Linear {
+                        entity_id: ref_id,
+                        component: ref_comp,
+                        ..
+                    } => {
                         // Recurse into the referenced entity
                         self.find_t_dependencies_recursive(
-                            ir, *ref_id, *ref_comp, dependencies, visited
+                            ir,
+                            *ref_id,
+                            *ref_comp,
+                            dependencies,
+                            visited,
                         );
                     }
                     ConstraintTerm::Const { .. } => {
@@ -505,7 +546,9 @@ mod tests {
                 target: EntityId(1),
                 component: VectorComponent::X,
                 relation: RelationType::Eq,
-                term: ConstraintTerm::Const { value: Rational::from_int(100) },
+                term: ConstraintTerm::Const {
+                    value: Rational::from_int(100),
+                },
                 metadata: ConstraintMetadata::default(),
             }],
         };
@@ -527,7 +570,9 @@ mod tests {
                 target: EntityId(1),
                 component: VectorComponent::X,
                 relation: RelationType::Eq,
-                term: ConstraintTerm::Const { value: Rational::from_int(100) },
+                term: ConstraintTerm::Const {
+                    value: Rational::from_int(100),
+                },
                 metadata: ConstraintMetadata::default(),
             }],
         };
@@ -659,18 +704,28 @@ mod tests {
         let result = optimizer.optimize(&mut ir);
 
         // Should have generated a TDependentExport warning
-        let t_dep_warnings: Vec<_> = result.warnings.iter()
+        let t_dep_warnings: Vec<_> = result
+            .warnings
+            .iter()
             .filter(|w| matches!(w, OptimizationWarning::TDependentExport { .. }))
             .collect();
 
-        assert!(!t_dep_warnings.is_empty(), "Expected TDependentExport warning");
+        assert!(
+            !t_dep_warnings.is_empty(),
+            "Expected TDependentExport warning"
+        );
 
         // The export should NOT have been snapped
-        let x_snaps: Vec<_> = result.snap_details.iter()
+        let x_snaps: Vec<_> = result
+            .snap_details
+            .iter()
             .filter(|s| s.entity_id == EntityId(1) && s.component == VectorComponent::X)
             .collect();
 
-        assert!(x_snaps.is_empty(), "T-dependent export should not be snapped");
+        assert!(
+            x_snaps.is_empty(),
+            "T-dependent export should not be snapped"
+        );
     }
 
     #[test]

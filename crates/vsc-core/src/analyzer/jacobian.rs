@@ -68,13 +68,7 @@ impl PolynomialConstraint {
                 let new_vars: Vec<_> = term
                     .variables
                     .iter()
-                    .map(|&(v, e)| {
-                        if v == var {
-                            (v, e - 1)
-                        } else {
-                            (v, e)
-                        }
-                    })
+                    .map(|&(v, e)| if v == var { (v, e - 1) } else { (v, e) })
                     .filter(|(_, e)| *e > 0)
                     .collect();
 
@@ -140,9 +134,11 @@ impl PartialDerivative {
     /// Get the constant value if this is a constant derivative.
     pub fn constant_value(&self) -> Option<Rational> {
         if self.is_constant() {
-            Some(self.terms.iter().fold(Rational::zero(), |acc, t| {
-                acc + t.coefficient.clone()
-            }))
+            Some(
+                self.terms
+                    .iter()
+                    .fold(Rational::zero(), |acc, t| acc + t.coefficient.clone()),
+            )
         } else {
             None
         }
@@ -212,7 +208,11 @@ pub fn compute_jacobian(constraints: &[PolynomialConstraint]) -> JacobianMatrix 
     // Collect all variables
     let mut all_vars: Vec<JacobianVarId> = constraints
         .iter()
-        .flat_map(|c| c.terms.iter().flat_map(|t| t.variables.iter().map(|(v, _)| *v)))
+        .flat_map(|c| {
+            c.terms
+                .iter()
+                .flat_map(|t| t.variables.iter().map(|(v, _)| *v))
+        })
         .collect();
     all_vars.sort();
     all_vars.dedup();

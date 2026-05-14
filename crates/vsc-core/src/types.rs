@@ -52,7 +52,10 @@ pub struct Rational(pub Ratio<BigInt>);
 impl Rational {
     /// Create a new rational from numerator and denominator.
     pub fn new(numerator: i64, denominator: i64) -> Self {
-        Self(Ratio::new(BigInt::from(numerator), BigInt::from(denominator)))
+        Self(Ratio::new(
+            BigInt::from(numerator),
+            BigInt::from(denominator),
+        ))
     }
 
     /// Create a rational from an integer.
@@ -106,7 +109,11 @@ impl Rational {
         // Direct conversion using ToPrimitive (efficient, no string parsing)
         let n_f64 = numer.to_f64().unwrap_or_else(|| {
             // Fallback for extreme values: use sign * infinity
-            if numer.is_negative() { f64::NEG_INFINITY } else { f64::INFINITY }
+            if numer.is_negative() {
+                f64::NEG_INFINITY
+            } else {
+                f64::INFINITY
+            }
         });
         let d_f64 = denom.to_f64().unwrap_or(1.0);
 
@@ -134,27 +141,37 @@ impl fmt::Display for Rational {
 
 impl std::ops::Add for Rational {
     type Output = Self;
-    fn add(self, rhs: Self) -> Self { Self(self.0 + rhs.0) }
+    fn add(self, rhs: Self) -> Self {
+        Self(self.0 + rhs.0)
+    }
 }
 
 impl std::ops::Sub for Rational {
     type Output = Self;
-    fn sub(self, rhs: Self) -> Self { Self(self.0 - rhs.0) }
+    fn sub(self, rhs: Self) -> Self {
+        Self(self.0 - rhs.0)
+    }
 }
 
 impl std::ops::Mul for Rational {
     type Output = Self;
-    fn mul(self, rhs: Self) -> Self { Self(self.0 * rhs.0) }
+    fn mul(self, rhs: Self) -> Self {
+        Self(self.0 * rhs.0)
+    }
 }
 
 impl std::ops::Div for Rational {
     type Output = Self;
-    fn div(self, rhs: Self) -> Self { Self(self.0 / rhs.0) }
+    fn div(self, rhs: Self) -> Self {
+        Self(self.0 / rhs.0)
+    }
 }
 
 impl std::ops::Neg for Rational {
     type Output = Self;
-    fn neg(self) -> Self { Self(-self.0) }
+    fn neg(self) -> Self {
+        Self(-self.0)
+    }
 }
 
 impl Rational {
@@ -179,7 +196,9 @@ impl Ord for Rational {
 // Serialization: Use string representation to preserve exactness
 impl Serialize for Rational {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where S: serde::Serializer {
+    where
+        S: serde::Serializer,
+    {
         let s = format!("{}/{}", self.0.numer(), self.0.denom());
         serializer.serialize_str(&s)
     }
@@ -187,7 +206,9 @@ impl Serialize for Rational {
 
 impl<'de> Deserialize<'de> for Rational {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where D: serde::Deserializer<'de> {
+    where
+        D: serde::Deserializer<'de>,
+    {
         let s = String::deserialize(deserializer)?;
         let parts: Vec<&str> = s.split('/').collect();
         match parts.len() {
@@ -203,7 +224,7 @@ impl<'de> Deserialize<'de> for Rational {
                 Ok(Self(Ratio::new(numer, denom)))
             }
             _ => Err(serde::de::Error::custom(
-                "Expected integer (\"50\") or fraction (\"50/1\") format"
+                "Expected integer (\"50\") or fraction (\"50/1\") format",
             )),
         }
     }
@@ -220,7 +241,8 @@ impl JsonSchema for Rational {
             format: Some("rational".to_string()),
             metadata: Some(Box::new(schemars::schema::Metadata {
                 description: Some(
-                    "Exact rational number in 'numerator/denominator' format (e.g. '3/4', '100/1')".to_string(),
+                    "Exact rational number in 'numerator/denominator' format (e.g. '3/4', '100/1')"
+                        .to_string(),
                 ),
                 examples: vec![
                     serde_json::Value::String("3/4".to_string()),
@@ -778,16 +800,12 @@ pub enum FillSpec {
     /// Solid color fill.
     ///
     /// Color is a CSS color string (e.g., "#ff0000", "rgb(255, 0, 0)").
-    Solid {
-        color: String,
-    },
+    Solid { color: String },
     /// Gradient fill (references a gradient entity).
     ///
     /// The gradient_id must reference a LinearGradient, RadialGradient,
     /// or ConicGradient entity.
-    Gradient {
-        gradient_id: EntityId,
-    },
+    Gradient { gradient_id: EntityId },
     /// External texture fill (references a Q-dimension texture handle).
     ///
     /// The texture is managed by the host (OffscreenCanvas, video, native texture).
@@ -981,7 +999,12 @@ impl PathEntityEntry {
             let ids: Vec<EntityId> = match segment {
                 PathSegment::Line { from, to } => vec![*from, *to],
                 PathSegment::Quad { from, handle, to } => vec![*from, *handle, *to],
-                PathSegment::Cubic { from, handle1, handle2, to } => {
+                PathSegment::Cubic {
+                    from,
+                    handle1,
+                    handle2,
+                    to,
+                } => {
                     vec![*from, *handle1, *handle2, *to]
                 }
                 PathSegment::Arc { from, to, .. } => vec![*from, *to],
@@ -1085,8 +1108,15 @@ pub enum PathResolveError {
 impl std::fmt::Display for PathResolveError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PathResolveError::MissingControlPoint { entity_id, component } => {
-                write!(f, "Control point {:?}.{:?} not found in solution", entity_id, component)
+            PathResolveError::MissingControlPoint {
+                entity_id,
+                component,
+            } => {
+                write!(
+                    f,
+                    "Control point {:?}.{:?} not found in solution",
+                    entity_id, component
+                )
             }
         }
     }
@@ -1166,7 +1196,10 @@ where
         PathSegment::Arc { from, .. } => *from,
     };
     let (start_x, start_y) = lookup(first_from)?;
-    commands.push(PathCommand::MoveTo { x: start_x, y: start_y });
+    commands.push(PathCommand::MoveTo {
+        x: start_x,
+        y: start_y,
+    });
 
     // Process each segment
     for segment in segments {
@@ -1180,13 +1213,33 @@ where
                 let (x, y) = lookup(*to)?;
                 commands.push(PathCommand::QuadTo { x1, y1, x, y });
             }
-            PathSegment::Cubic { handle1, handle2, to, .. } => {
+            PathSegment::Cubic {
+                handle1,
+                handle2,
+                to,
+                ..
+            } => {
                 let (x1, y1) = lookup(*handle1)?;
                 let (x2, y2) = lookup(*handle2)?;
                 let (x, y) = lookup(*to)?;
-                commands.push(PathCommand::CubicTo { x1, y1, x2, y2, x, y });
+                commands.push(PathCommand::CubicTo {
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    x,
+                    y,
+                });
             }
-            PathSegment::Arc { to, rx, ry, rotation, large_arc, sweep, .. } => {
+            PathSegment::Arc {
+                to,
+                rx,
+                ry,
+                rotation,
+                large_arc,
+                sweep,
+                ..
+            } => {
                 let (x, y) = lookup(*to)?;
                 commands.push(PathCommand::ArcTo {
                     rx: rx.clone(),
@@ -1262,7 +1315,12 @@ impl Path {
             let ids: Vec<EntityId> = match segment {
                 PathSegment::Line { from, to } => vec![*from, *to],
                 PathSegment::Quad { from, handle, to } => vec![*from, *handle, *to],
-                PathSegment::Cubic { from, handle1, handle2, to } => {
+                PathSegment::Cubic {
+                    from,
+                    handle1,
+                    handle2,
+                    to,
+                } => {
                     vec![*from, *handle1, *handle2, *to]
                 }
                 PathSegment::Arc { from, to, .. } => vec![*from, *to],
@@ -1285,10 +1343,7 @@ impl Path {
 #[serde(tag = "entity_type", rename_all = "snake_case")]
 pub enum Entity {
     /// A primitive rectangle (legacy, will be migrated to Path).
-    Rect {
-        id: EntityId,
-        bounds: RectBounds,
-    },
+    Rect { id: EntityId, bounds: RectBounds },
     /// A text element (legacy, use TextEntity for constraint-based layout).
     Text {
         id: EntityId,
@@ -1347,7 +1402,10 @@ impl Entity {
     /// Returns true for entities whose X/Y coordinates can be constrained.
     /// Returns false for scalar entities (Radius, Angle) or composite entities (Path).
     pub fn is_coordinate_entity(&self) -> bool {
-        matches!(self, Entity::Rect { .. } | Entity::Text { .. } | Entity::ControlPoint(_))
+        matches!(
+            self,
+            Entity::Rect { .. } | Entity::Text { .. } | Entity::ControlPoint(_)
+        )
     }
 
     /// Check if this entity is a scalar entity (Radius, Angle, ColorStop).
@@ -1355,7 +1413,10 @@ impl Entity {
     /// Scalar entities use VectorComponent::Value for constraints.
     /// ColorStop has multiple scalar fields (r, g, b, a, position).
     pub fn is_scalar_entity(&self) -> bool {
-        matches!(self, Entity::Radius(_) | Entity::Angle(_) | Entity::ColorStop(_))
+        matches!(
+            self,
+            Entity::Radius(_) | Entity::Angle(_) | Entity::ColorStop(_)
+        )
     }
 
     /// Check if this entity is a composite/path entity.
@@ -1477,12 +1538,7 @@ impl TextEntity {
     /// - BR: `n + 4`
     ///
     /// The caller must ensure these IDs are reserved.
-    pub fn new(
-        id: EntityId,
-        content: String,
-        font_family: String,
-        font_size: Rational,
-    ) -> Self {
+    pub fn new(id: EntityId, content: String, font_family: String, font_size: Rational) -> Self {
         let base = id.0;
         Self {
             id,
@@ -1500,14 +1556,23 @@ impl TextEntity {
 
     /// Get all corner control point IDs.
     pub fn corner_ids(&self) -> [EntityId; 4] {
-        [self.corner_tl, self.corner_tr, self.corner_bl, self.corner_br]
+        [
+            self.corner_tl,
+            self.corner_tr,
+            self.corner_bl,
+            self.corner_br,
+        ]
     }
 
     /// Generate the 4 control points for this text entity at a given origin.
     ///
     /// Initially all corners are placed at the origin (0, 0).
     /// The Renderer will update positions via `update-metrics`.
-    pub fn expand_control_points(&self, origin_x: Rational, origin_y: Rational) -> Vec<ControlPoint> {
+    pub fn expand_control_points(
+        &self,
+        origin_x: Rational,
+        origin_y: Rational,
+    ) -> Vec<ControlPoint> {
         vec![
             ControlPoint {
                 id: self.corner_tl,
@@ -2197,7 +2262,14 @@ impl ColorStop {
         a: Rational,
         position: Rational,
     ) -> Self {
-        Self { id, r, g, b, a, position }
+        Self {
+            id,
+            r,
+            g,
+            b,
+            a,
+            position,
+        }
     }
 
     /// Create from integer RGB values (alpha = 1, position must be specified).
@@ -2227,14 +2299,16 @@ impl ColorStop {
             "purple" => (128, 0, 128),
             "pink" => (255, 192, 203),
             "gray" | "grey" => (128, 128, 128),
-            "transparent" => return Some(Self {
-                id,
-                r: Rational::zero(),
-                g: Rational::zero(),
-                b: Rational::zero(),
-                a: Rational::zero(),
-                position,
-            }),
+            "transparent" => {
+                return Some(Self {
+                    id,
+                    r: Rational::zero(),
+                    g: Rational::zero(),
+                    b: Rational::zero(),
+                    a: Rational::zero(),
+                    position,
+                })
+            }
             _ => return None,
         };
         Some(Self::from_rgb(id, r, g, b, position))
@@ -2303,12 +2377,7 @@ pub struct LinearGradient {
 
 impl LinearGradient {
     /// Create a new linear gradient with start/end points and color stops.
-    pub fn new(
-        id: EntityId,
-        start: EntityId,
-        end: EntityId,
-        stops: Vec<EntityId>,
-    ) -> Self {
+    pub fn new(id: EntityId, start: EntityId, end: EntityId, stops: Vec<EntityId>) -> Self {
         Self {
             id,
             start,
@@ -2374,12 +2443,7 @@ pub struct RadialGradient {
 
 impl RadialGradient {
     /// Create a circular radial gradient (radius_x = radius_y).
-    pub fn circle(
-        id: EntityId,
-        center: EntityId,
-        radius: EntityId,
-        stops: Vec<EntityId>,
-    ) -> Self {
+    pub fn circle(id: EntityId, center: EntityId, radius: EntityId, stops: Vec<EntityId>) -> Self {
         Self {
             id,
             center,
@@ -2665,8 +2729,17 @@ mod tests {
     #[test]
     fn test_f32_to_rational_exact_roundtrip() {
         let test_values = [
-            0.0f32, 1.0, -1.0, 0.5, -0.5, 0.75, 0.125,
-            100.0, -100.0, 33.5, 12345.6875,
+            0.0f32,
+            1.0,
+            -1.0,
+            0.5,
+            -0.5,
+            0.75,
+            0.125,
+            100.0,
+            -100.0,
+            33.5,
+            12345.6875,
             f32::MIN_POSITIVE, // Smallest positive normalized
         ];
 

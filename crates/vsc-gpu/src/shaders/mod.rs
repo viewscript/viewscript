@@ -404,7 +404,12 @@ impl GradientStopUniform {
         fn clamp_and_warn(value: f64, min: f64, max: f64, field: &str) -> f32 {
             let clamped = value.clamp(min, max) as f32;
             if (value - clamped as f64).abs() > 1e-9 {
-                log::warn!("GradientStopUniform {} value {} clamped to {}", field, value, clamped);
+                log::warn!(
+                    "GradientStopUniform {} value {} clamped to {}",
+                    field,
+                    value,
+                    clamped
+                );
             }
             clamped
         }
@@ -476,7 +481,8 @@ impl GradientUniform {
     pub fn new(start: [f32; 2], end: [f32; 2], stops: &[GradientStopUniform]) -> Self {
         let stop_count = stops.len().min(MAX_GRADIENT_STOPS) as u32;
 
-        let mut stops_array = [GradientStopUniform::new(0.0, 0.0, 0.0, 1.0, 0.0); MAX_GRADIENT_STOPS];
+        let mut stops_array =
+            [GradientStopUniform::new(0.0, 0.0, 0.0, 1.0, 0.0); MAX_GRADIENT_STOPS];
         for (i, stop) in stops.iter().take(MAX_GRADIENT_STOPS).enumerate() {
             stops_array[i] = *stop;
         }
@@ -548,7 +554,7 @@ impl GradientUniform {
     ) -> ([f32; 2], [f32; 2]) {
         // CSS default: 180° = top to bottom
         const DEFAULT_START: [f32; 2] = [0.5, 0.0]; // Top center
-        const DEFAULT_END: [f32; 2] = [0.5, 1.0];   // Bottom center
+        const DEFAULT_END: [f32; 2] = [0.5, 1.0]; // Bottom center
 
         let start_uv = match start {
             Some(pt) => [
@@ -624,7 +630,8 @@ impl RadialGradientUniform {
     pub fn new(center: [f32; 2], radius: [f32; 2], stops: &[GradientStopUniform]) -> Self {
         let stop_count = stops.len().min(MAX_GRADIENT_STOPS) as u32;
 
-        let mut stops_array = [GradientStopUniform::new(0.0, 0.0, 0.0, 1.0, 0.0); MAX_GRADIENT_STOPS];
+        let mut stops_array =
+            [GradientStopUniform::new(0.0, 0.0, 0.0, 1.0, 0.0); MAX_GRADIENT_STOPS];
         for (i, stop) in stops.iter().take(MAX_GRADIENT_STOPS).enumerate() {
             stops_array[i] = *stop;
         }
@@ -1044,9 +1051,9 @@ mod tests {
     fn test_gradient_3stop_interpolation() {
         // Red → Green → Blue gradient
         let stops = [
-            GradientStopUniform::new(1.0, 0.0, 0.0, 1.0, 0.0),  // Red at 0
-            GradientStopUniform::new(0.0, 1.0, 0.0, 1.0, 0.5),  // Green at 0.5
-            GradientStopUniform::new(0.0, 0.0, 1.0, 1.0, 1.0),  // Blue at 1
+            GradientStopUniform::new(1.0, 0.0, 0.0, 1.0, 0.0), // Red at 0
+            GradientStopUniform::new(0.0, 1.0, 0.0, 1.0, 0.5), // Green at 0.5
+            GradientStopUniform::new(0.0, 0.0, 1.0, 1.0, 1.0), // Blue at 1
         ];
         let gradient = GradientUniform::horizontal(&stops);
 
@@ -1124,7 +1131,10 @@ mod tests {
     fn test_gradient_zero_stops_degenerate() {
         // 0 stops: stop_count should be 0, no panic
         let gradient = GradientUniform::from_linear_gradient_points(None, None, &[]);
-        assert_eq!(gradient.stop_count, 0, "0 stops should produce stop_count=0");
+        assert_eq!(
+            gradient.stop_count, 0,
+            "0 stops should produce stop_count=0"
+        );
 
         // Verify evaluate_gradient_cpu handles 0 stops gracefully
         let color = evaluate_gradient_cpu(&gradient, 0.5);
@@ -1153,7 +1163,9 @@ mod tests {
             assert!(
                 (gradient.stops[i].offset - expected_offset).abs() < 0.001,
                 "Stop[{}] offset should be {:.3}, got {:.3}",
-                i, expected_offset, gradient.stops[i].offset
+                i,
+                expected_offset,
+                gradient.stops[i].offset
             );
         }
     }
@@ -1164,10 +1176,10 @@ mod tests {
 
         // r=300 (above 255), g=-10 (below 0), b=128, a=255
         let color = SolidColorUniform::from_rational_rgba(
-            &Rational::from_int(300),   // above range → should clamp to 1.0
-            &Rational::from_int(-10),   // below range → should clamp to 0.0
-            &Rational::from_int(128),   // valid: 128/255 ≈ 0.502
-            &Rational::from_int(255),   // valid: 1.0
+            &Rational::from_int(300), // above range → should clamp to 1.0
+            &Rational::from_int(-10), // below range → should clamp to 0.0
+            &Rational::from_int(128), // valid: 128/255 ≈ 0.502
+            &Rational::from_int(255), // valid: 1.0
         );
 
         assert!(
@@ -1192,10 +1204,26 @@ mod tests {
         );
 
         // Verify GPU values are within valid range
-        assert!(color.r >= 0.0 && color.r <= 1.0, "r out of [0,1]: {}", color.r);
-        assert!(color.g >= 0.0 && color.g <= 1.0, "g out of [0,1]: {}", color.g);
-        assert!(color.b >= 0.0 && color.b <= 1.0, "b out of [0,1]: {}", color.b);
-        assert!(color.a >= 0.0 && color.a <= 1.0, "a out of [0,1]: {}", color.a);
+        assert!(
+            color.r >= 0.0 && color.r <= 1.0,
+            "r out of [0,1]: {}",
+            color.r
+        );
+        assert!(
+            color.g >= 0.0 && color.g <= 1.0,
+            "g out of [0,1]: {}",
+            color.g
+        );
+        assert!(
+            color.b >= 0.0 && color.b <= 1.0,
+            "b out of [0,1]: {}",
+            color.b
+        );
+        assert!(
+            color.a >= 0.0 && color.a <= 1.0,
+            "a out of [0,1]: {}",
+            color.a
+        );
     }
 
     #[test]
@@ -1680,7 +1708,9 @@ mod tests {
         let v = [p[0] - p0[0], p[1] - p0[1]];
 
         let a_coef = c[0] * c[0] + c[1] * c[1];
-        if a_coef.abs() < EPSILON { return f32::NAN; }
+        if a_coef.abs() < EPSILON {
+            return f32::NAN;
+        }
 
         let b_coef = 3.0 * (a[0] * c[0] + a[1] * c[1]);
         let c_coef = 2.0 * (a[0] * a[0] + a[1] * a[1]) - (v[0] * c[0] + v[1] * c[1]);
@@ -1734,7 +1764,8 @@ mod tests {
         assert!(
             (dist - dist_to_p0).abs() < 1.0,
             "Distance should be ~{:.2} (to endpoints), got {:.2}",
-            dist_to_p0, dist
+            dist_to_p0,
+            dist
         );
     }
 
@@ -1814,11 +1845,11 @@ mod tests {
 
         // Test multiple points near D = 0 boundary
         let test_points = [
-            [50.0f32, 25.0],   // D = 0 exact
-            [50.0, 24.9],      // D slightly positive
-            [50.0, 25.1],      // D slightly negative
-            [50.0, 20.0],      // D small negative
-            [45.0, 5.0],       // D near zero
+            [50.0f32, 25.0], // D = 0 exact
+            [50.0, 24.9],    // D slightly positive
+            [50.0, 25.1],    // D slightly negative
+            [50.0, 20.0],    // D small negative
+            [45.0, 5.0],     // D near zero
         ];
 
         for pt in &test_points {
@@ -1826,7 +1857,9 @@ mod tests {
             assert!(
                 !dist.is_nan() && dist.is_finite() && dist >= 0.0,
                 "Point ({}, {}) produced invalid distance: {}",
-                pt[0], pt[1], dist
+                pt[0],
+                pt[1],
+                dist
             );
         }
     }

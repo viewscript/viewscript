@@ -39,17 +39,17 @@ enum Token {
     Star,
     Slash,
     /// Comparison operators
-    Eq,      // ==
-    Ne,      // !=
-    Lt,      // <
-    Le,      // <=
-    Gt,      // >
-    Ge,      // >=
+    Eq, // ==
+    Ne, // !=
+    Lt, // <
+    Le, // <=
+    Gt, // >
+    Ge, // >=
     /// Brackets
     LBracket, // [
     RBracket, // ]
-    LParen,   // (
-    RParen,   // )
+    LParen, // (
+    RParen, // )
     /// End of input
     Eof,
 }
@@ -356,12 +356,7 @@ impl<'a> PrattParser<'a> {
         }
     }
 
-    fn make_binary_expr(
-        &self,
-        lhs: CodlExpr,
-        op: &Token,
-        rhs: CodlExpr,
-    ) -> CodlResult<CodlExpr> {
+    fn make_binary_expr(&self, lhs: CodlExpr, op: &Token, rhs: CodlExpr) -> CodlResult<CodlExpr> {
         match op {
             Token::Plus => Ok(CodlExpr::BinaryOp {
                 left: Box::new(lhs),
@@ -495,7 +490,6 @@ fn try_parse_null_check(input: &str) -> Option<CodlExpr> {
     }
     None
 }
-
 
 /// Parse a where clause condition.
 ///

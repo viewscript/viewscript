@@ -47,8 +47,13 @@ fn test_target_add_vs_web() {
 
     // Verify buildinfo
     let buildinfo = read_buildinfo(&dir);
-    let targets = buildinfo["targets"].as_array().expect("targets should be array");
-    assert!(targets.iter().any(|t| t == "vs-web"), "targets should contain vs-web");
+    let targets = buildinfo["targets"]
+        .as_array()
+        .expect("targets should be array");
+    assert!(
+        targets.iter().any(|t| t == "vs-web"),
+        "targets should contain vs-web"
+    );
 }
 
 /// Test: Duplicate target addition returns error.
@@ -67,7 +72,10 @@ fn test_target_add_duplicate_error() {
     // Verify error message
     let error: serde_json::Value = serde_json::from_str(&stderr).expect("Invalid JSON error");
     assert!(
-        error["message"].as_str().unwrap().contains("already registered"),
+        error["message"]
+            .as_str()
+            .unwrap()
+            .contains("already registered"),
         "error should mention already registered"
     );
 }
@@ -88,11 +96,15 @@ fn test_target_list() {
     // Verify output
     let output: serde_json::Value = serde_json::from_str(&stdout).expect("Invalid JSON output");
     assert_eq!(output["status"], "success");
-    let targets = output["targets"].as_array().expect("targets should be array");
+    let targets = output["targets"]
+        .as_array()
+        .expect("targets should be array");
     assert!(targets.iter().any(|t| t == "vs-web"));
 
     // Verify known_targets is included
-    let known = output["known_targets"].as_array().expect("known_targets should be array");
+    let known = output["known_targets"]
+        .as_array()
+        .expect("known_targets should be array");
     assert!(known.iter().any(|t| t == "vs-web"));
 }
 
@@ -116,8 +128,13 @@ fn test_target_remove() {
 
     // Verify buildinfo
     let buildinfo = read_buildinfo(&dir);
-    let targets = buildinfo["targets"].as_array().expect("targets should be array");
-    assert!(!targets.iter().any(|t| t == "vs-web"), "targets should not contain vs-web");
+    let targets = buildinfo["targets"]
+        .as_array()
+        .expect("targets should be array");
+    assert!(
+        !targets.iter().any(|t| t == "vs-web"),
+        "targets should not contain vs-web"
+    );
 }
 
 /// Test: Unknown target name is rejected.
@@ -135,7 +152,10 @@ fn test_target_add_unknown_error() {
     // Verify error message
     let error: serde_json::Value = serde_json::from_str(&stderr).expect("Invalid JSON error");
     assert!(
-        error["message"].as_str().unwrap().contains("Unknown target"),
+        error["message"]
+            .as_str()
+            .unwrap()
+            .contains("Unknown target"),
         "error should mention unknown target"
     );
     assert!(
@@ -159,7 +179,10 @@ fn test_target_remove_nonexistent_error() {
     // Verify error message
     let error: serde_json::Value = serde_json::from_str(&stderr).expect("Invalid JSON error");
     assert!(
-        error["message"].as_str().unwrap().contains("not registered"),
+        error["message"]
+            .as_str()
+            .unwrap()
+            .contains("not registered"),
         "error should mention not registered"
     );
 }

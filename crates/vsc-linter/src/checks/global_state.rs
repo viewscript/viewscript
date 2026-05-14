@@ -18,11 +18,8 @@
 //! shared state. Mutable statics would persist across invocations, causing
 //! non-deterministic behavior and potential security issues.
 
-use syn::{
-    visit::Visit,
-    File, Item, ItemStatic, ItemMacro, Type, TypePath, StaticMutability,
-};
 use crate::{LintCheck, LintViolation, Severity};
+use syn::{visit::Visit, File, Item, ItemMacro, ItemStatic, StaticMutability, Type, TypePath};
 
 /// Dangerous type patterns that indicate global mutable state.
 const DANGEROUS_TYPES: &[&str] = &[
@@ -31,8 +28,16 @@ const DANGEROUS_TYPES: &[&str] = &[
     "Mutex",
     "RwLock",
     "AtomicBool",
-    "AtomicI8", "AtomicI16", "AtomicI32", "AtomicI64", "AtomicIsize",
-    "AtomicU8", "AtomicU16", "AtomicU32", "AtomicU64", "AtomicUsize",
+    "AtomicI8",
+    "AtomicI16",
+    "AtomicI32",
+    "AtomicI64",
+    "AtomicIsize",
+    "AtomicU8",
+    "AtomicU16",
+    "AtomicU32",
+    "AtomicU64",
+    "AtomicUsize",
     "AtomicPtr",
     "Cell",
     "RefCell",
@@ -40,11 +45,7 @@ const DANGEROUS_TYPES: &[&str] = &[
 ];
 
 /// Dangerous macro patterns.
-const DANGEROUS_MACROS: &[&str] = &[
-    "lazy_static",
-    "thread_local",
-    "once_cell",
-];
+const DANGEROUS_MACROS: &[&str] = &["lazy_static", "thread_local", "once_cell"];
 
 /// Check a parsed Rust file for global state violations.
 pub fn check(file: &File, file_path: &str, source: &str) -> Vec<LintViolation> {

@@ -17,11 +17,8 @@
 //! We analyze functions with names containing "cycle", "circular", or similar
 //! and verify they contain the expected structural elements.
 
-use syn::{
-    visit::Visit,
-    File, ItemFn, Expr, ExprMethodCall, Pat, Ident,
-};
 use crate::{LintCheck, LintViolation, Severity};
+use syn::{visit::Visit, Expr, ExprMethodCall, File, Ident, ItemFn, Pat};
 
 /// Keywords indicating cycle detection functions.
 const CYCLE_FUNCTION_PATTERNS: &[&str] = &[
@@ -36,11 +33,7 @@ const CYCLE_FUNCTION_PATTERNS: &[&str] = &[
 ];
 
 /// Required data structures for correct cycle detection.
-const REQUIRED_STRUCTURES: &[&str] = &[
-    "visited",
-    "seen",
-    "processed",
-];
+const REQUIRED_STRUCTURES: &[&str] = &["visited", "seen", "processed"];
 
 const STACK_STRUCTURES: &[&str] = &[
     "recursion_stack",
@@ -111,17 +104,20 @@ impl CycleDetectionVisitor {
         });
 
         // Check for insert/contains operations (HashSet methods)
-        let has_insert = ident_collector.method_calls.iter().any(|m| {
-            matches!(m.as_str(), "insert" | "push" | "add")
-        });
+        let has_insert = ident_collector
+            .method_calls
+            .iter()
+            .any(|m| matches!(m.as_str(), "insert" | "push" | "add"));
 
-        let has_contains = ident_collector.method_calls.iter().any(|m| {
-            matches!(m.as_str(), "contains" | "get" | "contains_key")
-        });
+        let has_contains = ident_collector
+            .method_calls
+            .iter()
+            .any(|m| matches!(m.as_str(), "contains" | "get" | "contains_key"));
 
-        let has_remove = ident_collector.method_calls.iter().any(|m| {
-            matches!(m.as_str(), "remove" | "pop" | "take")
-        });
+        let has_remove = ident_collector
+            .method_calls
+            .iter()
+            .any(|m| matches!(m.as_str(), "remove" | "pop" | "take"));
 
         // Generate warnings/errors based on missing patterns
         if !has_visited {
@@ -142,7 +138,12 @@ impl CycleDetectionVisitor {
 
         // For recursive cycle detection, we need both visited and recursion_stack
         // For iterative, we might use a different pattern
-        if has_visited && !has_stack && !identifiers.iter().any(|id| id.contains("todo") || id.contains("queue")) {
+        if has_visited
+            && !has_stack
+            && !identifiers
+                .iter()
+                .any(|id| id.contains("todo") || id.contains("queue"))
+        {
             // Check if this is a recursive function (calls itself)
             let is_recursive = ident_collector.function_calls.iter().any(|f| f == &fn_name);
 
@@ -290,8 +291,14 @@ mod tests {
         "#;
         let violations = check_code(code);
         // Should have no errors (may have warnings depending on analysis depth)
-        let errors: Vec<_> = violations.iter().filter(|v| v.severity == Severity::Error).collect();
-        assert!(errors.is_empty(), "Correct implementation should have no errors");
+        let errors: Vec<_> = violations
+            .iter()
+            .filter(|v| v.severity == Severity::Error)
+            .collect();
+        assert!(
+            errors.is_empty(),
+            "Correct implementation should have no errors"
+        );
     }
 
     #[test]
@@ -332,7 +339,10 @@ mod tests {
             }
         "#;
         let violations = check_code(code);
-        let errors: Vec<_> = violations.iter().filter(|v| v.severity == Severity::Error).collect();
+        let errors: Vec<_> = violations
+            .iter()
+            .filter(|v| v.severity == Severity::Error)
+            .collect();
         assert!(!errors.is_empty(), "Missing remove should be an error");
     }
 
@@ -344,6 +354,9 @@ mod tests {
             }
         "#;
         let violations = check_code(code);
-        assert!(violations.is_empty(), "Non-cycle functions should be ignored");
+        assert!(
+            violations.is_empty(),
+            "Non-cycle functions should be ignored"
+        );
     }
 }

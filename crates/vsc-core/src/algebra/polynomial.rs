@@ -186,10 +186,7 @@ impl Polynomial {
     pub fn sub(&self, other: &Polynomial) -> Polynomial {
         let mut result = self.clone();
         for (key, coeff) in &other.terms {
-            result.add_term(
-                Rational::zero() - coeff.clone(),
-                key.monomial.clone(),
-            );
+            result.add_term(Rational::zero() - coeff.clone(), key.monomial.clone());
         }
         result
     }
@@ -443,7 +440,11 @@ mod tests {
 
         let (quotients, remainder) = x2_minus_1.divide(&[x_minus_1], MonomialOrder::Lexicographic);
 
-        assert!(remainder.is_zero(), "Remainder should be zero: {:?}", remainder);
+        assert!(
+            remainder.is_zero(),
+            "Remainder should be zero: {:?}",
+            remainder
+        );
         // quotient should be x + 1
         let expected_quotient = x.add(&one);
         assert_eq!(quotients[0], expected_quotient);

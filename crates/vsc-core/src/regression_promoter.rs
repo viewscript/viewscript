@@ -47,7 +47,8 @@ pub struct CliCommand {
 impl CliCommand {
     /// Format as a shell command string.
     pub fn to_shell(&self) -> String {
-        let args_str = self.args
+        let args_str = self
+            .args
             .iter()
             .map(|a| {
                 if a.contains(' ') || a.contains('"') || a.contains('{') {
@@ -64,17 +65,14 @@ impl CliCommand {
 
     /// Format as a Rust test assertion.
     pub fn to_rust_test(&self) -> String {
-        let args_array = self.args
+        let args_array = self
+            .args
             .iter()
             .map(|a| format!("\"{}\"", a.replace('\\', "\\\\").replace('"', "\\\"")))
             .collect::<Vec<_>>()
             .join(", ");
 
-        format!(
-            "project.run_vsc(&[\"{}\", {}]);",
-            self.command,
-            args_array
-        )
+        format!("project.run_vsc(&[\"{}\", {}]);", self.command, args_array)
     }
 }
 
@@ -88,14 +86,22 @@ impl CliCommandGenerator {
             ConstraintTerm::Const { value } => {
                 format!(r#"{{"type":"const","value":{}}}"#, value)
             }
-            ConstraintTerm::Ref { entity_id, component } => {
+            ConstraintTerm::Ref {
+                entity_id,
+                component,
+            } => {
                 format!(
                     r#"{{"type":"ref","entity_id":{},"component":"{}"}}"#,
                     entity_id.0,
                     component_to_str(component)
                 )
             }
-            ConstraintTerm::Linear { coefficient, entity_id, component, offset } => {
+            ConstraintTerm::Linear {
+                coefficient,
+                entity_id,
+                component,
+                offset,
+            } => {
                 format!(
                     r#"{{"type":"linear","coefficient":{},"entity_id":{},"component":"{}","offset":{}}}"#,
                     coefficient,
@@ -119,12 +125,10 @@ impl CliCommandGenerator {
 
     /// Generate a sequence of CLI commands from a constraint graph.
     pub fn from_constraint_graph(constraints: &[Constraint]) -> Vec<CliCommand> {
-        let mut commands = vec![
-            CliCommand {
-                command: "init".to_string(),
-                args: vec!["--name".to_string(), "regression-test".to_string()],
-            },
-        ];
+        let mut commands = vec![CliCommand {
+            command: "init".to_string(),
+            args: vec!["--name".to_string(), "regression-test".to_string()],
+        }];
 
         for constraint in constraints {
             commands.push(Self::add_constraint(constraint));
@@ -208,10 +212,7 @@ impl PromotedTestCase {
                 script.push_str("\necho \"Test passed: No panic\"\n");
             }
             ExpectedBehavior::ExitCode(code) => {
-                script.push_str(&format!(
-                    "\n# Expected exit code: {}\n",
-                    code
-                ));
+                script.push_str(&format!("\n# Expected exit code: {}\n", code));
             }
             ExpectedBehavior::ValidJson => {
                 script.push_str("\n# Verify last output is valid JSON\n");
@@ -242,10 +243,7 @@ impl PromotedTestCase {
                 test.push_str("    // If we reach here, no panic occurred\n");
             }
             ExpectedBehavior::ExitCode(code) => {
-                test.push_str(&format!(
-                    "    // Expected exit code: {}\n",
-                    code
-                ));
+                test.push_str(&format!("    // Expected exit code: {}\n", code));
             }
             _ => {}
         }
@@ -303,12 +301,10 @@ fn promote_file(path: &Path) -> Option<Vec<PromotedTestCase>> {
         let case = PromotedTestCase {
             source_file: path.to_string_lossy().to_string(),
             test_name,
-            commands: vec![
-                CliCommand {
-                    command: "init".to_string(),
-                    args: vec![],
-                },
-            ],
+            commands: vec![CliCommand {
+                command: "init".to_string(),
+                args: vec![],
+            }],
             expected_behavior: ExpectedBehavior::NoPanic,
         };
 
@@ -348,7 +344,9 @@ mod tests {
             target: EntityId(1),
             component: VectorComponent::X,
             relation: RelationType::Eq,
-            term: ConstraintTerm::Const { value: Rational::from_int(100) },
+            term: ConstraintTerm::Const {
+                value: Rational::from_int(100),
+            },
             priority: ConstraintPriority::Hard,
             source_scope: None,
         };
@@ -364,12 +362,10 @@ mod tests {
         let case = PromotedTestCase {
             source_file: "test.txt".to_string(),
             test_name: "test_regression_1".to_string(),
-            commands: vec![
-                CliCommand {
-                    command: "init".to_string(),
-                    args: vec![],
-                },
-            ],
+            commands: vec![CliCommand {
+                command: "init".to_string(),
+                args: vec![],
+            }],
             expected_behavior: ExpectedBehavior::NoPanic,
         };
 

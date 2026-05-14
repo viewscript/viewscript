@@ -141,11 +141,7 @@ impl CodlInterpreter {
     /// Execute a CODL command with JSON arguments.
     ///
     /// Returns a CodlOutput containing all generated constraints and entities.
-    pub fn execute(
-        &mut self,
-        cmd: &CodlCommand,
-        args: &JsonValue,
-    ) -> CodlResult<CodlOutput> {
+    pub fn execute(&mut self, cmd: &CodlCommand, args: &JsonValue) -> CodlResult<CodlOutput> {
         // Reset state
         self.scope.clear();
         self.param_types.clear();
@@ -171,11 +167,7 @@ impl CodlInterpreter {
     }
 
     /// Bind JSON arguments to CODL parameters.
-    fn bind_parameters(
-        &mut self,
-        params: &[CodlParameter],
-        args: &JsonValue,
-    ) -> CodlResult<()> {
+    fn bind_parameters(&mut self, params: &[CodlParameter], args: &JsonValue) -> CodlResult<()> {
         let args_obj = args.as_object().ok_or_else(|| {
             CodlError::InterpretationError("Arguments must be a JSON object".to_string())
         })?;
@@ -212,12 +204,10 @@ impl CodlInterpreter {
                 Ok(CodlValue::Rational(r))
             }
             CodlType::EntityId => {
-                let id = json
-                    .as_u64()
-                    .ok_or_else(|| CodlError::TypeError {
-                        expected: "EntityId (u64)".to_string(),
-                        actual: format!("{:?}", json),
-                    })?;
+                let id = json.as_u64().ok_or_else(|| CodlError::TypeError {
+                    expected: "EntityId (u64)".to_string(),
+                    actual: format!("{:?}", json),
+                })?;
                 Ok(CodlValue::EntityId(EntityId(id)))
             }
             CodlType::ArrayEntityId => {
@@ -295,20 +285,23 @@ impl CodlInterpreter {
                     s
                 )));
             }
-            let numer: i64 = parts[0].trim().parse().map_err(|_| {
-                CodlError::ParseError(format!("Invalid numerator: {}", parts[0]))
-            })?;
-            let denom: i64 = parts[1].trim().parse().map_err(|_| {
-                CodlError::ParseError(format!("Invalid denominator: {}", parts[1]))
-            })?;
+            let numer: i64 = parts[0]
+                .trim()
+                .parse()
+                .map_err(|_| CodlError::ParseError(format!("Invalid numerator: {}", parts[0])))?;
+            let denom: i64 = parts[1]
+                .trim()
+                .parse()
+                .map_err(|_| CodlError::ParseError(format!("Invalid denominator: {}", parts[1])))?;
             if denom == 0 {
                 return Err(CodlError::DivisionByZero);
             }
             Ok(Rational::new(numer, denom))
         } else {
-            let n: i64 = s.trim().parse().map_err(|_| {
-                CodlError::ParseError(format!("Invalid integer: {}", s))
-            })?;
+            let n: i64 = s
+                .trim()
+                .parse()
+                .map_err(|_| CodlError::ParseError(format!("Invalid integer: {}", s)))?;
             Ok(Rational::from_int(n))
         }
     }
@@ -388,8 +381,10 @@ impl CodlInterpreter {
         for (i, item) in items.iter().enumerate() {
             // Set loop variables
             self.scope.insert(item_var.clone(), item.clone());
-            self.scope
-                .insert(index_var.clone(), CodlValue::Rational(Rational::from_int(i as i64)));
+            self.scope.insert(
+                index_var.clone(),
+                CodlValue::Rational(Rational::from_int(i as i64)),
+            );
 
             // Check where clause
             if let Some(ref expr) = where_expr {
@@ -565,7 +560,12 @@ impl CodlInterpreter {
                             "CubicTo segment has no preceding MoveTo (no current_from)".to_string(),
                         )
                     })?;
-                    segments.push(PathSegment::Cubic { from, handle1, handle2, to });
+                    segments.push(PathSegment::Cubic {
+                        from,
+                        handle1,
+                        handle2,
+                        to,
+                    });
                     current_from = Some(to);
                 }
                 CodlPathSegment::Close => {
@@ -797,8 +797,14 @@ impl CodlInterpreter {
                 let l = self.evaluate_expr(left)?;
                 let r = self.evaluate_expr(right)?;
 
-                let l_rat = l.as_rational().cloned().or_else(|| l.as_i64().map(Rational::from_int));
-                let r_rat = r.as_rational().cloned().or_else(|| r.as_i64().map(Rational::from_int));
+                let l_rat = l
+                    .as_rational()
+                    .cloned()
+                    .or_else(|| l.as_i64().map(Rational::from_int));
+                let r_rat = r
+                    .as_rational()
+                    .cloned()
+                    .or_else(|| r.as_i64().map(Rational::from_int));
 
                 match (l_rat, r_rat) {
                     (Some(lv), Some(rv)) => {
@@ -825,8 +831,14 @@ impl CodlInterpreter {
                 let l = self.evaluate_expr(left)?;
                 let r = self.evaluate_expr(right)?;
 
-                let l_rat = l.as_rational().cloned().or_else(|| l.as_i64().map(Rational::from_int));
-                let r_rat = r.as_rational().cloned().or_else(|| r.as_i64().map(Rational::from_int));
+                let l_rat = l
+                    .as_rational()
+                    .cloned()
+                    .or_else(|| l.as_i64().map(Rational::from_int));
+                let r_rat = r
+                    .as_rational()
+                    .cloned()
+                    .or_else(|| r.as_i64().map(Rational::from_int));
 
                 match (l_rat, r_rat) {
                     (Some(lv), Some(rv)) => {
@@ -909,10 +921,7 @@ impl Default for CodlInterpreter {
 ///
 /// Convenience function that creates an interpreter and runs the command.
 /// Returns the full CodlOutput including constraints and (future) path entities.
-pub fn execute_codl(
-    cmd: &CodlCommand,
-    args: &JsonValue,
-) -> CodlResult<CodlOutput> {
+pub fn execute_codl(cmd: &CodlCommand, args: &JsonValue) -> CodlResult<CodlOutput> {
     let mut interpreter = CodlInterpreter::new();
     interpreter.execute(cmd, args)
 }
@@ -1224,10 +1233,7 @@ operations:
             CodlError::DivisionByZero => {
                 // Expected error type
             }
-            other => panic!(
-                "Expected CodlError::DivisionByZero, got {:?}",
-                other
-            ),
+            other => panic!("Expected CodlError::DivisionByZero, got {:?}", other),
         }
     }
 
@@ -1259,10 +1265,7 @@ operations:
             CodlError::UnknownVariable(var_name) => {
                 assert_eq!(var_name, "nonexistent_variable");
             }
-            other => panic!(
-                "Expected CodlError::UnknownVariable, got {:?}",
-                other
-            ),
+            other => panic!("Expected CodlError::UnknownVariable, got {:?}", other),
         }
     }
 
@@ -1415,21 +1418,22 @@ operations:
       value: "0"
 "#;
         let cmd = parse_cmd(yaml);
-        let args = json!({ "arr": [1, 2, 3] });  // Only 3 elements, index 10 is OOB
+        let args = json!({ "arr": [1, 2, 3] }); // Only 3 elements, index 10 is OOB
 
         let result = execute_codl(&cmd, &args);
         assert!(result.is_err(), "Out-of-bounds index should return Err");
 
         match result.unwrap_err() {
-            CodlError::IndexOutOfBounds { array, index, length } => {
+            CodlError::IndexOutOfBounds {
+                array,
+                index,
+                length,
+            } => {
                 assert_eq!(array, "arr");
                 assert_eq!(index, 10);
                 assert_eq!(length, 3);
             }
-            other => panic!(
-                "Expected CodlError::IndexOutOfBounds, got {:?}",
-                other
-            ),
+            other => panic!("Expected CodlError::IndexOutOfBounds, got {:?}", other),
         }
     }
 
@@ -1465,10 +1469,7 @@ operations:
             CodlError::IndexOutOfBounds { index, .. } => {
                 assert_eq!(index, -1);
             }
-            other => panic!(
-                "Expected CodlError::IndexOutOfBounds, got {:?}",
-                other
-            ),
+            other => panic!("Expected CodlError::IndexOutOfBounds, got {:?}", other),
         }
     }
 }

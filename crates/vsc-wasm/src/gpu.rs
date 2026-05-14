@@ -52,6 +52,7 @@ use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 use web_sys::{HtmlCanvasElement, Window};
 
+use vsc_core::target::RenderTarget;
 use vsc_core::{
     buildinfo::VsBuildInfo,
     f32_to_rational_exact,
@@ -62,7 +63,6 @@ use vsc_core::{
         EntityId, FillRule, FillSpec, PathEntityEntry, PathSegment, Rational, VectorComponent,
     },
 };
-use vsc_core::target::RenderTarget;
 use vsc_gpu::WebTarget;
 
 // =============================================================================
@@ -209,7 +209,8 @@ impl TextureRegistry {
     /// Each call creates a new view of the same underlying texture.
     pub fn create_view_for_renderer(&self, id: u64) -> Option<wgpu::TextureView> {
         self.textures.get(&id).map(|e| {
-            e.texture.create_view(&wgpu::TextureViewDescriptor::default())
+            e.texture
+                .create_view(&wgpu::TextureViewDescriptor::default())
         })
     }
 
@@ -371,7 +372,9 @@ impl WasmGpuRenderer {
             // This branch is never executed in practice, but allows cargo check
             // on non-wasm targets to succeed. At runtime on wasm32, only the
             // branch above runs.
-            return Err(JsValue::from_str("WasmGpuRenderer is only supported on wasm32"));
+            return Err(JsValue::from_str(
+                "WasmGpuRenderer is only supported on wasm32",
+            ));
         };
 
         // Request GPU adapter
@@ -386,10 +389,13 @@ impl WasmGpuRenderer {
 
         // Log adapter info for debugging
         let info = adapter.get_info();
-        web_sys::console::log_1(&format!(
-            "[ViewScript] GPU Adapter: {} ({:?})",
-            info.name, info.backend
-        ).into());
+        web_sys::console::log_1(
+            &format!(
+                "[ViewScript] GPU Adapter: {} ({:?})",
+                info.name, info.backend
+            )
+            .into(),
+        );
 
         // Request device and queue
         let (device, queue) = adapter
@@ -431,10 +437,13 @@ impl WasmGpuRenderer {
 
         surface.configure(&device, &surface_config);
 
-        web_sys::console::log_1(&format!(
-            "[ViewScript] Surface initialized: {}x{}, format={:?}",
-            width, height, format
-        ).into());
+        web_sys::console::log_1(
+            &format!(
+                "[ViewScript] Surface initialized: {}x{}, format={:?}",
+                width, height, format
+            )
+            .into(),
+        );
 
         Ok(WasmGpuRenderer {
             surface,
@@ -468,10 +477,7 @@ impl WasmGpuRenderer {
 
         self.surface.configure(&self.device, &self.surface_config);
 
-        web_sys::console::log_1(&format!(
-            "[ViewScript] Resized to {}x{}",
-            width, height
-        ).into());
+        web_sys::console::log_1(&format!("[ViewScript] Resized to {}x{}", width, height).into());
 
         Ok(())
     }
@@ -498,10 +504,13 @@ impl WasmGpuRenderer {
     ///
     /// Returns a tuple of (TextureView, SurfaceTexture) for advanced rendering scenarios.
     /// The caller is responsible for calling `present()` on the SurfaceTexture.
-    pub fn surface_texture_view(&self) -> Result<(wgpu::TextureView, wgpu::SurfaceTexture), JsValue> {
-        let output = self.surface.get_current_texture().map_err(|e| {
-            JsValue::from_str(&format!("Failed to get surface texture: {}", e))
-        })?;
+    pub fn surface_texture_view(
+        &self,
+    ) -> Result<(wgpu::TextureView, wgpu::SurfaceTexture), JsValue> {
+        let output = self
+            .surface
+            .get_current_texture()
+            .map_err(|e| JsValue::from_str(&format!("Failed to get surface texture: {}", e)))?;
 
         let view = output
             .texture
@@ -608,18 +617,10 @@ pub async fn get_adapter_info() -> Result<String, JsValue> {
 pub enum Mutation {
     /// Translate a component by a delta offset.
     /// All control points belonging to the component are moved by (dx, dy).
-    Translate {
-        entity_id: u64,
-        dx: f64,
-        dy: f64,
-    },
+    Translate { entity_id: u64, dx: f64, dy: f64 },
     /// Set the absolute position of a component.
     /// The component's origin (typically top-left) is moved to (x, y).
-    SetPosition {
-        entity_id: u64,
-        x: f64,
-        y: f64,
-    },
+    SetPosition { entity_id: u64, x: f64, y: f64 },
 }
 
 /// ViewScript rendering engine for browser environment.
@@ -890,15 +891,16 @@ impl WasmViewScriptEngine {
 
         for iteration in 0..=MAX_DERIVED_ITERATIONS {
             // 2a: Run constraint solver
-            let solutions = self.solver.solve().map_err(|e| {
-                JsValue::from_str(&format!("Solver error: {:?}", e))
-            })?;
+            let solutions = self
+                .solver
+                .solve()
+                .map_err(|e| JsValue::from_str(&format!("Solver error: {:?}", e)))?;
 
             // 2b: Build scene graph
             let scene_builder = SceneBuilder::new(&solutions, &self.build_info);
-            let scene_nodes = scene_builder.build_scene().map_err(|e| {
-                JsValue::from_str(&format!("Scene build error: {}", e))
-            })?;
+            let scene_nodes = scene_builder
+                .build_scene()
+                .map_err(|e| JsValue::from_str(&format!("Scene build error: {}", e)))?;
 
             // 2c: Final iteration → render and exit
             if iteration == MAX_DERIVED_ITERATIONS {
@@ -1078,7 +1080,11 @@ impl WasmViewScriptEngine {
     ///
     /// The entity ID of the created component.
     #[wasm_bindgen]
-    pub fn add_component(&mut self, component_type: &str, params_json: &str) -> Result<u64, JsValue> {
+    pub fn add_component(
+        &mut self,
+        component_type: &str,
+        params_json: &str,
+    ) -> Result<u64, JsValue> {
         // Auto-register vs-web target if not present
         if !self.build_info.targets.contains(&"vs-web".to_string()) {
             self.build_info.targets.push("vs-web".to_string());
@@ -1155,7 +1161,9 @@ impl WasmViewScriptEngine {
         // IMPORTANT: WebTarget has its own GpuRenderer, which is used for actual rendering.
         // wasm_renderer.gpu_renderer is NOT used for rendering in WasmViewScriptEngine.
         if let Some(view) = self.texture_registry.create_view_for_renderer(id) {
-            self.target.gpu_renderer_mut().set_external_texture(id, view);
+            self.target
+                .gpu_renderer_mut()
+                .set_external_texture(id, view);
         }
 
         web_sys::console::log_1(
@@ -1196,7 +1204,9 @@ impl WasmViewScriptEngine {
 
         // Sync texture view to WebTarget's GpuRenderer for rendering
         if let Some(view) = self.texture_registry.create_view_for_renderer(id) {
-            self.target.gpu_renderer_mut().set_external_texture(id, view);
+            self.target
+                .gpu_renderer_mut()
+                .set_external_texture(id, view);
         }
 
         web_sys::console::log_1(
@@ -1245,7 +1255,9 @@ impl WasmViewScriptEngine {
         let result = self.texture_registry.remove(texture_id);
         if result {
             // Also remove from WebTarget's GpuRenderer
-            self.target.gpu_renderer_mut().remove_external_texture(texture_id);
+            self.target
+                .gpu_renderer_mut()
+                .remove_external_texture(texture_id);
             web_sys::console::log_1(
                 &format!("[ViewScript] Removed texture id={}", texture_id).into(),
             );
@@ -1331,20 +1343,23 @@ impl WasmViewScriptEngine {
                         let var_x = VarId::new(point_id, VectorComponent::X);
                         if let Some(current_x) = self.solver.get_value(&var_x) {
                             let new_x = current_x + dx_rat.clone();
-                            self.solver.register_variable(var_x, VariableState::Resolved { value: new_x });
+                            self.solver
+                                .register_variable(var_x, VariableState::Resolved { value: new_x });
                         }
 
                         // Get current Y value and add delta
                         let var_y = VarId::new(point_id, VectorComponent::Y);
                         if let Some(current_y) = self.solver.get_value(&var_y) {
                             let new_y = current_y + dy_rat.clone();
-                            self.solver.register_variable(var_y, VariableState::Resolved { value: new_y });
+                            self.solver
+                                .register_variable(var_y, VariableState::Resolved { value: new_y });
                         }
                     }
 
                     // Update cached origin
                     if let Some((ox, oy)) = self.component_origins.get(&entity_id).cloned() {
-                        self.component_origins.insert(entity_id, (ox + dx_rat, oy + dy_rat));
+                        self.component_origins
+                            .insert(entity_id, (ox + dx_rat, oy + dy_rat));
                     }
                 }
                 Ok(())
@@ -1368,19 +1383,26 @@ impl WasmViewScriptEngine {
                             let var_x = VarId::new(point_id, VectorComponent::X);
                             if let Some(current_x) = self.solver.get_value(&var_x) {
                                 let new_x = current_x + dx_rat.clone();
-                                self.solver.register_variable(var_x, VariableState::Resolved { value: new_x });
+                                self.solver.register_variable(
+                                    var_x,
+                                    VariableState::Resolved { value: new_x },
+                                );
                             }
 
                             let var_y = VarId::new(point_id, VectorComponent::Y);
                             if let Some(current_y) = self.solver.get_value(&var_y) {
                                 let new_y = current_y + dy_rat.clone();
-                                self.solver.register_variable(var_y, VariableState::Resolved { value: new_y });
+                                self.solver.register_variable(
+                                    var_y,
+                                    VariableState::Resolved { value: new_y },
+                                );
                             }
                         }
                     }
 
                     // Update cached origin
-                    self.component_origins.insert(entity_id, (target_x, target_y));
+                    self.component_origins
+                        .insert(entity_id, (target_x, target_y));
                 }
                 Ok(())
             }
@@ -1417,11 +1439,13 @@ impl WasmViewScriptEngine {
         );
 
         // Register derived Q-variable for hover detection
-        self.build_info.derived_q_variables.push(DerivedQVariable::hover(
-            component_id.0,
-            VarId::new(hover_entity, VectorComponent::Value),
-            component_id,
-        ));
+        self.build_info
+            .derived_q_variables
+            .push(DerivedQVariable::hover(
+                component_id.0,
+                VarId::new(hover_entity, VectorComponent::Value),
+                component_id,
+            ));
     }
 
     /// Add a rounded rectangle component.
@@ -1454,7 +1478,8 @@ impl WasmViewScriptEngine {
         let bl = self.allocate_entity_id(); // bottom-left
 
         // Register control points for this component
-        self.component_control_points.insert(path_id, vec![tl, tr, br, bl]);
+        self.component_control_points
+            .insert(path_id, vec![tl, tr, br, bl]);
 
         // Set control point coordinates in solver
         let x = f64_to_rational(params.x);
@@ -1464,23 +1489,56 @@ impl WasmViewScriptEngine {
         let _r = f64_to_rational(params.radius);
 
         // Cache origin position for SetPosition mutations
-        self.component_origins.insert(path_id, (x.clone(), y.clone()));
+        self.component_origins
+            .insert(path_id, (x.clone(), y.clone()));
 
         // Top-left corner
-        self.solver.register_variable(VarId::new(tl, VectorComponent::X), VariableState::Resolved { value: x.clone() });
-        self.solver.register_variable(VarId::new(tl, VectorComponent::Y), VariableState::Resolved { value: y.clone() });
+        self.solver.register_variable(
+            VarId::new(tl, VectorComponent::X),
+            VariableState::Resolved { value: x.clone() },
+        );
+        self.solver.register_variable(
+            VarId::new(tl, VectorComponent::Y),
+            VariableState::Resolved { value: y.clone() },
+        );
 
         // Top-right corner
-        self.solver.register_variable(VarId::new(tr, VectorComponent::X), VariableState::Resolved { value: x.clone() + w.clone() });
-        self.solver.register_variable(VarId::new(tr, VectorComponent::Y), VariableState::Resolved { value: y.clone() });
+        self.solver.register_variable(
+            VarId::new(tr, VectorComponent::X),
+            VariableState::Resolved {
+                value: x.clone() + w.clone(),
+            },
+        );
+        self.solver.register_variable(
+            VarId::new(tr, VectorComponent::Y),
+            VariableState::Resolved { value: y.clone() },
+        );
 
         // Bottom-right corner
-        self.solver.register_variable(VarId::new(br, VectorComponent::X), VariableState::Resolved { value: x.clone() + w.clone() });
-        self.solver.register_variable(VarId::new(br, VectorComponent::Y), VariableState::Resolved { value: y.clone() + h.clone() });
+        self.solver.register_variable(
+            VarId::new(br, VectorComponent::X),
+            VariableState::Resolved {
+                value: x.clone() + w.clone(),
+            },
+        );
+        self.solver.register_variable(
+            VarId::new(br, VectorComponent::Y),
+            VariableState::Resolved {
+                value: y.clone() + h.clone(),
+            },
+        );
 
         // Bottom-left corner
-        self.solver.register_variable(VarId::new(bl, VectorComponent::X), VariableState::Resolved { value: x.clone() });
-        self.solver.register_variable(VarId::new(bl, VectorComponent::Y), VariableState::Resolved { value: y.clone() + h.clone() });
+        self.solver.register_variable(
+            VarId::new(bl, VectorComponent::X),
+            VariableState::Resolved { value: x.clone() },
+        );
+        self.solver.register_variable(
+            VarId::new(bl, VectorComponent::Y),
+            VariableState::Resolved {
+                value: y.clone() + h.clone(),
+            },
+        );
 
         // Create path segments for rounded rectangle
         // If radius is 0, create a simple rectangle
@@ -1534,9 +1592,8 @@ impl WasmViewScriptEngine {
             "#808080".to_string()
         }
 
-        let params: CircleParams = serde_json::from_str(params_json).map_err(|e| {
-            JsValue::from_str(&format!("Failed to parse Circle params: {}", e))
-        })?;
+        let params: CircleParams = serde_json::from_str(params_json)
+            .map_err(|e| JsValue::from_str(&format!("Failed to parse Circle params: {}", e)))?;
 
         // For a circle, we approximate with a polygon (16 sides)
         // Full arc support is deferred to a future phase
@@ -1552,19 +1609,27 @@ impl WasmViewScriptEngine {
             let point_id = self.allocate_entity_id();
             self.solver.register_variable(
                 VarId::new(point_id, VectorComponent::X),
-                VariableState::Resolved { value: f64_to_rational(px) },
+                VariableState::Resolved {
+                    value: f64_to_rational(px),
+                },
             );
             self.solver.register_variable(
                 VarId::new(point_id, VectorComponent::Y),
-                VariableState::Resolved { value: f64_to_rational(py) },
+                VariableState::Resolved {
+                    value: f64_to_rational(py),
+                },
             );
             control_points.push(point_id);
         }
 
         // Register control points for this component
-        self.component_control_points.insert(path_id, control_points.clone());
+        self.component_control_points
+            .insert(path_id, control_points.clone());
         // Cache origin as center of circle
-        self.component_origins.insert(path_id, (f64_to_rational(params.cx), f64_to_rational(params.cy)));
+        self.component_origins.insert(
+            path_id,
+            (f64_to_rational(params.cx), f64_to_rational(params.cy)),
+        );
 
         // Create line segments forming polygon
         let mut segments = Vec::with_capacity(num_sides);
@@ -1606,9 +1671,8 @@ impl WasmViewScriptEngine {
             "#808080".to_string()
         }
 
-        let params: RectParams = serde_json::from_str(params_json).map_err(|e| {
-            JsValue::from_str(&format!("Failed to parse Rect params: {}", e))
-        })?;
+        let params: RectParams = serde_json::from_str(params_json)
+            .map_err(|e| JsValue::from_str(&format!("Failed to parse Rect params: {}", e)))?;
 
         let rounded_params = format!(
             r#"{{"x":{},"y":{},"width":{},"height":{},"radius":0,"fill":"{}"}}"#,
@@ -1632,9 +1696,8 @@ impl WasmViewScriptEngine {
             Some("#808080".to_string())
         }
 
-        let params: PathParams = serde_json::from_str(params_json).map_err(|e| {
-            JsValue::from_str(&format!("Failed to parse Path params: {}", e))
-        })?;
+        let params: PathParams = serde_json::from_str(params_json)
+            .map_err(|e| JsValue::from_str(&format!("Failed to parse Path params: {}", e)))?;
 
         if params.points.len() < 2 {
             return Err(JsValue::from_str("Path must have at least 2 points"));
@@ -1647,20 +1710,26 @@ impl WasmViewScriptEngine {
             let point_id = self.allocate_entity_id();
             self.solver.register_variable(
                 VarId::new(point_id, VectorComponent::X),
-                VariableState::Resolved { value: f64_to_rational(*px) },
+                VariableState::Resolved {
+                    value: f64_to_rational(*px),
+                },
             );
             self.solver.register_variable(
                 VarId::new(point_id, VectorComponent::Y),
-                VariableState::Resolved { value: f64_to_rational(*py) },
+                VariableState::Resolved {
+                    value: f64_to_rational(*py),
+                },
             );
             control_points.push(point_id);
         }
 
         // Register control points for this component
-        self.component_control_points.insert(path_id, control_points.clone());
+        self.component_control_points
+            .insert(path_id, control_points.clone());
         // Cache origin as first point
         if let Some(&(px, py)) = params.points.first() {
-            self.component_origins.insert(path_id, (f64_to_rational(px), f64_to_rational(py)));
+            self.component_origins
+                .insert(path_id, (f64_to_rational(px), f64_to_rational(py)));
         }
 
         // Create line segments

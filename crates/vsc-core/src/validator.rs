@@ -12,9 +12,7 @@
 //! Any constraint that would require polynomial equation solving is rejected
 //! at this stage with a clear error message.
 
-use crate::{
-    ControlPoint, Entity, EntityId, Path, PathSegment, Constraint, ConstraintTerm,
-};
+use crate::{Constraint, ConstraintTerm, ControlPoint, Entity, EntityId, Path, PathSegment};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -42,13 +40,9 @@ pub enum ValidationError {
         suggestion: String,
     },
     /// A path is empty (has no segments).
-    EmptyPath {
-        path_id: EntityId,
-    },
+    EmptyPath { path_id: EntityId },
     /// A path does not start with MoveTo.
-    PathMissingMoveTo {
-        path_id: EntityId,
-    },
+    PathMissingMoveTo { path_id: EntityId },
     /// Control point role mismatch (handle used as anchor or vice versa).
     ControlPointRoleMismatch {
         path_id: EntityId,
@@ -62,17 +56,39 @@ pub enum ValidationError {
 impl std::fmt::Display for ValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ValidationError::InvalidControlPointReference { path_id, segment_index, referenced_id, actual_type } => {
-                write!(f, "Path {} segment {} references entity {} which is a {} (expected ControlPoint)",
-                    path_id.0, segment_index, referenced_id.0, actual_type)
+            ValidationError::InvalidControlPointReference {
+                path_id,
+                segment_index,
+                referenced_id,
+                actual_type,
+            } => {
+                write!(
+                    f,
+                    "Path {} segment {} references entity {} which is a {} (expected ControlPoint)",
+                    path_id.0, segment_index, referenced_id.0, actual_type
+                )
             }
-            ValidationError::MissingControlPoint { path_id, segment_index, referenced_id } => {
-                write!(f, "Path {} segment {} references non-existent entity {}",
-                    path_id.0, segment_index, referenced_id.0)
+            ValidationError::MissingControlPoint {
+                path_id,
+                segment_index,
+                referenced_id,
+            } => {
+                write!(
+                    f,
+                    "Path {} segment {} references non-existent entity {}",
+                    path_id.0, segment_index, referenced_id.0
+                )
             }
-            ValidationError::NonLinearConstraintRejected { constraint_id, reason, suggestion } => {
-                write!(f, "NON_LINEAR_CONSTRAINT_REJECTED: Constraint {} rejected. {}. {}",
-                    constraint_id, reason, suggestion)
+            ValidationError::NonLinearConstraintRejected {
+                constraint_id,
+                reason,
+                suggestion,
+            } => {
+                write!(
+                    f,
+                    "NON_LINEAR_CONSTRAINT_REJECTED: Constraint {} rejected. {}. {}",
+                    constraint_id, reason, suggestion
+                )
             }
             ValidationError::EmptyPath { path_id } => {
                 write!(f, "Path {} has no segments", path_id.0)
@@ -80,9 +96,18 @@ impl std::fmt::Display for ValidationError {
             ValidationError::PathMissingMoveTo { path_id } => {
                 write!(f, "Path {} does not start with MoveTo", path_id.0)
             }
-            ValidationError::ControlPointRoleMismatch { path_id, segment_index, control_point_id, expected_role, actual_role } => {
-                write!(f, "Path {} segment {} expects {} but control point {} has role {}",
-                    path_id.0, segment_index, expected_role, control_point_id.0, actual_role)
+            ValidationError::ControlPointRoleMismatch {
+                path_id,
+                segment_index,
+                control_point_id,
+                expected_role,
+                actual_role,
+            } => {
+                write!(
+                    f,
+                    "Path {} segment {} expects {} but control point {} has role {}",
+                    path_id.0, segment_index, expected_role, control_point_id.0, actual_role
+                )
             }
         }
     }
@@ -213,27 +238,31 @@ impl Validator {
     /// Get point IDs from a segment with expected roles (None = anchor, Some("handle") = handle).
     ///
     /// Phase G design: Each segment has explicit from/to. Both `from` and `to` are anchors.
-    fn get_segment_point_ids(&self, segment: &PathSegment) -> Vec<(EntityId, Option<&'static str>)> {
+    fn get_segment_point_ids(
+        &self,
+        segment: &PathSegment,
+    ) -> Vec<(EntityId, Option<&'static str>)> {
         match segment {
-            PathSegment::Line { from, to } => vec![
-                (*from, Some("anchor")),
-                (*to, Some("anchor")),
-            ],
+            PathSegment::Line { from, to } => vec![(*from, Some("anchor")), (*to, Some("anchor"))],
             PathSegment::Quad { from, handle, to } => vec![
                 (*from, Some("anchor")),
                 (*handle, Some("handle")),
                 (*to, Some("anchor")),
             ],
-            PathSegment::Cubic { from, handle1, handle2, to } => vec![
+            PathSegment::Cubic {
+                from,
+                handle1,
+                handle2,
+                to,
+            } => vec![
                 (*from, Some("anchor")),
                 (*handle1, Some("handle")),
                 (*handle2, Some("handle")),
                 (*to, Some("anchor")),
             ],
-            PathSegment::Arc { from, to, .. } => vec![
-                (*from, Some("anchor")),
-                (*to, Some("anchor")),
-            ],
+            PathSegment::Arc { from, to, .. } => {
+                vec![(*from, Some("anchor")), (*to, Some("anchor"))]
+            }
         }
     }
 
@@ -252,7 +281,8 @@ impl Validator {
             errors.push(ValidationError::NonLinearConstraintRejected {
                 constraint_id: constraint.id,
                 reason: "Cannot constrain Path entity directly".to_string(),
-                suggestion: "Constrain the ControlPoint entities that define the path instead".to_string(),
+                suggestion: "Constrain the ControlPoint entities that define the path instead"
+                    .to_string(),
             });
         }
 
@@ -351,12 +381,10 @@ mod tests {
             make_anchor(2, 100, 100),
             Entity::Path(Path {
                 id: EntityId(100),
-                segments: vec![
-                    PathSegment::Line {
-                        from: EntityId(1),
-                        to: EntityId(2),
-                    },
-                ],
+                segments: vec![PathSegment::Line {
+                    from: EntityId(1),
+                    to: EntityId(2),
+                }],
                 fill_rule: crate::FillRule::NonZero,
                 closed: false,
             }),
@@ -370,20 +398,18 @@ mod tests {
     fn test_valid_cubic_bezier_path() {
         // Phase G design: Cubic { from, handle1, handle2, to }
         let entities = vec![
-            make_anchor(1, 0, 0),      // Start
-            make_handle(2, 50, 100),   // Control 1
-            make_handle(3, 150, 100),  // Control 2
-            make_anchor(4, 200, 0),    // End
+            make_anchor(1, 0, 0),     // Start
+            make_handle(2, 50, 100),  // Control 1
+            make_handle(3, 150, 100), // Control 2
+            make_anchor(4, 200, 0),   // End
             Entity::Path(Path {
                 id: EntityId(100),
-                segments: vec![
-                    PathSegment::Cubic {
-                        from: EntityId(1),
-                        handle1: EntityId(2),
-                        handle2: EntityId(3),
-                        to: EntityId(4),
-                    },
-                ],
+                segments: vec![PathSegment::Cubic {
+                    from: EntityId(1),
+                    handle1: EntityId(2),
+                    handle2: EntityId(3),
+                    to: EntityId(4),
+                }],
                 fill_rule: crate::FillRule::NonZero,
                 closed: false,
             }),
@@ -400,12 +426,10 @@ mod tests {
             // Missing entity 2!
             Entity::Path(Path {
                 id: EntityId(100),
-                segments: vec![
-                    PathSegment::Line {
-                        from: EntityId(1),
-                        to: EntityId(2), // References missing entity
-                    },
-                ],
+                segments: vec![PathSegment::Line {
+                    from: EntityId(1),
+                    to: EntityId(2), // References missing entity
+                }],
                 fill_rule: crate::FillRule::NonZero,
                 closed: false,
             }),
@@ -415,7 +439,10 @@ mod tests {
         let result = validator.validate_paths();
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(matches!(errors[0], ValidationError::MissingControlPoint { .. }));
+        assert!(matches!(
+            errors[0],
+            ValidationError::MissingControlPoint { .. }
+        ));
     }
 
     #[test]
@@ -433,12 +460,10 @@ mod tests {
             },
             Entity::Path(Path {
                 id: EntityId(100),
-                segments: vec![
-                    PathSegment::Line {
-                        from: EntityId(1),
-                        to: EntityId(2), // References Rect, not ControlPoint!
-                    },
-                ],
+                segments: vec![PathSegment::Line {
+                    from: EntityId(1),
+                    to: EntityId(2), // References Rect, not ControlPoint!
+                }],
                 fill_rule: crate::FillRule::NonZero,
                 closed: false,
             }),
@@ -448,19 +473,20 @@ mod tests {
         let result = validator.validate_paths();
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(matches!(errors[0], ValidationError::InvalidControlPointReference { .. }));
+        assert!(matches!(
+            errors[0],
+            ValidationError::InvalidControlPointReference { .. }
+        ));
     }
 
     #[test]
     fn test_rejects_empty_path() {
-        let entities = vec![
-            Entity::Path(Path {
-                id: EntityId(100),
-                segments: vec![],
-                fill_rule: crate::FillRule::NonZero,
-                closed: false,
-            }),
-        ];
+        let entities = vec![Entity::Path(Path {
+            id: EntityId(100),
+            segments: vec![],
+            fill_rule: crate::FillRule::NonZero,
+            closed: false,
+        })];
 
         let validator = Validator::new(entities);
         let result = validator.validate_paths();
@@ -474,14 +500,12 @@ mod tests {
 
     #[test]
     fn test_rejects_constraint_on_path_entity() {
-        let entities = vec![
-            Entity::Path(Path {
-                id: EntityId(100),
-                segments: vec![],
-                fill_rule: crate::FillRule::NonZero,
-                closed: false,
-            }),
-        ];
+        let entities = vec![Entity::Path(Path {
+            id: EntityId(100),
+            segments: vec![],
+            fill_rule: crate::FillRule::NonZero,
+            closed: false,
+        })];
 
         let validator = Validator::new(entities);
         let constraint = Constraint {
@@ -489,7 +513,9 @@ mod tests {
             target: EntityId(100), // Targeting Path directly!
             component: crate::VectorComponent::X,
             relation: crate::RelationType::Eq,
-            term: ConstraintTerm::Const { value: Rational::zero() },
+            term: ConstraintTerm::Const {
+                value: Rational::zero(),
+            },
             priority: ConstraintPriority::Hard,
             source_scope: None,
         };
@@ -497,14 +523,15 @@ mod tests {
         let result = validator.validate_constraint(&constraint);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(matches!(errors[0], ValidationError::NonLinearConstraintRejected { .. }));
+        assert!(matches!(
+            errors[0],
+            ValidationError::NonLinearConstraintRejected { .. }
+        ));
     }
 
     #[test]
     fn test_allows_constraint_on_control_point() {
-        let entities = vec![
-            make_anchor(1, 0, 0),
-        ];
+        let entities = vec![make_anchor(1, 0, 0)];
 
         let validator = Validator::new(entities);
         let constraint = Constraint {
@@ -512,7 +539,9 @@ mod tests {
             target: EntityId(1), // Targeting ControlPoint - allowed!
             component: crate::VectorComponent::X,
             relation: crate::RelationType::Eq,
-            term: ConstraintTerm::Const { value: Rational::from_int(100) },
+            term: ConstraintTerm::Const {
+                value: Rational::from_int(100),
+            },
             priority: ConstraintPriority::Hard,
             source_scope: None,
         };

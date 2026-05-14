@@ -56,10 +56,7 @@ impl Monomial {
 
     /// Create a monomial from a list of (variable, exponent) pairs.
     pub fn from_exponents(pairs: impl IntoIterator<Item = (VarIndex, u32)>) -> Self {
-        let exponents: BTreeMap<_, _> = pairs
-            .into_iter()
-            .filter(|(_, exp)| *exp > 0)
-            .collect();
+        let exponents: BTreeMap<_, _> = pairs.into_iter().filter(|(_, exp)| *exp > 0).collect();
         Self { exponents }
     }
 
@@ -211,11 +208,7 @@ impl MonomialOrder {
 
     fn compare_lex(&self, a: &Monomial, b: &Monomial) -> Ordering {
         // Find max variable index
-        let max_var = a
-            .variables()
-            .chain(b.variables())
-            .max()
-            .unwrap_or(0);
+        let max_var = a.variables().chain(b.variables()).max().unwrap_or(0);
 
         // Compare exponents from first to last variable
         for var in 0..=max_var {
@@ -240,11 +233,7 @@ impl MonomialOrder {
         match a.total_degree().cmp(&b.total_degree()) {
             Ordering::Equal => {
                 // Then reverse lexicographic (compare from last to first, reversed)
-                let max_var = a
-                    .variables()
-                    .chain(b.variables())
-                    .max()
-                    .unwrap_or(0);
+                let max_var = a.variables().chain(b.variables()).max().unwrap_or(0);
 
                 for var in (0..=max_var).rev() {
                     match a.exponent(var).cmp(&b.exponent(var)) {
