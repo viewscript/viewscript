@@ -174,7 +174,7 @@ jobs:
       - name: Install workspace dependencies
         run: pnpm install
       - name: Build WASM
-        run: wasm-pack build crates/vsc-wasm --target web
+        run: wasm-pack build crates/vsc-wasm --target web --features gpu
       - name: Build vite-plugin
         run: pnpm --filter @viewscript/vite-plugin build
       - name: Build create-viewscript
