@@ -92,7 +92,7 @@ jobs:
         run: cargo test --workspace
 
       - name: Build WASM
-        run: wasm-pack build crates/vsc-wasm --target web --features gpu --release
+        run: wasm-pack build crates/vsc-wasm --target web --features gpu
 
       - name: Prepare @viewscript/wasm
         run: |
