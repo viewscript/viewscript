@@ -13,9 +13,13 @@ use vsc_codl::{validate_codl, CodlCommand, CodlInterpreter};
 use vsc_core::schema as core_schema;
 use vsc_core::{
     check_linear_singularities,
+    // C4.2: JavaScript code generation
+    codegen::{generate_compiled_module, GlyphData, TessellationOutput},
     compute_jacobian,
     // D-03/D-04: Singularity detection
     detect_singularity,
+    // Constraint solver
+    solver::{SolveResult, VarId},
     // Solver-level constraint validation
     validate_constraint_against_buildinfo,
     CollisionAnalysis,
@@ -982,6 +986,24 @@ fn check_singularities_for_buildinfo(buildinfo: &VsBuildInfo) -> Vec<serde_json:
                         coefficient: Rational::from_int(1),
                         variables: vec![(target_var, 1)],
                     }],
+                });
+            }
+            ConstraintTerm::LinearCombination { terms, .. } => {
+                // Linear combination: target = Σ(coeff_i * var_i) + offset
+                // ∂/∂target = 1, ∂/∂var_i = -coeff_i
+                let mut jacobian_terms = vec![JacobianTerm {
+                    coefficient: Rational::from_int(1),
+                    variables: vec![(target_var, 1)],
+                }];
+                for factor in terms {
+                    jacobian_terms.push(JacobianTerm {
+                        coefficient: Rational::zero() - factor.coefficient.clone(),
+                        variables: vec![(factor.entity_id.0, 1)],
+                    });
+                }
+                poly_constraints.push(PolynomialConstraint {
+                    id: constraint_id,
+                    terms: jacobian_terms,
                 });
             }
         }
@@ -5103,4 +5125,149 @@ pub fn search(
         "limit": limit,
         "results": results,
     }))
+}
+
+// =============================================================================
+// C4.2: compile-js Command
+// =============================================================================
+
+/// Compile ViewScript to standalone JavaScript.
+///
+/// ## Pipeline
+///
+/// 1. Read VsBuildInfo from stdin (JSON)
+/// 2. Extract initial values from constraints to build SolveResult
+/// 3. Tessellate paths to get vertex/index buffers (Phase 2)
+/// 4. Generate JavaScript module via js_codegen
+/// 5. Output JavaScript to stdout
+///
+/// ## Usage (WASI)
+///
+/// ```sh
+/// cat .vsbuildinfo | vsc compile-js > output.js
+/// ```
+pub fn compile_js(_stdin: bool) -> CommandResult {
+    use std::collections::HashMap;
+
+    // Step 1: Read VsBuildInfo from stdin
+    let mut input = String::new();
+    std::io::stdin()
+        .read_to_string(&mut input)
+        .map_err(|e| make_error(&format!("Failed to read stdin: {}", e)))?;
+
+    let buildinfo: VsBuildInfo = serde_json::from_str(&input)
+        .map_err(|e| make_error(&format!("Invalid VsBuildInfo JSON: {}", e)))?;
+
+    // Step 2: Extract initial values from constraints
+    let solve_result = extract_initial_values(&buildinfo);
+
+    // Step 3: Tessellate paths (placeholder for Phase 2)
+    // TODO: Integrate vsc-gpu tessellation when WASI-compatible
+    let tessellation_outputs: HashMap<EntityId, TessellationOutput> = HashMap::new();
+
+    // Step 4: Placeholder glyph table (Phase 2: font rendering)
+    let glyph_table: HashMap<char, GlyphData> = HashMap::new();
+
+    // Step 5: Generate JavaScript module
+    // Note: Interactive entities will be populated from .vs file parsing in Phase 2
+    let interactive_entities: Vec<vsc_core::codegen::InteractiveInfo> = vec![];
+    let js_code = generate_compiled_module(
+        &buildinfo,
+        &solve_result,
+        &tessellation_outputs,
+        &glyph_table,
+        &interactive_entities,
+    )
+    .map_err(|e| make_error(&format!("Codegen error (cycle detected): {}", e)))?;
+
+    // Output JavaScript to stdout
+    // Note: For WASI, we write directly to stdout, not wrapped in JSON
+    print!("{}", js_code);
+
+    Ok(serde_json::json!({
+        "status": "success",
+        "entity_count": buildinfo.path_entities.len(),
+        "constraint_count": buildinfo.operations.len(),
+    }))
+}
+
+/// Helper to create a ConstraintCollisionError for compile-js errors.
+fn make_error(message: &str) -> ConstraintCollisionError {
+    ConstraintCollisionError {
+        error_type: CollisionErrorType::Overdetermined,
+        message: message.to_string(),
+        incoming_constraint: dummy_snapshot(),
+        conflicting_constraints: vec![],
+        repair_suggestions: vec![],
+        analysis: CollisionAnalysis {
+            cycle_path: None,
+            constraints_analyzed: 0,
+            analysis_time_us: 0,
+            hideable_in_viewport: false,
+            hiding_viewport: None,
+        },
+    }
+}
+
+/// Extract initial values from constraints to build a SolveResult.
+///
+/// For Phase 1, this does simple value extraction from Const and Linear terms.
+/// Full constraint solving is Phase 2.
+fn extract_initial_values(buildinfo: &VsBuildInfo) -> SolveResult {
+    use std::collections::HashMap;
+
+    let mut values: HashMap<VarId, Rational> = HashMap::new();
+
+    // Process active constraints (Add operations only)
+    for op in &buildinfo.operations {
+        if op.op_type != OperationType::Add {
+            continue;
+        }
+
+        let constraint = &op.constraint;
+        if constraint.relation != RelationType::Eq {
+            continue;
+        }
+
+        let var_id = VarId::new(constraint.target, constraint.component);
+
+        match &constraint.term {
+            ConstraintTerm::Const { value } => {
+                values.insert(var_id, value.clone());
+            }
+            ConstraintTerm::Linear {
+                coefficient,
+                entity_id,
+                component,
+                offset,
+            } => {
+                // If the referenced entity has a value, compute the linear combination
+                let ref_var_id = VarId::new(*entity_id, *component);
+                if let Some(ref_value) = values.get(&ref_var_id) {
+                    let computed = coefficient.clone() * ref_value.clone() + offset.clone();
+                    values.insert(var_id, computed);
+                } else {
+                    // Reference not yet resolved, just use offset as initial value
+                    values.insert(var_id, offset.clone());
+                }
+            }
+            ConstraintTerm::Ref {
+                entity_id,
+                component,
+            } => {
+                // Copy value from referenced entity if available
+                let ref_var_id = VarId::new(*entity_id, *component);
+                if let Some(ref_value) = values.get(&ref_var_id) {
+                    values.insert(var_id, ref_value.clone());
+                }
+            }
+            ConstraintTerm::LinearCombination { terms: _, offset } => {
+                // Simple case: use offset as initial value
+                // Full linear combination solving is Phase 2
+                values.insert(var_id, offset.clone());
+            }
+        }
+    }
+
+    SolveResult::new(values)
 }

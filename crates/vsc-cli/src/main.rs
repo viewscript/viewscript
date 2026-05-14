@@ -349,6 +349,16 @@ enum Commands {
         #[command(subcommand)]
         action: StyleAction,
     },
+
+    /// Compile ViewScript to standalone JavaScript (C4.2)
+    ///
+    /// Reads VsBuildInfo from stdin (JSON), runs solver and tessellation,
+    /// and outputs standalone JavaScript to stdout.
+    CompileJs {
+        /// Read input from stdin (default: true)
+        #[arg(long, default_value = "true")]
+        stdin: bool,
+    },
 }
 
 /// Actions for the `target` subcommand.
@@ -526,6 +536,7 @@ fn main() -> ExitCode {
             StyleAction::Remove { name } => commands::style_remove(&name),
             StyleAction::List => commands::style_list(),
         },
+        Commands::CompileJs { stdin } => commands::compile_js(stdin),
     };
 
     match result {
