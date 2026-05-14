@@ -54,6 +54,17 @@ async function main(): Promise<void> {
   const engine = await WasmViewScriptEngine.create(canvas, dpr);
   console.log('ViewScript engine initialized:', canvas.width, 'x', canvas.height);
 
+  // Add demo component (matches main.vs HelloBox definition)
+  // TODO: Replace with .vs parser when available
+  engine.add_component('RoundedRect', JSON.stringify({
+    x: 50,
+    y: 50,
+    width: 300,
+    height: 150,
+    radius: 24,
+    fill: '#4a90d9',
+  }));
+
   // Initial render
   engine.tick(JSON.stringify(buildQSnapshot()));
 
