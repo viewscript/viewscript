@@ -44,7 +44,7 @@ function registerMeshes(runtime, layout) {
     vertices: createQuadVertices(layout.panel.x, layout.panel.y, layout.panel.w, layout.panel.h),
     indices: QUAD_INDICES,
     color: [0.12, 0.12, 0.18, 1.0], // #1e1e2e
-    positionCount: 8, // 4 vertices * 2 position components
+    vertexCount: 4, // 4 vertices * 2 position components
   });
 
   // Increment button - Catppuccin Mocha green
@@ -53,7 +53,7 @@ function registerMeshes(runtime, layout) {
     vertices: createQuadVertices(layout.incBtn.x, layout.incBtn.y, layout.incBtn.w, layout.incBtn.h),
     indices: QUAD_INDICES,
     color: [0.65, 0.89, 0.63, 1.0], // #a6e3a1
-    positionCount: 8,
+    vertexCount: 4,
   });
 
   // Decrement button - Catppuccin Mocha red
@@ -62,7 +62,7 @@ function registerMeshes(runtime, layout) {
     vertices: createQuadVertices(layout.decBtn.x, layout.decBtn.y, layout.decBtn.w, layout.decBtn.h),
     indices: QUAD_INDICES,
     color: [0.95, 0.55, 0.66, 1.0], // #f38ba8
-    positionCount: 8,
+    vertexCount: 4,
   });
 }
 

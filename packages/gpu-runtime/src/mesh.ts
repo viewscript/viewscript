@@ -18,14 +18,16 @@ export type MeshId = string;
 export interface MeshData {
   /** Pipeline type for this mesh */
   pipelineKey: PipelineKey;
-  /** Vertex data (Float32Array) */
+  /** Vertex data (Float32Array) - interleaved [x, y, u, v, ...] per vertex */
   vertices: Float32Array;
   /** Index data (Uint16Array or Uint32Array) */
   indices: Uint16Array | Uint32Array;
   /** Fill color RGBA [0-1] */
   color: [number, number, number, number];
-  /** Number of position floats (for updatePositions) */
-  positionCount: number;
+  /** Number of vertices (for updatePositions stride calculation) */
+  vertexCount: number;
+  /** Floats per vertex (stride), default 4 for [x, y, u, v] */
+  vertexStride?: number;
 }
 
 /** GPU-uploaded mesh with buffers */
@@ -38,10 +40,10 @@ export interface GpuMesh {
   indexFormat: GPUIndexFormat;
   colorUniform: GPUBuffer;
   colorBindGroup: GPUBindGroup;
-  /** Byte offset where positions start in vertex buffer */
-  positionByteOffset: number;
-  /** Number of position components (floats) */
-  positionCount: number;
+  /** Number of vertices */
+  vertexCount: number;
+  /** Floats per vertex (stride) */
+  vertexStride: number;
 }
 
 /** Mesh registry for the runtime */
@@ -111,8 +113,8 @@ export class MeshRegistry {
       indexFormat,
       colorUniform,
       colorBindGroup,
-      positionByteOffset: 0, // Positions always at start of vertex
-      positionCount: data.positionCount,
+      vertexCount: data.vertexCount,
+      vertexStride: data.vertexStride ?? 4, // Default: [x, y, u, v]
     };
 
     this.meshes.set(id, mesh);
@@ -122,8 +124,11 @@ export class MeshRegistry {
   /**
    * Update vertex positions for a mesh (Q-dimension reactive update)
    *
+   * Writes position data with proper stride to preserve interleaved attributes.
+   * For vertex layout [x, y, u, v], only x and y are updated per vertex.
+   *
    * @param id - Mesh identifier
-   * @param positions - New position data (flat array of [x, y, ...])
+   * @param positions - New position data (flat array of [x0, y0, x1, y1, ...])
    */
   updatePositions(id: MeshId, positions: Float32Array): void {
     const mesh = this.meshes.get(id);
@@ -132,23 +137,29 @@ export class MeshRegistry {
       return;
     }
 
-    if (positions.length !== mesh.positionCount) {
+    const expectedPositionFloats = mesh.vertexCount * 2; // 2 floats (x, y) per vertex
+    if (positions.length !== expectedPositionFloats) {
       console.warn(
         `MeshRegistry: position count mismatch for ${id}. ` +
-        `Expected ${mesh.positionCount}, got ${positions.length}`
+        `Expected ${expectedPositionFloats}, got ${positions.length}`
       );
       return;
     }
 
-    // Write positions to vertex buffer
-    // Note: This assumes positions are at the start of each vertex
-    this.device.queue.writeBuffer(
-      mesh.vertexBuffer,
-      mesh.positionByteOffset,
-      positions.buffer,
-      positions.byteOffset,
-      positions.byteLength
-    );
+    // Write positions with stride to preserve UV data
+    // Each vertex has `vertexStride` floats, we update the first 2 (position)
+    const strideBytes = mesh.vertexStride * 4; // 4 bytes per float
+    const positionBytes = 2 * 4; // 2 floats * 4 bytes
+
+    for (let i = 0; i < mesh.vertexCount; i++) {
+      this.device.queue.writeBuffer(
+        mesh.vertexBuffer,
+        i * strideBytes, // Offset to this vertex
+        positions.buffer,
+        positions.byteOffset + i * 2 * 4, // Source offset: i * 2 floats * 4 bytes
+        positionBytes
+      );
+    }
   }
 
   /**
