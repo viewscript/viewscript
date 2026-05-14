@@ -1,0 +1,131 @@
+name: Release & Publish to npm
+
+on:
+  schedule:
+    # 12時間ごと（UTC 0:00 と 12:00）
+    - cron: '0 0,12 * * *'
+  workflow_dispatch:  # 手動トリガーも可能
+
+jobs:
+  check-and-release:
+    name: Check for changes & update release branch
+    runs-on: ubuntu-latest
+    outputs:
+      has_changes: ${{ steps.check.outputs.has_changes }}
+      new_version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 全履歴取得（ブランチ比較に必要）
+
+      - name: Check for changes since last release
+        id: check
+        run: |
+          git fetch origin release || echo "release branch not found"
+          if git rev-parse origin/release >/dev/null 2>&1; then
+            DIFF=$(git diff --name-only origin/release..origin/main -- crates/ packages/ styles/ Cargo.toml Cargo.lock)
+            if [ -z "$DIFF" ]; then
+              echo "has_changes=false" >> $GITHUB_OUTPUT
+              echo "No code changes since last release"
+            else
+              echo "has_changes=true" >> $GITHUB_OUTPUT
+              echo "Changes detected:"
+              echo "$DIFF"
+            fi
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "release branch does not exist, treating as first release"
+          fi
+
+      - name: Determine version
+        id: version
+        if: steps.check.outputs.has_changes == 'true'
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          TIMESTAMP=$(date +%Y%m%d%H%M)
+          FULL_VERSION="${VERSION}-${TIMESTAMP}"
+          echo "version=${FULL_VERSION}" >> $GITHUB_OUTPUT
+          echo "Version: ${FULL_VERSION}"
+
+      - name: Fast-forward release branch
+        if: steps.check.outputs.has_changes == 'true'
+        run: |
+          git checkout release
+          git merge --ff-only origin/main
+          git push origin release
+
+  publish:
+    name: Build & Publish
+    runs-on: ubuntu-latest
+    needs: check-and-release
+    if: needs.check-and-release.outputs.has_changes == 'true'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install tools
+        run: |
+          curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+          npm install -g pnpm
+
+      - name: Run tests
+        run: cargo test --workspace
+
+      - name: Build WASM
+        run: wasm-pack build crates/vsc-wasm --target web --features gpu --release
+
+      - name: Prepare @viewscript/wasm
+        run: |
+          cd crates/vsc-wasm/pkg
+          VERSION="${{ needs.check-and-release.outputs.new_version }}"
+          cat package.json | jq --arg v "$VERSION" '.name = "@viewscript/wasm" | .version = $v' > tmp.json
+          mv tmp.json package.json
+          cat package.json
+
+      - name: Publish @viewscript/wasm
+        run: npm publish --access public
+        working-directory: crates/vsc-wasm/pkg
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Prepare @viewscript/renderer
+        run: |
+          cd packages/renderer
+          pnpm install --no-frozen-lockfile
+          VERSION="${{ needs.check-and-release.outputs.new_version }}"
+          cat package.json | jq --arg v "$VERSION" '.version = $v' > tmp.json
+          mv tmp.json package.json
+          pnpm build || true
+
+      - name: Publish @viewscript/renderer
+        run: npm publish --access public
+        working-directory: packages/renderer
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Prepare @viewscript/browser-defaults
+        run: |
+          cd packages/browser-defaults
+          pnpm install --no-frozen-lockfile
+          VERSION="${{ needs.check-and-release.outputs.new_version }}"
+          cat package.json | jq --arg v "$VERSION" '.version = $v' > tmp.json
+          mv tmp.json package.json
+          pnpm build || true
+
+      - name: Publish @viewscript/browser-defaults
+        run: npm publish --access public
+        working-directory: packages/browser-defaults
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
