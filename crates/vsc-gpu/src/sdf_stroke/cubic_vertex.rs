@@ -73,6 +73,7 @@ impl CubicSdfStrokeVertex {
     }
 
     /// Vertex buffer layout descriptor for wgpu pipeline.
+    #[cfg(feature = "gpu")]
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<CubicSdfStrokeVertex>() as wgpu::BufferAddress,
@@ -142,6 +143,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "gpu")]
     fn test_cubic_sdf_stroke_vertex_buffer_layout() {
         let layout = CubicSdfStrokeVertex::desc();
 

@@ -21,7 +21,7 @@ default = []
 gpu = ["vsc-gpu", "wgpu", "web-sys", "wasm-bindgen", "wasm-bindgen-futures", "js-sys", "console_error_panic_hook"]
 
 [dependencies]
-vsc-core = { path = "../vsc-core" }
+vsc-core = { path = "../vsc-core", features = ["text-shaping"] }
 serde.workspace = true
 serde_json.workspace = true
 

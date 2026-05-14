@@ -49,6 +49,7 @@ use thiserror::Error;
 use vsc_core::Rational;
 
 // Re-export wgpu types used in GpuVertex::desc()
+#[cfg(feature = "gpu")]
 pub use wgpu;
 
 use crate::{FillStyle, LineCap, LineJoin, PathCommand, StrokeStyle};
@@ -82,6 +83,7 @@ impl GpuVertex {
     }
 
     /// Vertex buffer layout descriptor for wgpu pipeline.
+    #[cfg(feature = "gpu")]
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<GpuVertex>() as wgpu::BufferAddress,

@@ -69,6 +69,7 @@ impl LoopBlinnVertex {
     }
 
     /// Vertex buffer layout descriptor for wgpu pipeline.
+    #[cfg(feature = "gpu")]
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<LoopBlinnVertex>() as wgpu::BufferAddress,
@@ -176,6 +177,7 @@ impl CubicLoopBlinnVertex {
     }
 
     /// Vertex buffer layout descriptor for wgpu pipeline.
+    #[cfg(feature = "gpu")]
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<CubicLoopBlinnVertex>() as wgpu::BufferAddress,

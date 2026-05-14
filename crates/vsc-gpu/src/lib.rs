@@ -39,32 +39,54 @@
 //! | `StrokeStyle`             | `StrokeStyle`            |
 //! | `AffineTransform`         | `AffineTransform`        |
 
-pub mod batcher;
+// Tessellation modules (always available, no GPU dependency)
 pub mod loop_blinn;
-pub mod opacity;
-pub mod pipeline;
 pub mod rasterizer;
-pub mod renderer;
-pub mod scene_converter;
 pub mod sdf_stroke;
-pub mod shaders;
-pub mod stencil;
 pub mod tessellation;
+
+// GPU-only modules (require wgpu)
+#[cfg(feature = "gpu")]
+pub mod batcher;
+#[cfg(feature = "gpu")]
+pub mod opacity;
+#[cfg(feature = "gpu")]
+pub mod pipeline;
+#[cfg(feature = "gpu")]
+pub mod renderer;
+#[cfg(feature = "gpu")]
+pub mod scene_converter;
+#[cfg(feature = "gpu")]
+pub mod shaders;
+#[cfg(feature = "gpu")]
+pub mod stencil;
+#[cfg(feature = "gpu")]
 pub mod transform;
+#[cfg(feature = "gpu")]
 pub mod web_target;
 
-// Re-export core types
-pub use batcher::{DrawBatch, DrawBatcher, GpuBatchResources, PipelineKey, UniformData};
+// Re-export tessellation types (always available)
 pub use loop_blinn::{
-    compute_curve_sign, tessellate_quadratic_beziers, LoopBlinnOutput, LoopBlinnVertex,
+    compute_curve_sign, tessellate_cubic_beziers, tessellate_quadratic_beziers,
+    CubicLoopBlinnOutput, CubicLoopBlinnVertex, LoopBlinnOutput, LoopBlinnVertex,
 };
-pub use opacity::OpacityStack;
-pub use pipeline::{PipelineManager, PipelineSet};
-pub use renderer::GpuRenderer;
-pub use scene_converter::SceneConverter;
 pub use sdf_stroke::{tessellate_stroke_segments, SdfStrokeOutput, SdfStrokeVertex};
-pub use stencil::StencilStack;
 pub use tessellation::{BoundingBox, GpuVertex, TessellationError, TessellationOutput};
+
+// Re-export GPU types (only when gpu feature is enabled)
+#[cfg(feature = "gpu")]
+pub use batcher::{DrawBatch, DrawBatcher, GpuBatchResources, PipelineKey, UniformData};
+#[cfg(feature = "gpu")]
+pub use opacity::OpacityStack;
+#[cfg(feature = "gpu")]
+pub use pipeline::{PipelineManager, PipelineSet};
+#[cfg(feature = "gpu")]
+pub use renderer::GpuRenderer;
+#[cfg(feature = "gpu")]
+pub use scene_converter::SceneConverter;
+#[cfg(feature = "gpu")]
+pub use stencil::StencilStack;
+#[cfg(feature = "gpu")]
 pub use web_target::WebTarget;
 
 // Re-export rasterizer types for topology-preserving rounding

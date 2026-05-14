@@ -6,12 +6,18 @@ license.workspace = true
 repository.workspace = true
 description = "wgpu-based renderer for ViewScript P-dimension visualization"
 
+[features]
+default = ["gpu"]
+gpu = ["dep:wgpu"]
+# WASI-compatible tessellation without GPU runtime
+tessellation-only = []
+
 [dependencies]
 # Core types (Rational, EntityId)
 vsc-core = { path = "../vsc-core" }
 
-# GPU rendering
-wgpu = "23.0"
+# GPU rendering (optional for tessellation-only builds)
+wgpu = { version = "23.0", optional = true }
 
 # Path tessellation (SVG path commands -> vertex buffers)
 lyon = "1.0"

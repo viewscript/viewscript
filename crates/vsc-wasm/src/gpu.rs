@@ -54,13 +54,14 @@ use web_sys::{HtmlCanvasElement, Window};
 
 use vsc_core::target::RenderTarget;
 use vsc_core::{
-    buildinfo::VsBuildInfo,
+    buildinfo::{TextEntityEntry, VsBuildInfo},
     f32_to_rational_exact,
     ffi::{evaluate_derived, DerivedQVariable, DerivedRule, QSnapshot, QValue, QVariable},
     scene::{evaluate_conditions, SceneBuilder, SceneNode},
     solver::{ConstraintSolver, VarId, VariableState},
+    text::{ExpandedText, TextShaper},
     types::{
-        ConditionId, EntityId, FillRule, FillSpec, PathEntityEntry, PathSegment,
+        ConditionId, EntityId, FillRule, FillSpec, PathCommand, PathEntityEntry, PathSegment,
         PostSolveCondition, Rational, VectorComponent,
     },
 };
@@ -720,6 +721,10 @@ pub struct WasmViewScriptEngine {
     condition_to_ffi: HashMap<ConditionId, u64>,
     /// Stored trigger definitions for building FFI requests with args.
     ffi_triggers: HashMap<ConditionId, FfiTrigger>,
+    /// Font cache: family name → font binary data.
+    font_cache: HashMap<String, Vec<u8>>,
+    /// Expanded text data: text entity ID → (expanded paths, fill color, position).
+    text_expanded: HashMap<EntityId, (ExpandedText, String, Rational, Rational)>,
 }
 
 #[wasm_bindgen]
@@ -822,6 +827,8 @@ impl WasmViewScriptEngine {
             prev_satisfied: HashSet::new(),
             condition_to_ffi: HashMap::new(),
             ffi_triggers: HashMap::new(),
+            font_cache: HashMap::new(),
+            text_expanded: HashMap::new(),
         })
     }
 
@@ -882,6 +889,58 @@ impl WasmViewScriptEngine {
             self.ffi_triggers
                 .insert(trigger.trigger_id, trigger.clone());
         }
+
+        Ok(())
+    }
+
+    /// Register a font for text rendering.
+    ///
+    /// The font binary is stored in the engine's font cache. When adding
+    /// a Text component, the font_family parameter is used to look up the font.
+    ///
+    /// # Arguments
+    ///
+    /// * `family` - Font family name (e.g., "Inter", "Roboto")
+    /// * `font_bytes` - Raw font file bytes (TTF, OTF, or TTC)
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if the font was registered successfully, `Err` if parsing failed.
+    #[wasm_bindgen]
+    pub fn register_font(&mut self, family: &str, font_bytes: &[u8]) -> Result<(), JsValue> {
+        // V6: Prevent replacement if font is in use by active text entities
+        if self.font_cache.contains_key(family) {
+            let in_use = self
+                .build_info
+                .text_entities
+                .iter()
+                .any(|e| e.font_family == family);
+            if in_use {
+                return Err(JsValue::from_str(&format!(
+                    "Cannot replace font '{}': in use by active text entities. \
+                     Remove text entities first or use a different family name.",
+                    family
+                )));
+            }
+        }
+
+        // Validate font by attempting to parse it
+        let _shaper = TextShaper::new(font_bytes).map_err(|e| {
+            JsValue::from_str(&format!("Failed to parse font '{}': {:?}", family, e))
+        })?;
+
+        // Store the font data (owned copy)
+        self.font_cache
+            .insert(family.to_string(), font_bytes.to_vec());
+
+        web_sys::console::log_1(
+            &format!(
+                "[ViewScript] Font '{}' registered ({} bytes)",
+                family,
+                font_bytes.len()
+            )
+            .into(),
+        );
 
         Ok(())
     }
@@ -1045,6 +1104,8 @@ impl WasmViewScriptEngine {
                 .map_err(|e| JsValue::from_str(&format!("Solver error: {:?}", e)))?;
 
             // 2b: Build scene graph
+            // Text glyphs are now registered as PathEntityEntry in add_text(),
+            // so SceneBuilder processes them with Topology-Preserving Rounding
             let scene_builder = SceneBuilder::new(&solve_result.values, &self.build_info);
             let scene_nodes = scene_builder
                 .build_scene()
@@ -1284,6 +1345,7 @@ impl WasmViewScriptEngine {
             "Circle" => self.add_circle(params_json),
             "Rect" => self.add_rect(params_json),
             "Path" => self.add_path(params_json),
+            "Text" => self.add_text(params_json),
             _ => Err(JsValue::from_str(&format!(
                 "Unknown component type: {}",
                 component_type
@@ -1508,6 +1570,30 @@ impl WasmViewScriptEngine {
                 component_entity_id
             )))
         }
+    }
+
+    /// Update text content for an existing text entity.
+    ///
+    /// Re-expands the text to paths and updates the stored data.
+    /// Removes old glyph PathEntityEntries and registers new ones.
+    ///
+    /// # Arguments
+    ///
+    /// * `entity_id` - The text entity ID returned by `add_component('Text', ...)`
+    /// * `content` - The new text content to display
+    ///
+    /// # Example
+    ///
+    /// ```javascript
+    /// const labelId = engine.add_component('Text', JSON.stringify({
+    ///   x: 100, y: 100, content: '0', font_family: 'Inter', font_size: 48
+    /// }));
+    /// // Later, update the content:
+    /// engine.update_text_content(labelId, '42');
+    /// ```
+    #[wasm_bindgen]
+    pub fn update_text_content(&mut self, entity_id: u64, content: &str) -> Result<(), JsValue> {
+        self.update_text_content_internal(entity_id, content)
     }
 }
 
@@ -1954,6 +2040,546 @@ impl WasmViewScriptEngine {
         self.register_hover_variable(path_id);
 
         Ok(path_id.0)
+    }
+
+    /// Add a text component.
+    ///
+    /// Renders text as vector paths using the registered font.
+    /// The text is expanded to glyph outlines at creation time.
+    ///
+    /// # JSON Parameters
+    ///
+    /// ```json
+    /// {
+    ///   "x": 100,
+    ///   "y": 100,
+    ///   "content": "Hello",
+    ///   "font_family": "Inter",
+    ///   "font_size": 48,
+    ///   "fill": "#ffffff"
+    /// }
+    /// ```
+    fn add_text(&mut self, params_json: &str) -> Result<u64, JsValue> {
+        #[derive(serde::Deserialize)]
+        struct TextParams {
+            x: f64,
+            y: f64,
+            content: String,
+            #[serde(default = "default_font_family")]
+            font_family: String,
+            #[serde(default = "default_font_size")]
+            font_size: f64,
+            #[serde(default = "default_text_fill")]
+            fill: String,
+        }
+
+        fn default_font_family() -> String {
+            "sans-serif".to_string()
+        }
+        fn default_font_size() -> f64 {
+            16.0
+        }
+        fn default_text_fill() -> String {
+            "#ffffff".to_string()
+        }
+
+        let params: TextParams = serde_json::from_str(params_json)
+            .map_err(|e| JsValue::from_str(&format!("Failed to parse Text params: {}", e)))?;
+
+        // Get font data from cache (clone to release borrow before mutable operations)
+        let font_data = self
+            .font_cache
+            .get(&params.font_family)
+            .ok_or_else(|| {
+                JsValue::from_str(&format!(
+                    "Font '{}' not registered. Call register_font() first.",
+                    params.font_family
+                ))
+            })?
+            .clone();
+
+        // Allocate text entity ID (requires &mut self)
+        let text_id = self.allocate_entity_id();
+
+        // Create text shaper (now safe since font_data is owned)
+        let shaper = TextShaper::new(&font_data)
+            .map_err(|e| JsValue::from_str(&format!("Failed to create text shaper: {:?}", e)))?;
+
+        // Expand text to paths
+        let font_size = f64_to_rational(params.font_size);
+        let expanded = shaper
+            .expand_to_paths(&params.content, &font_size, self.next_entity_id)
+            .map_err(|e| JsValue::from_str(&format!("Text shaping failed: {:?}", e)))?;
+
+        // Update next_entity_id based on allocated prototypes and instances
+        let allocated_count = expanded.prototypes.len() + expanded.instances.len();
+        self.next_entity_id += allocated_count as u64;
+
+        // Calculate bounding box from expanded text
+        let (width, height) = self.calculate_text_bounds(&expanded);
+
+        // Store position
+        let x = f64_to_rational(params.x);
+        let y = f64_to_rational(params.y);
+
+        // Allocate corner control points
+        let tl = self.allocate_entity_id();
+        let tr = self.allocate_entity_id();
+        let bl = self.allocate_entity_id();
+        let br = self.allocate_entity_id();
+
+        // Register corner control points in solver
+        // TL (top-left)
+        self.solver.register_variable(
+            VarId::new(tl, VectorComponent::X),
+            VariableState::Resolved { value: x.clone() },
+        );
+        self.solver.register_variable(
+            VarId::new(tl, VectorComponent::Y),
+            VariableState::Resolved { value: y.clone() },
+        );
+
+        // TR (top-right)
+        self.solver.register_variable(
+            VarId::new(tr, VectorComponent::X),
+            VariableState::Resolved {
+                value: x.clone() + width.clone(),
+            },
+        );
+        self.solver.register_variable(
+            VarId::new(tr, VectorComponent::Y),
+            VariableState::Resolved { value: y.clone() },
+        );
+
+        // BL (bottom-left)
+        self.solver.register_variable(
+            VarId::new(bl, VectorComponent::X),
+            VariableState::Resolved { value: x.clone() },
+        );
+        self.solver.register_variable(
+            VarId::new(bl, VectorComponent::Y),
+            VariableState::Resolved {
+                value: y.clone() + height.clone(),
+            },
+        );
+
+        // BR (bottom-right)
+        self.solver.register_variable(
+            VarId::new(br, VectorComponent::X),
+            VariableState::Resolved {
+                value: x.clone() + width.clone(),
+            },
+        );
+        self.solver.register_variable(
+            VarId::new(br, VectorComponent::Y),
+            VariableState::Resolved {
+                value: y.clone() + height.clone(),
+            },
+        );
+
+        // Store in text_entities
+        self.build_info.text_entities.push(TextEntityEntry {
+            id: text_id,
+            content: params.content.clone(),
+            font_family: params.font_family.clone(),
+            font_size: font_size.clone(),
+            corner_tl: tl,
+            corner_tr: tr,
+            corner_bl: bl,
+            corner_br: br,
+            metrics_resolved: true,
+            measured_width: Some(width),
+            measured_height: Some(height),
+            created_at: String::new(),
+        });
+
+        // Register control points for component
+        self.component_control_points
+            .insert(text_id, vec![tl, tr, bl, br]);
+        self.component_origins
+            .insert(text_id, (x.clone(), y.clone()));
+
+        // Convert glyph paths to PathEntityEntry and register in build_info.path_entities
+        // This ensures text goes through SceneBuilder for Topology-Preserving Rounding
+        let fill_spec = FillSpec::Solid {
+            color: params.fill.clone(),
+        };
+        self.register_glyph_paths(&expanded, &x, &y, &fill_spec)?;
+
+        // Store expanded text for update_text_content (no longer used for rendering)
+        self.text_expanded
+            .insert(text_id, (expanded, params.fill, x, y));
+
+        web_sys::console::log_1(
+            &format!(
+                "[ViewScript] Text '{}' added (id={}, font={})",
+                params.content, text_id.0, params.font_family
+            )
+            .into(),
+        );
+
+        Ok(text_id.0)
+    }
+
+    /// Register glyph paths as PathEntityEntry in build_info.path_entities.
+    ///
+    /// This converts each glyph instance's PathCommands to PathSegments by:
+    /// 1. Transforming coordinates (scale + translate)
+    /// 2. Registering each vertex as a control point in the solver
+    /// 3. Creating PathSegments that reference these control points
+    /// 4. Adding PathEntityEntry to build_info.path_entities
+    ///
+    /// By going through path_entities, SceneBuilder applies Topology-Preserving
+    /// Rounding (D-19) to text glyphs.
+    fn register_glyph_paths(
+        &mut self,
+        expanded: &ExpandedText,
+        origin_x: &Rational,
+        origin_y: &Rational,
+        fill_spec: &FillSpec,
+    ) -> Result<(), JsValue> {
+        for instance in &expanded.instances {
+            // Find prototype for this instance
+            let prototype = expanded
+                .prototypes
+                .values()
+                .find(|p| p.entity_id == instance.prototype_id);
+
+            let Some(prototype) = prototype else {
+                continue;
+            };
+
+            // Skip glyphs without outlines (space, etc.)
+            if prototype.path_commands.is_empty() {
+                continue;
+            }
+
+            // Calculate transform for this instance
+            let scale = &expanded.scale_factor;
+            let tx = origin_x.clone() + instance.origin.0.clone();
+            let ty = origin_y.clone() + instance.origin.1.clone();
+
+            // Convert PathCommands to PathSegments
+            let (segments, closed) =
+                self.path_commands_to_segments(&prototype.path_commands, scale, &tx, &ty)?;
+
+            if segments.is_empty() {
+                continue;
+            }
+
+            // Create PathEntityEntry
+            let path_entry = PathEntityEntry {
+                id: instance.entity_id,
+                segments,
+                closed,
+                fill_rule: FillRule::NonZero,
+                fill: Some(fill_spec.clone()),
+                stroke: None,
+            };
+
+            self.build_info.path_entities.push(path_entry);
+        }
+
+        Ok(())
+    }
+
+    /// Convert a sequence of PathCommands to PathSegments.
+    ///
+    /// Registers each vertex as a control point in the solver and returns
+    /// PathSegments that reference these EntityIds.
+    fn path_commands_to_segments(
+        &mut self,
+        commands: &[PathCommand],
+        scale: &Rational,
+        tx: &Rational,
+        ty: &Rational,
+    ) -> Result<(Vec<PathSegment>, bool), JsValue> {
+        let mut segments = Vec::new();
+        let mut current_point: Option<EntityId> = None;
+        let mut first_point: Option<EntityId> = None;
+        let mut closed = false;
+
+        for cmd in commands {
+            match cmd {
+                PathCommand::MoveTo { x, y } => {
+                    // Transform and register the point
+                    let px = x.clone() * scale.clone() + tx.clone();
+                    let py = y.clone() * scale.clone() + ty.clone();
+                    let point_id = self.register_control_point(&px, &py);
+                    current_point = Some(point_id);
+                    if first_point.is_none() {
+                        first_point = Some(point_id);
+                    }
+                }
+                PathCommand::LineTo { x, y } => {
+                    let Some(from_id) = current_point else {
+                        continue;
+                    };
+                    let px = x.clone() * scale.clone() + tx.clone();
+                    let py = y.clone() * scale.clone() + ty.clone();
+                    let to_id = self.register_control_point(&px, &py);
+                    segments.push(PathSegment::Line {
+                        from: from_id,
+                        to: to_id,
+                    });
+                    current_point = Some(to_id);
+                }
+                PathCommand::QuadTo { x1, y1, x, y } => {
+                    let Some(from_id) = current_point else {
+                        continue;
+                    };
+                    let hx = x1.clone() * scale.clone() + tx.clone();
+                    let hy = y1.clone() * scale.clone() + ty.clone();
+                    let handle_id = self.register_control_point(&hx, &hy);
+                    let px = x.clone() * scale.clone() + tx.clone();
+                    let py = y.clone() * scale.clone() + ty.clone();
+                    let to_id = self.register_control_point(&px, &py);
+                    segments.push(PathSegment::Quad {
+                        from: from_id,
+                        handle: handle_id,
+                        to: to_id,
+                    });
+                    current_point = Some(to_id);
+                }
+                PathCommand::CubicTo {
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    x,
+                    y,
+                } => {
+                    let Some(from_id) = current_point else {
+                        continue;
+                    };
+                    let h1x = x1.clone() * scale.clone() + tx.clone();
+                    let h1y = y1.clone() * scale.clone() + ty.clone();
+                    let handle1_id = self.register_control_point(&h1x, &h1y);
+                    let h2x = x2.clone() * scale.clone() + tx.clone();
+                    let h2y = y2.clone() * scale.clone() + ty.clone();
+                    let handle2_id = self.register_control_point(&h2x, &h2y);
+                    let px = x.clone() * scale.clone() + tx.clone();
+                    let py = y.clone() * scale.clone() + ty.clone();
+                    let to_id = self.register_control_point(&px, &py);
+                    segments.push(PathSegment::Cubic {
+                        from: from_id,
+                        handle1: handle1_id,
+                        handle2: handle2_id,
+                        to: to_id,
+                    });
+                    current_point = Some(to_id);
+                }
+                PathCommand::ArcTo {
+                    rx,
+                    ry,
+                    rotation,
+                    large_arc,
+                    sweep,
+                    x,
+                    y,
+                } => {
+                    let Some(from_id) = current_point else {
+                        continue;
+                    };
+                    let px = x.clone() * scale.clone() + tx.clone();
+                    let py = y.clone() * scale.clone() + ty.clone();
+                    let to_id = self.register_control_point(&px, &py);
+                    segments.push(PathSegment::Arc {
+                        from: from_id,
+                        to: to_id,
+                        rx: rx.clone() * scale.clone(),
+                        ry: ry.clone() * scale.clone(),
+                        rotation: *rotation,
+                        large_arc: *large_arc,
+                        sweep: *sweep,
+                    });
+                    current_point = Some(to_id);
+                }
+                PathCommand::Close => {
+                    closed = true;
+                    // Close implicitly draws back to first point (no explicit segment needed)
+                }
+            }
+        }
+
+        Ok((segments, closed))
+    }
+
+    /// Register a control point with the given coordinates.
+    ///
+    /// Allocates an EntityId and registers X/Y as Resolved in the solver.
+    fn register_control_point(&mut self, x: &Rational, y: &Rational) -> EntityId {
+        let id = self.allocate_entity_id();
+        self.solver.register_variable(
+            VarId::new(id, VectorComponent::X),
+            VariableState::Resolved { value: x.clone() },
+        );
+        self.solver.register_variable(
+            VarId::new(id, VectorComponent::Y),
+            VariableState::Resolved { value: y.clone() },
+        );
+        id
+    }
+
+    /// Calculate text bounding box from expanded text data.
+    fn calculate_text_bounds(&self, expanded: &ExpandedText) -> (Rational, Rational) {
+        let mut max_x = Rational::zero();
+        let mut max_y = Rational::zero();
+
+        for instance in &expanded.instances {
+            // Get prototype for this instance
+            if let Some(prototype) = expanded
+                .prototypes
+                .values()
+                .find(|p| p.entity_id == instance.prototype_id)
+            {
+                // Instance position + prototype advance width (scaled)
+                let instance_right = instance.origin.0.clone()
+                    + prototype.advance_width.clone() * expanded.scale_factor.clone();
+
+                if instance_right > max_x {
+                    max_x = instance_right;
+                }
+
+                // Use prototype bbox for height if available
+                if let Some((_, _, _, y_max)) = &prototype.bbox {
+                    let instance_bottom =
+                        instance.origin.1.clone() + y_max.clone() * expanded.scale_factor.clone();
+                    if instance_bottom > max_y {
+                        max_y = instance_bottom;
+                    }
+                }
+            }
+        }
+
+        // Fallback to font_size for height if no bbox
+        if max_y == Rational::zero() {
+            max_y = expanded.font_size.clone();
+        }
+
+        (max_x, max_y)
+    }
+
+    /// Internal implementation for updating text content.
+    fn update_text_content_internal(
+        &mut self,
+        entity_id: u64,
+        content: &str,
+    ) -> Result<(), JsValue> {
+        let text_id = EntityId(entity_id);
+
+        // First pass: extract data from entry (releases borrow after scope)
+        let (font_family, font_size, corner_tr, corner_br, corner_bl) = {
+            let entry = self
+                .build_info
+                .text_entities
+                .iter()
+                .find(|e| e.id == text_id)
+                .ok_or_else(|| {
+                    JsValue::from_str(&format!("Text entity {} not found", entity_id))
+                })?;
+            (
+                entry.font_family.clone(),
+                entry.font_size.clone(),
+                entry.corner_tr,
+                entry.corner_br,
+                entry.corner_bl,
+            )
+        };
+
+        // Collect old glyph instance EntityIds for removal
+        let old_glyph_ids: Vec<EntityId> =
+            if let Some((old_expanded, _, _, _)) = self.text_expanded.get(&text_id) {
+                old_expanded
+                    .instances
+                    .iter()
+                    .map(|inst| inst.entity_id)
+                    .collect()
+            } else {
+                Vec::new()
+            };
+
+        // Remove old PathEntityEntries from build_info.path_entities
+        self.build_info
+            .path_entities
+            .retain(|pe| !old_glyph_ids.contains(&pe.id));
+
+        // Get font data and shape text (requires &self)
+        let font_data = self
+            .font_cache
+            .get(&font_family)
+            .ok_or_else(|| JsValue::from_str(&format!("Font '{}' not in cache", font_family)))?
+            .clone();
+
+        let shaper = TextShaper::new(&font_data)
+            .map_err(|e| JsValue::from_str(&format!("Text shaper error: {:?}", e)))?;
+
+        let expanded = shaper
+            .expand_to_paths(content, &font_size, self.next_entity_id)
+            .map_err(|e| JsValue::from_str(&format!("Text shaping failed: {:?}", e)))?;
+
+        // Update next_entity_id
+        let allocated_count = expanded.prototypes.len() + expanded.instances.len();
+        self.next_entity_id += allocated_count as u64;
+
+        // Recalculate bounds
+        let (width, height) = self.calculate_text_bounds(&expanded);
+
+        // Get current position from stored data
+        let (fill, x, y) = if let Some((_, fill, x, y)) = self.text_expanded.get(&text_id) {
+            (fill.clone(), x.clone(), y.clone())
+        } else {
+            ("#ffffff".to_string(), Rational::zero(), Rational::zero())
+        };
+
+        // Register new glyph paths in build_info.path_entities
+        let fill_spec = FillSpec::Solid {
+            color: fill.clone(),
+        };
+        self.register_glyph_paths(&expanded, &x, &y, &fill_spec)?;
+
+        // Second pass: update entry (requires &mut self)
+        if let Some(entry) = self
+            .build_info
+            .text_entities
+            .iter_mut()
+            .find(|e| e.id == text_id)
+        {
+            entry.content = content.to_string();
+            entry.measured_width = Some(width.clone());
+            entry.measured_height = Some(height.clone());
+        }
+
+        // Update corner positions
+        self.solver.register_variable(
+            VarId::new(corner_tr, VectorComponent::X),
+            VariableState::Resolved {
+                value: x.clone() + width.clone(),
+            },
+        );
+        self.solver.register_variable(
+            VarId::new(corner_br, VectorComponent::X),
+            VariableState::Resolved {
+                value: x.clone() + width.clone(),
+            },
+        );
+        self.solver.register_variable(
+            VarId::new(corner_bl, VectorComponent::Y),
+            VariableState::Resolved {
+                value: y.clone() + height.clone(),
+            },
+        );
+        self.solver.register_variable(
+            VarId::new(corner_br, VectorComponent::Y),
+            VariableState::Resolved {
+                value: y.clone() + height.clone(),
+            },
+        );
+
+        // Update stored expanded text
+        self.text_expanded.insert(text_id, (expanded, fill, x, y));
+
+        Ok(())
     }
 }
 

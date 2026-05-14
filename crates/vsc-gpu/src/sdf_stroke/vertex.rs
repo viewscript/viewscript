@@ -79,6 +79,7 @@ impl SdfStrokeVertex {
     /// - @location(3): p1 (vec2)
     /// - @location(4): p2 (vec2)
     /// - @location(5): half_width (f32)
+    #[cfg(feature = "gpu")]
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
@@ -150,18 +151,21 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "gpu")]
     fn test_desc_stride() {
         let layout = SdfStrokeVertex::desc();
         assert_eq!(layout.array_stride, 44);
     }
 
     #[test]
+    #[cfg(feature = "gpu")]
     fn test_desc_attributes_count() {
         let layout = SdfStrokeVertex::desc();
         assert_eq!(layout.attributes.len(), 6, "Expected 6 vertex attributes");
     }
 
     #[test]
+    #[cfg(feature = "gpu")]
     fn test_desc_attribute_offsets() {
         let layout = SdfStrokeVertex::desc();
 
@@ -175,6 +179,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "gpu")]
     fn test_desc_shader_locations() {
         let layout = SdfStrokeVertex::desc();
 
