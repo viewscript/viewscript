@@ -12,7 +12,7 @@ import { readFile, writeFile, mkdir, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { existsSync } from 'fs';
+import { existsSync, openSync, closeSync, readFileSync, writeSync } from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '../..');
@@ -25,36 +25,66 @@ let testsFailed = 0;
 
 /**
  * Run vsc in WASI sandbox.
+ *
+ * stdout/stderr capture strategy:
+ *   Node.js WASI accepts integer file descriptors for stdout/stderr via
+ *   the constructor options { stdout: fd, stderr: fd }. We open two
+ *   temporary files before constructing WASI, pass their fds, then read
+ *   the files back after the WASM module has exited.
  */
 async function runVscWasi(workdir, args) {
-    const wasi = new WASI({
-        version: 'preview1',
-        args: ['vsc', ...args],
-        env: {
-            PWD: workdir,
-        },
-        preopens: {
-            '.': workdir,
-        },
-    });
+    const tmpBase = join(tmpdir(), `vsc-wasi-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const stdoutPath = `${tmpBase}.stdout`;
+    const stderrPath = `${tmpBase}.stderr`;
 
-    const wasmBuffer = await readFile(WASM_PATH);
-    const wasmModule = await WebAssembly.compile(wasmBuffer);
+    const stdoutFd = openSync(stdoutPath, 'w');
+    const stderrFd = openSync(stderrPath, 'w');
 
     let stdout = '';
     let stderr = '';
     let exitCode = 0;
 
-    // Note: Node.js WASI doesn't easily capture stdout/stderr
-    // In production, we'd use a custom fd implementation
     try {
-        const instance = await WebAssembly.instantiate(wasmModule, {
-            wasi_snapshot_preview1: wasi.wasiImport,
+        const wasi = new WASI({
+            version: 'preview1',
+            args: ['vsc', ...args],
+            env: {
+                PWD: workdir,
+            },
+            preopens: {
+                '.': workdir,
+            },
+            stdout: stdoutFd,
+            stderr: stderrFd,
         });
-        exitCode = wasi.start(instance);
-    } catch (err) {
-        stderr = err.message;
-        exitCode = 1;
+
+        const wasmBuffer = await readFile(WASM_PATH);
+        const wasmModule = await WebAssembly.compile(wasmBuffer);
+
+        try {
+            const instance = await WebAssembly.instantiate(wasmModule, {
+                wasi_snapshot_preview1: wasi.wasiImport,
+            });
+            exitCode = wasi.start(instance) ?? 0;
+        } catch (err) {
+            exitCode = 1;
+            // Write the JS-level error into the captured stderr file
+            try {
+                writeSync(stderrFd, `runner-error: ${err.message}\n`);
+            } catch (_) { /* fd may already be closed on proc_exit */ }
+        }
+    } finally {
+        // Close fds before reading so all buffered bytes are flushed
+        try { closeSync(stdoutFd); } catch (_) { /* ignore */ }
+        try { closeSync(stderrFd); } catch (_) { /* ignore */ }
+
+        // Read captured output
+        try { stdout = readFileSync(stdoutPath, 'utf8'); } catch (_) { /* empty */ }
+        try { stderr = readFileSync(stderrPath, 'utf8'); } catch (_) { /* empty */ }
+
+        // Clean up temp capture files
+        try { await rm(stdoutPath, { force: true }); } catch (_) { /* ignore */ }
+        try { await rm(stderrPath, { force: true }); } catch (_) { /* ignore */ }
     }
 
     return { stdout, stderr, exitCode };

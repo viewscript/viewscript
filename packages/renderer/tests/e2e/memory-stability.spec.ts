@@ -16,7 +16,7 @@
  * ## Why This Matters
  *
  * Without explicit WASM resource management, each HMR patch that creates
- * CanvasKit objects (SkPaint, SkPath) would leak memory. Over a dev session
+ * GPU objects (PaintSpec, PathEntity) would leak memory. Over a dev session
  * with thousands of hot reloads, this could exhaust available memory.
  */
 

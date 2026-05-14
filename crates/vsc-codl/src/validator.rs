@@ -289,6 +289,15 @@ impl CodlValidator {
             CodlYield::Origin(o) => {
                 self.validate_origin_yield(o, path);
             }
+            CodlYield::PathEntity(p) => {
+                self.validate_path_entity_yield(p, path, where_guard, index_var);
+            }
+            CodlYield::FillSpec(f) => {
+                self.validate_fill_spec_yield(f, path, where_guard, index_var);
+            }
+            CodlYield::StrokeSpec(s) => {
+                self.validate_stroke_spec_yield(s, path, where_guard, index_var);
+            }
         }
     }
 
@@ -346,6 +355,87 @@ impl CodlValidator {
     fn validate_origin_yield(&mut self, o: &CodlOriginYield, path: &str) {
         self.validate_expr_string(&o.target, &format!("{}.target", path), &None, "");
         self.validate_expr_string(&o.value, &format!("{}.value", path), &None, "");
+    }
+
+    fn validate_path_entity_yield(
+        &mut self,
+        p: &crate::ast::CodlPathEntityYield,
+        path: &str,
+        where_guard: &Option<CodlExpr>,
+        index_var: &str,
+    ) {
+        // Validate ID expression
+        self.validate_expr_string(&p.id, &format!("{}.id", path), where_guard, index_var);
+
+        // Validate each segment's coordinate expressions
+        for (i, seg) in p.segments.iter().enumerate() {
+            let seg_path = format!("{}.segments[{}]", path, i);
+            match seg {
+                crate::ast::CodlPathSegment::MoveTo { x, y }
+                | crate::ast::CodlPathSegment::LineTo { x, y } => {
+                    self.validate_expr_string(x, &format!("{}.x", seg_path), where_guard, index_var);
+                    self.validate_expr_string(y, &format!("{}.y", seg_path), where_guard, index_var);
+                }
+                crate::ast::CodlPathSegment::QuadTo { cx, cy, x, y } => {
+                    self.validate_expr_string(cx, &format!("{}.cx", seg_path), where_guard, index_var);
+                    self.validate_expr_string(cy, &format!("{}.cy", seg_path), where_guard, index_var);
+                    self.validate_expr_string(x, &format!("{}.x", seg_path), where_guard, index_var);
+                    self.validate_expr_string(y, &format!("{}.y", seg_path), where_guard, index_var);
+                }
+                crate::ast::CodlPathSegment::CubicTo { c1x, c1y, c2x, c2y, x, y } => {
+                    self.validate_expr_string(c1x, &format!("{}.c1x", seg_path), where_guard, index_var);
+                    self.validate_expr_string(c1y, &format!("{}.c1y", seg_path), where_guard, index_var);
+                    self.validate_expr_string(c2x, &format!("{}.c2x", seg_path), where_guard, index_var);
+                    self.validate_expr_string(c2y, &format!("{}.c2y", seg_path), where_guard, index_var);
+                    self.validate_expr_string(x, &format!("{}.x", seg_path), where_guard, index_var);
+                    self.validate_expr_string(y, &format!("{}.y", seg_path), where_guard, index_var);
+                }
+                crate::ast::CodlPathSegment::Close => {}
+            }
+        }
+    }
+
+    fn validate_fill_spec_yield(
+        &mut self,
+        f: &crate::ast::CodlFillSpecYield,
+        path: &str,
+        where_guard: &Option<CodlExpr>,
+        index_var: &str,
+    ) {
+        // Validate target expression
+        self.validate_expr_string(&f.target, &format!("{}.target", path), where_guard, index_var);
+
+        // Validate fill type
+        match &f.fill {
+            crate::ast::CodlFillType::Solid { r, g, b, a } => {
+                self.validate_expr_string(r, &format!("{}.fill.r", path), where_guard, index_var);
+                self.validate_expr_string(g, &format!("{}.fill.g", path), where_guard, index_var);
+                self.validate_expr_string(b, &format!("{}.fill.b", path), where_guard, index_var);
+                self.validate_expr_string(a, &format!("{}.fill.a", path), where_guard, index_var);
+            }
+            crate::ast::CodlFillType::Gradient { gradient_id } => {
+                self.validate_expr_string(gradient_id, &format!("{}.fill.gradient_id", path), where_guard, index_var);
+            }
+        }
+    }
+
+    fn validate_stroke_spec_yield(
+        &mut self,
+        s: &crate::ast::CodlStrokeSpecYield,
+        path: &str,
+        where_guard: &Option<CodlExpr>,
+        index_var: &str,
+    ) {
+        // Validate target expression
+        self.validate_expr_string(&s.target, &format!("{}.target", path), where_guard, index_var);
+
+        // Validate stroke properties
+        self.validate_expr_string(&s.width, &format!("{}.width", path), where_guard, index_var);
+        self.validate_expr_string(&s.r, &format!("{}.r", path), where_guard, index_var);
+        self.validate_expr_string(&s.g, &format!("{}.g", path), where_guard, index_var);
+        self.validate_expr_string(&s.b, &format!("{}.b", path), where_guard, index_var);
+        self.validate_expr_string(&s.a, &format!("{}.a", path), where_guard, index_var);
+        self.validate_expr_string(&s.miter_limit, &format!("{}.miter_limit", path), where_guard, index_var);
     }
 
     fn validate_expr_string(
@@ -422,7 +512,7 @@ impl CodlValidator {
 
     fn check_index_guarded(
         &self,
-        index_expr: &CodlExpr,
+        _index_expr: &CodlExpr,
         where_guard: &Option<CodlExpr>,
         index_var: &str,
     ) -> bool {
@@ -489,7 +579,7 @@ impl CodlValidator {
     fn index_might_be_negative(&self, index_expr: &CodlExpr, index_var: &str) -> bool {
         // Check if the index expression is "i - N" where N > 0
         match index_expr {
-            CodlExpr::BinaryOp { left, op, right } => {
+            CodlExpr::BinaryOp { left, op, right: _ } => {
                 if *op == BinaryOp::Sub {
                     if let CodlExpr::Variable(var) = left.as_ref() {
                         if var == index_var {

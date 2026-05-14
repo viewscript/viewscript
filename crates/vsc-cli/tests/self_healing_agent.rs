@@ -321,7 +321,7 @@ impl SelfHealingAgent {
         }
     }
 
-    /// Verify the IR is in a consistent state (no collisions, boundaries snapped).
+    /// Verify the IR is in a consistent state (no errors in vsc check).
     pub fn verify_ir_consistency(&self) -> bool {
         // Run vsc check to verify IR consistency
         let (code, stdout, _) = self.run_vsc(&["check"]);
@@ -331,18 +331,16 @@ impl SelfHealingAgent {
         }
 
         // Parse the check output
+        // vsc check returns: { "status": "ok"|"warning"|"error", "checks": {...}, "summary": "..." }
         if let Ok(result) = serde_json::from_str::<Value>(&stdout) {
-            let is_consistent = result
-                .get("consistent")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
+            let status = result
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("error");
 
-            let boundaries_snapped = result
-                .get("boundaries_snapped")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(true); // Assume snapped if not reported
-
-            return is_consistent && boundaries_snapped;
+            // "ok" = no issues, "warning" = non-fatal issues (rigidity/singularity)
+            // "error" = fatal issues (type mismatches, dangling entity refs)
+            return status == "ok" || status == "warning";
         }
 
         false

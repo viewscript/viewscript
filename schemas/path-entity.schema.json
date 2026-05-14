@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://viewscript.dev/schemas/path-entity.json",
+  "title": "PathEntity",
+  "description": "JSON Schema for Phase G path entity types (PathSegment, FillSpec, StrokeSpec, PathEntityEntry)",
+  "type": "object",
+  "$ref": "#/$defs/PathEntityEntry",
+  "$defs": {
+    "RationalString": {
+      "type": "string",
+      "pattern": "^-?[0-9]+/-?[0-9]+$",
+      "description": "Rational number as string in 'numerator/denominator' format (e.g., '3/4', '-1/2')"
+    },
+    "PVector": {
+      "type": "object",
+      "description": "4-dimensional projective vector with exact rational coordinates",
+      "required": ["x", "y", "z", "t"],
+      "properties": {
+        "x": { "$ref": "#/$defs/RationalString" },
+        "y": { "$ref": "#/$defs/RationalString" },
+        "z": { "$ref": "#/$defs/RationalString" },
+        "t": { "$ref": "#/$defs/RationalString" }
+      },
+      "additionalProperties": false
+    },
+    "EntityId": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Non-negative integer identifying an entity"
+    },
+    "FillRule": {
+      "type": "string",
+      "enum": ["nonzero", "evenodd"],
+      "description": "Fill rule for closed paths (SVG semantics)"
+    },
+    "LineCap": {
+      "type": "string",
+      "enum": ["butt", "round", "square"],
+      "description": "Line cap style for stroke endpoints"
+    },
+    "LineJoin": {
+      "type": "string",
+      "enum": ["miter", "round", "bevel"],
+      "description": "Line join style for stroke corners"
+    },
+    "PathSegment": {
+      "description": "A single segment of a path (line, quadratic Bezier, cubic Bezier, or arc). All endpoints and handles are EntityId references into the constraint graph.",
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "Line segment from one point entity to another",
+          "properties": {
+            "type": { "const": "line" },
+            "from": { "$ref": "#/$defs/EntityId", "description": "EntityId of the start point" },
+            "to": { "$ref": "#/$defs/EntityId", "description": "EntityId of the end point" }
+          },
+          "required": ["type", "from", "to"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "Quadratic Bezier curve with one handle point",
+          "properties": {
+            "type": { "const": "quad" },
+            "from": { "$ref": "#/$defs/EntityId", "description": "EntityId of the start point" },
+            "handle": { "$ref": "#/$defs/EntityId", "description": "EntityId of the quadratic control handle" },
+            "to": { "$ref": "#/$defs/EntityId", "description": "EntityId of the end point" }
+          },
+          "required": ["type", "from", "handle", "to"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "Cubic Bezier curve with two handle points",
+          "properties": {
+            "type": { "const": "cubic" },
+            "from": { "$ref": "#/$defs/EntityId", "description": "EntityId of the start point" },
+            "handle1": { "$ref": "#/$defs/EntityId", "description": "EntityId of the first cubic control handle (near start)" },
+            "handle2": { "$ref": "#/$defs/EntityId", "description": "EntityId of the second cubic control handle (near end)" },
+            "to": { "$ref": "#/$defs/EntityId", "description": "EntityId of the end point" }
+          },
+          "required": ["type", "from", "handle1", "handle2", "to"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "Elliptical arc segment (SVG arc semantics) with EntityId endpoints",
+          "properties": {
+            "type": { "const": "arc" },
+            "from": { "$ref": "#/$defs/EntityId", "description": "EntityId of the start point" },
+            "to": { "$ref": "#/$defs/EntityId", "description": "EntityId of the end point" },
+            "rx": { "$ref": "#/$defs/RationalString", "description": "X-axis radius (exact rational)" },
+            "ry": { "$ref": "#/$defs/RationalString", "description": "Y-axis radius (exact rational)" },
+            "rotation": {
+              "$ref": "#/$defs/RationalString",
+              "description": "X-axis rotation in degrees (exact rational)"
+            },
+            "large_arc": {
+              "type": "boolean",
+              "description": "Large arc flag (SVG arc semantics)"
+            },
+            "sweep": {
+              "type": "boolean",
+              "description": "Sweep direction flag (SVG arc semantics)"
+            }
+          },
+          "required": ["type", "from", "to", "rx", "ry", "rotation", "large_arc", "sweep"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "FillSpec": {
+      "description": "Fill specification for path entities",
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "Solid color fill",
+          "properties": {
+            "type": { "const": "solid" },
+            "color": {
+              "type": "string",
+              "description": "CSS color string (e.g., '#ff0000', 'rgb(255, 0, 0)')"
+            }
+          },
+          "required": ["type", "color"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "Gradient fill referencing a gradient entity",
+          "properties": {
+            "type": { "const": "gradient" },
+            "gradient_id": {
+              "$ref": "#/$defs/EntityId",
+              "description": "Reference to LinearGradient, RadialGradient, or ConicGradient entity"
+            }
+          },
+          "required": ["type", "gradient_id"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "StrokeSpec": {
+      "type": "object",
+      "description": "Stroke specification for path entities",
+      "required": ["color", "width"],
+      "properties": {
+        "color": {
+          "type": "string",
+          "description": "CSS color string"
+        },
+        "width": {
+          "$ref": "#/$defs/RationalString",
+          "description": "Stroke width (exact rational)"
+        },
+        "line_cap": {
+          "$ref": "#/$defs/LineCap",
+          "default": "butt"
+        },
+        "line_join": {
+          "$ref": "#/$defs/LineJoin",
+          "default": "miter"
+        },
+        "dash_array": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/RationalString" },
+          "description": "Optional dash pattern (array of dash/gap lengths)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "PathEntityEntry": {
+      "type": "object",
+      "description": "A path entity combining geometry and style",
+      "required": ["id", "segments", "closed"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/EntityId",
+          "description": "Unique entity ID"
+        },
+        "segments": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PathSegment" },
+          "description": "Ordered path segments"
+        },
+        "closed": {
+          "type": "boolean",
+          "description": "Whether the path is closed (line back to start)"
+        },
+        "fill_rule": {
+          "$ref": "#/$defs/FillRule",
+          "default": "nonzero",
+          "description": "Fill rule for closed paths"
+        },
+        "fill": {
+          "$ref": "#/$defs/FillSpec",
+          "description": "Fill style (solid or gradient reference)"
+        },
+        "stroke": {
+          "$ref": "#/$defs/StrokeSpec",
+          "description": "Stroke style"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

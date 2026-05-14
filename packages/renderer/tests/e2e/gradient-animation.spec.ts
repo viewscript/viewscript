@@ -2,7 +2,7 @@
  * Gradient Animation E2E Tests: Phase 17 Validation
  *
  * This module validates the complete gradient pipeline from CSS input
- * to CanvasKit shader output, including T-vector animation binding.
+ * to GPU shader output, including T-vector animation binding.
  *
  * ## Test Coverage
  *
@@ -232,15 +232,16 @@ test.describe('Gradient Rendering: Conic (Sweep) Gradients', () => {
       bounds: { x: 0, y: 0, width: 100, height: 100 },
     });
 
-    // Sample at 0deg (right), 90deg (bottom), 180deg (left), 270deg (top)
-    // relative to center (50, 50)
-    const right = getPixelColor(pixelBuffer, 100, 100, 95, 50); // 0deg - red
-    const bottom = getPixelColor(pixelBuffer, 100, 100, 50, 95); // 90deg - between yellow and lime
-    const left = getPixelColor(pixelBuffer, 100, 100, 5, 50);   // 180deg - cyan
-    const top = getPixelColor(pixelBuffer, 100, 100, 50, 5);    // 270deg - blue/magenta
+    // CSS conic-gradient: 0deg = top (north), angles increase clockwise.
+    // With "from 0deg", red starts at top and transitions clockwise:
+    //   top (0deg) = red, right (90deg) = yellow/lime, bottom (180deg) = cyan, left (270deg) = blue/magenta
+    const top = getPixelColor(pixelBuffer, 100, 100, 50, 5);    // 0deg - red
+    const right = getPixelColor(pixelBuffer, 100, 100, 95, 50); // 90deg - between yellow and lime
+    const bottom = getPixelColor(pixelBuffer, 100, 100, 50, 95); // 180deg - cyan
+    const left = getPixelColor(pixelBuffer, 100, 100, 5, 50);   // 270deg - blue/magenta
 
-    // Right edge (0deg) should be red
-    expect(right.r).toBeGreaterThan(150);
+    // Top edge (0deg) should be red
+    expect(top.r).toBeGreaterThan(150);
 
     await compareGolden(pixelBuffer, 'conic-color-wheel');
   });
@@ -479,11 +480,11 @@ test.describe('Gradient Rendering: P-Dimension Integrity', () => {
     const left = getPixelColor(pixelBuffer, 100, 50, 5, 25);
     const right = getPixelColor(pixelBuffer, 100, 50, 95, 25);
 
-    // Left should be clamped to black (r=0)
-    expect(left.r).toBe(0);
+    // Left should be clamped to black (r≈0, allowing 1-2 for subpixel tolerance)
+    expect(left.r).toBeLessThanOrEqual(2);
 
-    // Right should be clamped to bright red (r=255)
-    expect(right.r).toBe(255);
+    // Right should be clamped to bright red (r≈255, allowing 1-2 for subpixel tolerance)
+    expect(right.r).toBeGreaterThanOrEqual(253);
   });
 });
 

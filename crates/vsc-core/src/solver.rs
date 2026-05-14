@@ -84,7 +84,7 @@ impl VariableState {
 /// A unique identifier for a variable in the solver.
 ///
 /// Each variable corresponds to a component of an entity (e.g., Entity(5).X).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct VarId {
     pub entity: EntityId,
     pub component: VectorComponent,
@@ -527,6 +527,22 @@ pub enum SolverError {
         /// List of valid solutions, each mapping VarId to its value.
         solutions: Vec<HashMap<VarId, Rational>>,
     },
+    /// Conflicting equality constraints on the same variable.
+    ///
+    /// This occurs when two equality constraints specify different constant
+    /// values for the same variable (e.g., X = 100 and X = 200).
+    ConflictingConstraint {
+        /// The variable that has conflicting constraints.
+        var_id: VarId,
+        /// ID of the existing constraint.
+        existing_constraint_id: u64,
+        /// Value from the existing constraint.
+        existing_value: Rational,
+        /// ID of the new conflicting constraint.
+        new_constraint_id: u64,
+        /// Value from the new constraint.
+        new_value: Rational,
+    },
 }
 
 // =============================================================================
@@ -604,13 +620,69 @@ impl ConstraintSolver {
         self.variables.insert(var, state);
     }
 
+    /// Get the current resolved value of a variable, if any.
+    ///
+    /// Returns `Some(value)` if the variable is in `Resolved` state,
+    /// `None` if the variable is `Free`, `Bounded`, or not registered.
+    pub fn get_value(&self, var: &VarId) -> Option<Rational> {
+        match self.variables.get(var) {
+            Some(VariableState::Resolved { value }) => Some(value.clone()),
+            _ => None,
+        }
+    }
+
     /// Add a linear constraint to the active queue.
-    pub fn add_linear(&mut self, constraint: LinearConstraint) {
+    ///
+    /// Returns an error if the constraint conflicts with an existing equality
+    /// constraint on the same variable.
+    pub fn add_linear(&mut self, constraint: LinearConstraint) -> Result<(), SolverError> {
+        // Check for conflicting equality constraints on single-variable equations
+        // e.g., if we have "X = 100" and try to add "X = 200"
+        if constraint.relation == LinearRelation::Eq && constraint.terms.len() == 1 {
+            let (var_id, coeff) = &constraint.terms[0];
+            // For single-variable equality: coeff * var + constant = 0
+            // Therefore: var = -constant / coeff
+            if !coeff.is_zero() {
+                let new_value = -constraint.constant.clone() / coeff.clone();
+
+                // Check existing equality constraints for this variable
+                if let Some((existing_id, existing_value)) = self.find_conflicting_eq(*var_id) {
+                    if existing_value != new_value {
+                        return Err(SolverError::ConflictingConstraint {
+                            var_id: *var_id,
+                            existing_constraint_id: existing_id,
+                            existing_value,
+                            new_constraint_id: constraint.id,
+                            new_value,
+                        });
+                    }
+                }
+            }
+        }
+
         // Register any new variables as free
         for var in constraint.variables() {
             self.variables.entry(var).or_insert(VariableState::Free);
         }
         self.active_queue.push_back(constraint);
+        Ok(())
+    }
+
+    /// Find an existing equality constraint for a specific variable.
+    ///
+    /// Returns the constraint ID and the value it resolves to, if found.
+    fn find_conflicting_eq(&self, target_var: VarId) -> Option<(u64, Rational)> {
+        for constraint in &self.active_queue {
+            if constraint.relation == LinearRelation::Eq && constraint.terms.len() == 1 {
+                let (var_id, coeff) = &constraint.terms[0];
+                if *var_id == target_var && !coeff.is_zero() {
+                    // var = -constant / coeff
+                    let value = -constraint.constant.clone() / coeff.clone();
+                    return Some((constraint.id, value));
+                }
+            }
+        }
+        None
     }
 
     /// Add a bilinear constraint to the suspended queue.
@@ -739,8 +811,7 @@ impl ConstraintSolver {
     /// further reduce the system.
     fn solve_with_groebner(&mut self) -> Result<HashMap<VarId, Rational>, SolverError> {
         use crate::algebra::{
-            compute_groebner_basis, solve_polynomial_system, GroebnerConfig, Polynomial,
-            Monomial, SolveResult,
+            solve_polynomial_system, SolveResult,
         };
 
         // Convert constraints to polynomials
@@ -1235,6 +1306,65 @@ impl ConstraintSolver {
 }
 
 // =============================================================================
+// Constraint Validation (for CLI/WASM/FFI-C integration)
+// =============================================================================
+
+use crate::{VsBuildInfo, ConstraintTerm, OperationType};
+
+/// Validate a new constraint against existing constraints in buildinfo.
+///
+/// This function builds a solver with all existing Const constraints from
+/// buildinfo, then attempts to add the new constraint to check for conflicts.
+///
+/// Returns `Ok(())` if the constraint is valid, or `Err(SolverError)` if
+/// it conflicts with existing constraints.
+///
+/// ## Usage
+///
+/// This function is used by all entry points (CLI, WASM, FFI-C, CODL) to ensure
+/// consistent constraint validation across the entire system.
+pub fn validate_constraint_against_buildinfo(
+    buildinfo: &VsBuildInfo,
+    new_constraint_id: u64,
+    target_entity: EntityId,
+    component: crate::VectorComponent,
+    new_value: &Rational,
+) -> Result<(), SolverError> {
+    let mut solver = ConstraintSolver::new();
+
+    // Add all existing Const equality constraints to the solver
+    for op in &buildinfo.operations {
+        if op.op_type != OperationType::Add {
+            continue;
+        }
+
+        if let ConstraintTerm::Const { value } = &op.constraint.term {
+            if op.constraint.relation == crate::RelationType::Eq {
+                let var_id = VarId::new(op.constraint.target, op.constraint.component);
+                // Convert constraint to solver format: 1*var + (-value) = 0
+                let linear = LinearConstraint::eq(
+                    op.constraint.id,
+                    vec![(var_id, Rational::from_int(1))],
+                    -value.clone(),
+                );
+                solver.add_linear(linear)?;
+            }
+        }
+    }
+
+    // Try to add the new constraint
+    let var_id = VarId::new(target_entity, component);
+    let new_linear = LinearConstraint::eq(
+        new_constraint_id,
+        vec![(var_id, Rational::from_int(1))],
+        -new_value.clone(),
+    );
+    solver.add_linear(new_linear)?;
+
+    Ok(())
+}
+
+// =============================================================================
 // Unit Tests
 // =============================================================================
 
@@ -1716,5 +1846,71 @@ mod tests {
         let solution = result.unwrap();
         assert_eq!(solution.get(&var(1, VectorComponent::Value)), Some(&Rational::from_int(100)));
         assert_eq!(solution.get(&var(2, VectorComponent::Value)), Some(&Rational::from_int(50)));
+    }
+
+    /// Test: ConflictingConstraint error when adding duplicate equality constraints
+    #[test]
+    fn test_conflicting_equality_constraints() {
+        let mut solver = ConstraintSolver::new();
+
+        let x_var = var(100, VectorComponent::X);
+
+        // First constraint: X = 100
+        let result1 = solver.add_linear(LinearConstraint::eq(
+            1,
+            vec![(x_var, Rational::from_int(1))],
+            Rational::from_int(-100),
+        ));
+        assert!(result1.is_ok(), "First constraint should succeed");
+
+        // Second constraint: X = 200 (conflicts with first)
+        let result2 = solver.add_linear(LinearConstraint::eq(
+            2,
+            vec![(x_var, Rational::from_int(1))],
+            Rational::from_int(-200),
+        ));
+
+        // Should return ConflictingConstraint error
+        match result2 {
+            Err(SolverError::ConflictingConstraint {
+                var_id,
+                existing_constraint_id,
+                existing_value,
+                new_constraint_id,
+                new_value,
+            }) => {
+                assert_eq!(var_id, x_var);
+                assert_eq!(existing_constraint_id, 1);
+                assert_eq!(existing_value, Rational::from_int(100));
+                assert_eq!(new_constraint_id, 2);
+                assert_eq!(new_value, Rational::from_int(200));
+            }
+            Ok(_) => panic!("Expected ConflictingConstraint error, got Ok"),
+            Err(e) => panic!("Expected ConflictingConstraint error, got {:?}", e),
+        }
+    }
+
+    /// Test: Same value constraints should be allowed (no conflict)
+    #[test]
+    fn test_same_value_constraints_allowed() {
+        let mut solver = ConstraintSolver::new();
+
+        let x_var = var(100, VectorComponent::X);
+
+        // First constraint: X = 100
+        let result1 = solver.add_linear(LinearConstraint::eq(
+            1,
+            vec![(x_var, Rational::from_int(1))],
+            Rational::from_int(-100),
+        ));
+        assert!(result1.is_ok());
+
+        // Second constraint: X = 100 (same value, should be allowed)
+        let result2 = solver.add_linear(LinearConstraint::eq(
+            2,
+            vec![(x_var, Rational::from_int(1))],
+            Rational::from_int(-100),
+        ));
+        assert!(result2.is_ok(), "Same value constraint should be allowed");
     }
 }

@@ -33,11 +33,12 @@
 //!         offset: "${gap}"
 //! ```
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Root structure of a CODL command file (.vscmd.yaml).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct CodlCommand {
     /// Unique name of this command (e.g., "stack_vertical").
     pub name: String,
@@ -67,7 +68,7 @@ fn default_version() -> String {
 }
 
 /// A parameter definition for a CODL command.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct CodlParameter {
     /// Parameter name (used in template expressions).
     pub name: String,
@@ -86,7 +87,7 @@ pub struct CodlParameter {
 }
 
 /// Supported types in CODL.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub enum CodlType {
     /// Exact rational number.
     Rational,
@@ -110,7 +111,7 @@ pub enum CodlType {
 /// - Direct constraint yields
 /// - Foreach loops with yields
 /// - Conditional blocks
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum CodlOperation {
     /// A foreach loop that iterates over an array.
@@ -122,7 +123,7 @@ pub enum CodlOperation {
 }
 
 /// A foreach loop operation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct CodlForeach {
     /// Loop specification.
     pub foreach: ForeachSpec,
@@ -136,7 +137,7 @@ pub struct CodlForeach {
 }
 
 /// Specification for a foreach loop.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ForeachSpec {
     /// Variable name for current item.
     pub item: String,
@@ -150,7 +151,7 @@ pub struct ForeachSpec {
 }
 
 /// A conditional operation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct CodlConditional {
     /// Condition expression (e.g., "origin_y != null").
     #[serde(rename = "if")]
@@ -165,17 +166,23 @@ pub struct CodlConditional {
 }
 
 /// A yield specification (what to generate).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CodlYield {
     /// Generate a constraint.
     Constraint(CodlConstraintYield),
     /// Generate an origin constraint (shorthand).
     Origin(CodlOriginYield),
+    /// Generate a path entity (D-02).
+    PathEntity(CodlPathEntityYield),
+    /// Apply a fill specification to an entity (D-02).
+    FillSpec(CodlFillSpecYield),
+    /// Apply a stroke specification to an entity (D-02).
+    StrokeSpec(CodlStrokeSpecYield),
 }
 
 /// Yield specification for a constraint.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct CodlConstraintYield {
     /// Target entity expression (e.g., "${curr}" or "${instances[0]}").
     pub target: String,
@@ -203,7 +210,7 @@ fn default_priority() -> CodlPriority {
 }
 
 /// Yield specification for an origin constraint (shorthand).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct CodlOriginYield {
     /// Target entity expression.
     pub target: String,
@@ -219,8 +226,123 @@ pub struct CodlOriginYield {
     pub priority: CodlPriority,
 }
 
+/// Yield specification for a path entity (D-02).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct CodlPathEntityYield {
+    /// Entity ID expression for the path.
+    pub id: String,
+
+    /// Path segments.
+    pub segments: Vec<CodlPathSegment>,
+
+    /// Whether the path is closed.
+    #[serde(default)]
+    pub closed: bool,
+
+    /// Fill rule for closed paths.
+    #[serde(default)]
+    pub fill_rule: CodlFillRule,
+}
+
+/// A path segment in CODL.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum CodlPathSegment {
+    /// Move to a point (start new subpath).
+    MoveTo { x: String, y: String },
+    /// Line to a point.
+    LineTo { x: String, y: String },
+    /// Quadratic Bezier curve.
+    QuadTo { cx: String, cy: String, x: String, y: String },
+    /// Cubic Bezier curve.
+    CubicTo { c1x: String, c1y: String, c2x: String, c2y: String, x: String, y: String },
+    /// Close the current subpath.
+    Close,
+}
+
+/// Fill rule for paths.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CodlFillRule {
+    #[default]
+    NonZero,
+    EvenOdd,
+}
+
+/// Yield specification for applying a fill to an entity (D-02).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct CodlFillSpecYield {
+    /// Target entity expression.
+    pub target: String,
+
+    /// Fill type.
+    pub fill: CodlFillType,
+}
+
+/// Fill type specification in CODL.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum CodlFillType {
+    /// Solid color fill.
+    Solid { r: String, g: String, b: String, a: String },
+    /// Gradient reference.
+    Gradient { gradient_id: String },
+}
+
+/// Yield specification for applying a stroke to an entity (D-02).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct CodlStrokeSpecYield {
+    /// Target entity expression.
+    pub target: String,
+
+    /// Stroke width expression.
+    pub width: String,
+
+    /// Stroke color (RGBA).
+    pub r: String,
+    pub g: String,
+    pub b: String,
+    pub a: String,
+
+    /// Line cap style.
+    #[serde(default)]
+    pub line_cap: CodlLineCap,
+
+    /// Line join style.
+    #[serde(default)]
+    pub line_join: CodlLineJoin,
+
+    /// Miter limit for miter joins.
+    #[serde(default = "default_miter_limit")]
+    pub miter_limit: String,
+}
+
+fn default_miter_limit() -> String {
+    "4".to_string()
+}
+
+/// Line cap style in CODL.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CodlLineCap {
+    #[default]
+    Butt,
+    Round,
+    Square,
+}
+
+/// Line join style in CODL.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CodlLineJoin {
+    #[default]
+    Miter,
+    Round,
+    Bevel,
+}
+
 /// Vector component in CODL.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum CodlComponent {
     X,
@@ -230,7 +352,7 @@ pub enum CodlComponent {
 }
 
 /// Relation type in CODL.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum CodlRelation {
     Eq,
@@ -241,7 +363,7 @@ pub enum CodlRelation {
 }
 
 /// Constraint priority in CODL.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum CodlPriority {
     Hard,
@@ -249,7 +371,7 @@ pub enum CodlPriority {
 }
 
 /// A constraint term in CODL.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum CodlTerm {
     /// Constant value.
@@ -287,7 +409,7 @@ fn default_coefficient() -> String {
 // =============================================================================
 
 /// A parsed expression from template strings like "${instances[i-1]}".
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, JsonSchema)]
 pub enum CodlExpr {
     /// Literal rational value.
     Literal(String),
@@ -321,7 +443,7 @@ pub enum CodlExpr {
 }
 
 /// Binary arithmetic operators.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, JsonSchema)]
 pub enum BinaryOp {
     Add,
     Sub,
@@ -330,7 +452,7 @@ pub enum BinaryOp {
 }
 
 /// Comparison operators.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, JsonSchema)]
 pub enum ComparisonOp {
     Eq,
     Ne,
@@ -345,7 +467,7 @@ pub enum ComparisonOp {
 // =============================================================================
 
 /// Metadata collected during static validation.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, JsonSchema)]
 pub struct ValidationMetadata {
     /// Maximum foreach nesting depth encountered.
     pub max_nesting_depth: usize,
@@ -361,7 +483,7 @@ pub struct ValidationMetadata {
 }
 
 /// Information about an array access for bounds checking.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, JsonSchema)]
 pub struct ArrayAccessInfo {
     /// The array variable being accessed.
     pub array_name: String,
@@ -374,6 +496,58 @@ pub struct ArrayAccessInfo {
 
     /// Whether this access is guarded by a where clause.
     pub is_guarded: bool,
+}
+
+// =============================================================================
+// CODL Output (D-02)
+// =============================================================================
+
+/// Output from executing a CODL command.
+///
+/// Contains generated constraints and path entities. The interpreter produces
+/// this combined output so callers can register all generated entities atomically.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+pub struct CodlOutput {
+    /// Generated constraints (from Constraint and Origin yields).
+    pub constraints: Vec<vsc_core::types::Constraint>,
+
+    /// Generated path entities (from PathEntity yields).
+    pub path_entities: Vec<vsc_core::types::PathEntityEntry>,
+
+    /// Fill specifications to apply (from FillSpec yields).
+    ///
+    /// Each entry is (target_entity_id, fill_spec).
+    /// Applied after path_entities are registered.
+    pub fill_specs: Vec<(vsc_core::types::EntityId, vsc_core::types::FillSpec)>,
+
+    /// Stroke specifications to apply (from StrokeSpec yields).
+    ///
+    /// Each entry is (target_entity_id, stroke_spec).
+    /// Applied after path_entities are registered.
+    pub stroke_specs: Vec<(vsc_core::types::EntityId, vsc_core::types::StrokeSpec)>,
+}
+
+impl CodlOutput {
+    /// Create an empty output.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Check if any output was generated.
+    pub fn is_empty(&self) -> bool {
+        self.constraints.is_empty()
+            && self.path_entities.is_empty()
+            && self.fill_specs.is_empty()
+            && self.stroke_specs.is_empty()
+    }
+
+    /// Total number of generated items.
+    pub fn total_count(&self) -> usize {
+        self.constraints.len()
+            + self.path_entities.len()
+            + self.fill_specs.len()
+            + self.stroke_specs.len()
+    }
 }
 
 #[cfg(test)]
@@ -455,7 +629,7 @@ operations:
     fn test_codl_type_serde() {
         let yaml = r#"type: Array<EntityId>"#;
 
-        #[derive(Deserialize)]
+        #[derive(Deserialize, JsonSchema)]
         struct Wrapper {
             #[serde(rename = "type")]
             t: CodlType,

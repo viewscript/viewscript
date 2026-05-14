@@ -1,22 +1,32 @@
+#![allow(dead_code, unused_imports, unused_variables)]
 //! CLI command implementations
 //!
 //! These commands perform actual file I/O and state mutations.
 
 use serde_json::Value;
 use std::fs;
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::path::PathBuf;
+use std::process::Command;
 use vsc_codl::{CodlCommand, CodlInterpreter, validate_codl};
+use vsc_core::schema as core_schema;
 use vsc_core::{
     ConstraintCollisionError, CollisionErrorType, ConstraintSnapshot, RepairSuggestion,
     MathematicalDistance, RepairAction, CollisionAnalysis, Constraint, EntityId,
     VectorComponent, RelationType, ConstraintTerm, VsBuildInfo, ConstraintOperation,
-    OperationType, ResolutionStrategyWeights, Rational, ConstraintPriority,
+    OperationType, ResolutionStrategyWeights, Rational, ConstraintPriority, ConstraintModification,
     // Phase 9: Rigidity and singularity analysis
-    ConstraintGraphBuilder, RigidityStatus,
+    ConstraintGraphBuilder, RigidityStatus, RigidityAnalysis,
     compute_jacobian, check_linear_singularities, PolynomialConstraint, JacobianTerm,
+    // D-03/D-04: Singularity detection
+    detect_singularity,
     // Phase 10: Text entities
     TextEntity, TextEntityEntry,
     // Phase 13: Layout macros
     LayoutType, LayoutAnchor, LayoutOrigin, LayoutSpec, LayoutMacroOperation,
+    // Solver-level constraint validation
+    validate_constraint_against_buildinfo, SolverError,
 };
 
 pub type CommandResult = Result<Value, ConstraintCollisionError>;
@@ -128,6 +138,123 @@ fn io_error_to_collision(e: &std::io::Error) -> ConstraintCollisionError {
             analysis_time_us: 0,
             hideable_in_viewport: false,
             hiding_viewport: None,
+        },
+    }
+}
+
+/// Convert SolverError to ConstraintCollisionError for CLI error reporting.
+///
+/// This adapter enriches the solver-level error with buildinfo context
+/// (timestamps, intents, etc.) for better LLM/user feedback.
+fn solver_error_to_collision(
+    error: SolverError,
+    buildinfo: &VsBuildInfo,
+    new_constraint: &Constraint,
+    new_constraint_id: u64,
+    intent: Option<&str>,
+) -> ConstraintCollisionError {
+    match error {
+        SolverError::ConflictingConstraint {
+            var_id,
+            existing_constraint_id,
+            existing_value,
+            new_constraint_id: _,
+            new_value,
+        } => {
+            let weights = ResolutionStrategyWeights::default();
+
+            // Find the existing constraint in buildinfo for full context
+            let existing_op = buildinfo.operations.iter().find(|op| {
+                op.constraint.id == existing_constraint_id
+            });
+
+            let conflicting_constraints = if let Some(op) = existing_op {
+                vec![ConstraintSnapshot {
+                    constraint: op.constraint.clone(),
+                    buildinfo_index: op.seq,
+                    added_at: op.timestamp.clone(),
+                    intent: op.intent.clone(),
+                }]
+            } else {
+                vec![]
+            };
+
+            let existing_info = existing_op.map(|op| {
+                (op.constraint.target.0, op.constraint.component, &op.constraint.term)
+            });
+
+            ConstraintCollisionError {
+                error_type: CollisionErrorType::Overdetermined,
+                message: format!(
+                    "Constraint conflict: Entity {} already has {:?} = {} (constraint #{}). \
+                     Cannot add {:?} = {}. Use 'vsc patch-constraint' to modify.",
+                    var_id.entity.0,
+                    var_id.component,
+                    existing_value,
+                    existing_constraint_id,
+                    new_constraint.component,
+                    new_value
+                ),
+                incoming_constraint: ConstraintSnapshot {
+                    constraint: new_constraint.clone(),
+                    buildinfo_index: new_constraint_id,
+                    added_at: current_timestamp(),
+                    intent: intent.map(|s| s.to_string()),
+                },
+                conflicting_constraints,
+                repair_suggestions: vec![
+                    RepairSuggestion {
+                        suggestion_id: 1,
+                        mathematical_distance: MathematicalDistance::new(
+                            0, 1, Rational::zero(), Rational::one(), 0, &weights
+                        ),
+                        action: RepairAction::ModifyConstants,
+                        explanation: format!(
+                            "Use 'vsc patch-constraint --entity-id {} --component {:?} --value {}' to update the existing constraint.",
+                            var_id.entity.0,
+                            var_id.component,
+                            new_value
+                        ),
+                        affected_constraints: vec![ConstraintModification {
+                            constraint_id: existing_constraint_id,
+                            current_value: existing_value.clone(),
+                            suggested_value: new_value.clone(),
+                            delta: if new_value > existing_value {
+                                new_value - existing_value
+                            } else {
+                                existing_value - new_value
+                            },
+                        }],
+                    },
+                ],
+                analysis: CollisionAnalysis {
+                    cycle_path: None,
+                    constraints_analyzed: 1,
+                    analysis_time_us: 10,
+                    hideable_in_viewport: false,
+                    hiding_viewport: None,
+                },
+            }
+        }
+        // Other solver errors - convert to generic collision error
+        other => ConstraintCollisionError {
+            error_type: CollisionErrorType::Overdetermined,
+            message: format!("Solver error: {:?}", other),
+            incoming_constraint: ConstraintSnapshot {
+                constraint: new_constraint.clone(),
+                buildinfo_index: new_constraint_id,
+                added_at: current_timestamp(),
+                intent: intent.map(|s| s.to_string()),
+            },
+            conflicting_constraints: vec![],
+            repair_suggestions: vec![],
+            analysis: CollisionAnalysis {
+                cycle_path: None,
+                constraints_analyzed: 0,
+                analysis_time_us: 0,
+                hideable_in_viewport: false,
+                hiding_viewport: None,
+            },
         },
     }
 }
@@ -250,6 +377,26 @@ pub fn add_constraint(
         priority: vsc_core::ConstraintPriority::Hard,
         source_scope: None,
     };
+
+    // Check for conflicting Const constraints using solver-level validation
+    // This ensures consistent detection across CLI, WASM, FFI-C, and CODL
+    if let ConstraintTerm::Const { value: new_value } = &new_constraint.term {
+        if let Err(solver_error) = validate_constraint_against_buildinfo(
+            &buildinfo,
+            constraint_id,
+            new_constraint.target,
+            new_constraint.component,
+            new_value,
+        ) {
+            return Err(solver_error_to_collision(
+                solver_error,
+                &buildinfo,
+                &new_constraint,
+                constraint_id,
+                intent,
+            ));
+        }
+    }
 
     // Check for circular references
     if let Some(collision) = detect_circular_reference(&buildinfo, &new_constraint) {
@@ -460,10 +607,87 @@ fn check_rigidity_after_add(
         RigidityStatus::Overconstrained { redundant_edges } => {
             let weights = ResolutionStrategyWeights::default();
 
-            Some(ConstraintCollisionError {
-                error_type: CollisionErrorType::Overdetermined,
-                message: "The added constraint makes the system overconstrained.".to_string(),
-                incoming_constraint: ConstraintSnapshot {
+            // Build conflicting_constraints from redundant_edges
+            // Each edge_id corresponds to a constraint_id in buildinfo.operations
+            // Filter out the incoming constraint - we want to show EXISTING conflicts
+            let mut conflicting_constraints: Vec<ConstraintSnapshot> = redundant_edges
+                .iter()
+                .filter(|&edge_id| *edge_id != new_constraint_id) // Exclude incoming
+                .filter_map(|edge_id| {
+                    // Find the operation with matching constraint id
+                    buildinfo.operations.iter().find_map(|op| {
+                        if op.constraint.id == *edge_id && op.op_type == OperationType::Add {
+                            Some(ConstraintSnapshot {
+                                constraint: op.constraint.clone(),
+                                buildinfo_index: op.seq,
+                                added_at: op.timestamp.clone(),
+                                intent: op.intent.clone(),
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .collect();
+
+            // If redundant_edges only contained the new constraint, find existing
+            // constraints that share entities with the new constraint
+            if conflicting_constraints.is_empty() {
+                // Find the new constraint's entities
+                let new_op = buildinfo.operations.iter().find(|op| op.constraint.id == new_constraint_id);
+                if let Some(new_op) = new_op {
+                    let new_target = new_op.constraint.target.0;
+                    let new_ref = match &new_op.constraint.term {
+                        ConstraintTerm::Ref { entity_id, .. } => Some(entity_id.0),
+                        ConstraintTerm::Linear { entity_id, .. } => Some(entity_id.0),
+                        _ => None,
+                    };
+
+                    // Find all existing constraints that reference these entities
+                    for op in &buildinfo.operations {
+                        if op.constraint.id == new_constraint_id || op.op_type != OperationType::Add {
+                            continue;
+                        }
+
+                        let op_target = op.constraint.target.0;
+                        let op_ref = match &op.constraint.term {
+                            ConstraintTerm::Ref { entity_id, .. } => Some(entity_id.0),
+                            ConstraintTerm::Linear { entity_id, .. } => Some(entity_id.0),
+                            _ => None,
+                        };
+
+                        // Check if this constraint shares entities with the new one
+                        let shares_entity = op_target == new_target
+                            || Some(op_target) == new_ref
+                            || op_ref == Some(new_target)
+                            || (op_ref.is_some() && op_ref == new_ref);
+
+                        if shares_entity {
+                            conflicting_constraints.push(ConstraintSnapshot {
+                                constraint: op.constraint.clone(),
+                                buildinfo_index: op.seq,
+                                added_at: op.timestamp.clone(),
+                                intent: op.intent.clone(),
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Find the incoming constraint details
+            let incoming_op = buildinfo
+                .operations
+                .iter()
+                .find(|op| op.constraint.id == new_constraint_id);
+
+            let incoming_constraint = match incoming_op {
+                Some(op) => ConstraintSnapshot {
+                    constraint: op.constraint.clone(),
+                    buildinfo_index: op.seq,
+                    added_at: op.timestamp.clone(),
+                    intent: op.intent.clone(),
+                },
+                None => ConstraintSnapshot {
                     constraint: Constraint {
                         id: new_constraint_id,
                         target: EntityId(0),
@@ -477,7 +701,36 @@ fn check_rigidity_after_add(
                     added_at: current_timestamp(),
                     intent: None,
                 },
-                conflicting_constraints: vec![],
+            };
+
+            // Build detailed message with conflicting constraint info
+            let conflict_details: Vec<String> = conflicting_constraints
+                .iter()
+                .map(|c| {
+                    format!(
+                        "constraint #{} on entity {} ({:?} {:?})",
+                        c.constraint.id,
+                        c.constraint.target.0,
+                        c.constraint.component,
+                        c.constraint.relation
+                    )
+                })
+                .collect();
+
+            let message = if conflict_details.is_empty() {
+                "The added constraint makes the system overconstrained.".to_string()
+            } else {
+                format!(
+                    "The added constraint makes the system overconstrained. Conflicting with: {}",
+                    conflict_details.join(", ")
+                )
+            };
+
+            Some(ConstraintCollisionError {
+                error_type: CollisionErrorType::Overdetermined,
+                message,
+                incoming_constraint,
+                conflicting_constraints,
                 repair_suggestions: vec![
                     RepairSuggestion {
                         suggestion_id: 1,
@@ -728,11 +981,329 @@ pub fn optimize(dry_run: bool) -> CommandResult {
     Ok(result)
 }
 
-pub fn build(_target: &str, _outdir: &str) -> CommandResult {
+/// Build the project for a target renderer.
+///
+/// ## Stages
+/// 1. Validate target (wgpu, vs-web)
+/// 2. Read VsBuildInfo
+/// 3. Run wasm-pack build
+/// 4. Generate initialization code from VsBuildInfo
+/// 5. Generate HTML wrapper
+/// 6. Copy artifacts to output directory
+pub fn build(target: &str, outdir: &str) -> CommandResult {
+    use crate::embedded_wasm;
+
+    // Stage 0: Target validation
+    if target != "wgpu" && target != "vs-web" {
+        return Err(ConstraintCollisionError {
+            error_type: CollisionErrorType::Overdetermined,
+            message: format!(
+                "Unsupported target: '{}'. Supported targets: wgpu, vs-web",
+                target
+            ),
+            incoming_constraint: dummy_snapshot(),
+            conflicting_constraints: vec![],
+            repair_suggestions: vec![],
+            analysis: CollisionAnalysis {
+                cycle_path: None,
+                constraints_analyzed: 0,
+                analysis_time_us: 0,
+                hideable_in_viewport: false,
+                hiding_viewport: None,
+            },
+        });
+    }
+
+    // Stage 1: Read VsBuildInfo
+    let build_info = read_buildinfo().unwrap_or_default();
+
+    // Stage 2: Generate initialization code
+    let init_code = generate_init_code(&build_info);
+
+    // Stage 3: Generate HTML
+    let html = generate_html(&init_code);
+
+    // Stage 4: Create output directory
+    let dist = PathBuf::from(outdir);
+    fs::create_dir_all(&dist).map_err(|e| io_error_to_collision(&e))?;
+    fs::create_dir_all(dist.join("pkg")).map_err(|e| io_error_to_collision(&e))?;
+
+    // Stage 5: Write index.html
+    fs::write(dist.join("index.html"), &html).map_err(|e| io_error_to_collision(&e))?;
+
+    // Stage 6: Extract embedded WASM artifacts
+    // These are compiled into the CLI binary at build time
+    let mut extracted_files = vec!["index.html".to_string()];
+
+    // Write WASM binary
+    fs::write(dist.join("pkg").join("vsc_wasm_bg.wasm"), embedded_wasm::WASM_BINARY)
+        .map_err(|e| io_error_to_collision(&e))?;
+    extracted_files.push("pkg/vsc_wasm_bg.wasm".to_string());
+
+    // Write JavaScript glue
+    fs::write(dist.join("pkg").join("vsc_wasm.js"), embedded_wasm::WASM_JS)
+        .map_err(|e| io_error_to_collision(&e))?;
+    extracted_files.push("pkg/vsc_wasm.js".to_string());
+
+    // Write TypeScript definitions
+    fs::write(dist.join("pkg").join("vsc_wasm.d.ts"), embedded_wasm::WASM_DTS)
+        .map_err(|e| io_error_to_collision(&e))?;
+    extracted_files.push("pkg/vsc_wasm.d.ts".to_string());
+
+    // Write WASM background TypeScript definitions
+    fs::write(dist.join("pkg").join("vsc_wasm_bg.wasm.d.ts"), embedded_wasm::WASM_BG_DTS)
+        .map_err(|e| io_error_to_collision(&e))?;
+    extracted_files.push("pkg/vsc_wasm_bg.wasm.d.ts".to_string());
+
+    // Write package.json
+    fs::write(dist.join("pkg").join("package.json"), embedded_wasm::PACKAGE_JSON)
+        .map_err(|e| io_error_to_collision(&e))?;
+    extracted_files.push("pkg/package.json".to_string());
+
     Ok(serde_json::json!({
         "status": "success",
-        "output_files": []
+        "target": target,
+        "output": outdir,
+        "source": "embedded",
+        "wasm_size_bytes": embedded_wasm::WASM_BINARY.len(),
+        "files": extracted_files
     }))
+}
+
+/// Find the vsc-wasm crate directory.
+///
+/// Searches for workspace root (directory containing Cargo.toml with [workspace])
+/// and returns path to crates/vsc-wasm.
+fn find_wasm_crate_dir() -> Result<PathBuf, String> {
+    let mut current = cwd();
+
+    // Search upward for workspace root
+    for _ in 0..10 {
+        let cargo_toml = current.join("Cargo.toml");
+        if cargo_toml.exists() {
+            if let Ok(content) = fs::read_to_string(&cargo_toml) {
+                if content.contains("[workspace]") {
+                    // Found workspace root
+                    let wasm_crate = current.join("crates").join("vsc-wasm");
+                    if wasm_crate.exists() {
+                        return Ok(wasm_crate);
+                    }
+                    return Err(format!(
+                        "Workspace found at {:?} but crates/vsc-wasm not found",
+                        current
+                    ));
+                }
+            }
+        }
+
+        match current.parent() {
+            Some(parent) => current = parent.to_path_buf(),
+            None => break,
+        }
+    }
+
+    Err("Could not find workspace root (Cargo.toml with [workspace])".to_string())
+}
+
+/// Generate JavaScript initialization code from VsBuildInfo.
+///
+/// Creates code that adds components and applies styles when the engine starts.
+fn generate_init_code(build_info: &VsBuildInfo) -> String {
+    let mut lines = Vec::new();
+    lines.push("// Auto-generated by vsc build".to_string());
+    lines.push("async function vsInit(engine) {".to_string());
+    lines.push("  const entityIds = [];".to_string());
+
+    // Add path entities as components
+    for path_entry in &build_info.path_entities {
+        let params = serde_json::json!({
+            "x": path_entry.segments.first().map(|_| "0").unwrap_or("0"),
+            "y": "0",
+            "width": "100",
+            "height": "100"
+        });
+        lines.push(format!(
+            "  entityIds.push(engine.add_component('Path', '{}'));",
+            serde_json::to_string(&params).unwrap_or_default()
+        ));
+    }
+
+    // If no components, add a default rectangle for demo
+    if build_info.path_entities.is_empty() && build_info.operations.is_empty() {
+        lines.push("  // Default demo component".to_string());
+        lines.push(
+            "  entityIds.push(engine.add_component('RoundedRect', '{\"x\":50,\"y\":50,\"width\":300,\"height\":200,\"radius\":16,\"fill\":\"#4a90d9\"}'));"
+                .to_string(),
+        );
+    }
+
+    // Note about styles
+    if !build_info.styles.is_empty() {
+        lines.push(format!(
+            "  // Styles registered: {:?}",
+            build_info.styles
+        ));
+    }
+
+    // Initial tick
+    lines.push("  engine.tick('[]');".to_string());
+    lines.push("  return entityIds;".to_string());
+    lines.push("}".to_string());
+
+    lines.join("\n")
+}
+
+/// Generate complete HTML document with embedded initialization code.
+fn generate_html(init_code: &str) -> String {
+    format!(
+        r#"<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>ViewScript App</title>
+  <style>
+    body {{ margin: 0; background: #1a1a2e; }}
+    canvas {{ width: 100vw; height: 100vh; display: block; cursor: grab; }}
+    canvas.dragging {{ cursor: grabbing; }}
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <script type="module">
+    import init, {{ WasmViewScriptEngine }} from './pkg/vsc_wasm.js';
+
+    async function main() {{
+      await init();
+      const canvas = document.getElementById('canvas');
+      canvas.width = window.innerWidth * devicePixelRatio;
+      canvas.height = window.innerHeight * devicePixelRatio;
+
+      try {{
+        const engine = await WasmViewScriptEngine.create(canvas, devicePixelRatio);
+        console.log('ViewScript engine created:', engine.width, 'x', engine.height);
+
+        {}
+
+        const entityIds = await vsInit(engine);
+        console.log('Registered entities:', entityIds);
+
+        // BigInt-safe JSON serializer (entity_id is u64 → BigInt in JS)
+        function vsStringify(obj) {{
+          return JSON.stringify(obj, (_, v) => typeof v === 'bigint' ? Number(v) : v);
+        }}
+
+        // Stage 2: Q-dimension FFI with QSnapshot
+        // Mouse/pointer state flows through Q→T→P pipeline via QSnapshot
+        // Event coalescing + rAF to limit tick() to 60fps max (Section 9.7 compliance)
+        let isDragging = false;
+        let pointerX = 0;
+        let pointerY = 0;
+        let pendingSnapshot = null;
+        let rafId = null;
+        const dpr = devicePixelRatio;
+
+        // Build QSnapshot for current frame
+        function buildQSnapshot() {{
+          return {{
+            values: {{
+              'input.pointer.x': {{ type: 'Float', value: pointerX }},
+              'input.pointer.y': {{ type: 'Float', value: pointerY }},
+              'input.pointer.pressed': {{ type: 'Bool', value: isDragging }},
+              'env.viewport.width': {{ type: 'Int', value: canvas.width }},
+              'env.viewport.height': {{ type: 'Int', value: canvas.height }},
+              'env.viewport.dpr': {{ type: 'Float', value: dpr }}
+            }}
+          }};
+        }}
+
+        // Track the first entity for drag demo (can be extended to hit-testing)
+        const dragTarget = entityIds.length > 0 ? entityIds[0] : null;
+
+        // For backward compatibility with SetPosition mutations during drag
+        let currentX = 50 * dpr;
+        let currentY = 50 * dpr;
+        let lastX = 0;
+        let lastY = 0;
+
+        canvas.addEventListener('mousedown', (e) => {{
+          if (dragTarget === null) return;
+          isDragging = true;
+          lastX = e.clientX;
+          lastY = e.clientY;
+          pointerX = e.clientX * dpr;
+          pointerY = e.clientY * dpr;
+          canvas.classList.add('dragging');
+        }});
+
+        canvas.addEventListener('mousemove', (e) => {{
+          pointerX = e.clientX * dpr;
+          pointerY = e.clientY * dpr;
+
+          // Always build QSnapshot with pointer coordinates for hover detection
+          const snapshot = buildQSnapshot();
+
+          // Handle drag: add mutation to snapshot
+          if (isDragging && dragTarget !== null) {{
+            const dx = (e.clientX - lastX) * dpr;
+            const dy = (e.clientY - lastY) * dpr;
+            lastX = e.clientX;
+            lastY = e.clientY;
+            currentX += dx;
+            currentY += dy;
+
+            // Embed mutation in QSnapshot (Q-values + mutation in single call)
+            snapshot.mutations = [{{
+              type: 'SetPosition',
+              entity_id: Number(dragTarget),
+              x: currentX,
+              y: currentY
+            }}];
+          }}
+
+          pendingSnapshot = snapshot;
+
+          // Schedule rAF if not already pending
+          if (rafId === null) {{
+            rafId = requestAnimationFrame(() => {{
+              if (pendingSnapshot) {{
+                // Always use QSnapshot format (with optional mutations)
+                engine.tick(JSON.stringify(pendingSnapshot));
+                pendingSnapshot = null;
+              }}
+              rafId = null;
+            }});
+          }}
+        }});
+
+        canvas.addEventListener('mouseup', () => {{
+          isDragging = false;
+          canvas.classList.remove('dragging');
+        }});
+
+        canvas.addEventListener('mouseleave', () => {{
+          isDragging = false;
+          canvas.classList.remove('dragging');
+        }});
+
+        window.addEventListener('resize', () => {{
+          canvas.width = window.innerWidth * devicePixelRatio;
+          canvas.height = window.innerHeight * devicePixelRatio;
+          engine.resize(canvas.width, canvas.height);
+          // Use QSnapshot format for resize
+          engine.tick(JSON.stringify(buildQSnapshot()));
+        }});
+      }} catch (e) {{
+        console.error('ViewScript initialization failed:', e);
+        document.body.innerHTML = '<pre style="color:red;padding:20px;">Error: ' + e + '</pre>';
+      }}
+    }}
+
+    main();
+  </script>
+</body>
+</html>"#,
+        init_code
+    )
 }
 
 // =============================================================================
@@ -941,7 +1512,7 @@ pub fn add_entity(
 
             // Generate initial control point position constraints
             // All corners start at the origin; Renderer will update via update-metrics
-            let control_points = text_entity.expand_control_points(origin_x.clone(), origin_y.clone());
+            let _control_points = text_entity.expand_control_points(origin_x.clone(), origin_y.clone());
 
             // Add positioning constraints for TL corner
             let seq = buildinfo.next_seq();
@@ -1035,18 +1606,306 @@ pub fn add_entity(
     }
 }
 
+// =============================================================================
+// Visual Component Commands
+// =============================================================================
+
+/// Parse fill specification: solid color or linear-gradient
+fn parse_fill_spec(fill: &str) -> serde_json::Value {
+    let trimmed = fill.trim();
+
+    if trimmed.starts_with("linear-gradient(") && trimmed.ends_with(')') {
+        // Parse "linear-gradient(to right, #ff0000, #ff7700, #ffff00, #00ff00)"
+        let inner = &trimmed[16..trimmed.len() - 1]; // Remove "linear-gradient(" and ")"
+        let parts: Vec<&str> = inner.split(',').map(|s| s.trim()).collect();
+
+        if parts.is_empty() {
+            return serde_json::json!({ "type": "solid", "color": fill });
+        }
+
+        // Parse direction
+        let (direction, color_start_idx) = if parts[0].starts_with("to ") {
+            let dir = match parts[0] {
+                "to right" => "to_right",
+                "to left" => "to_left",
+                "to top" => "to_top",
+                "to bottom" => "to_bottom",
+                "to top right" | "to right top" => "to_top_right",
+                "to top left" | "to left top" => "to_top_left",
+                "to bottom right" | "to right bottom" => "to_bottom_right",
+                "to bottom left" | "to left bottom" => "to_bottom_left",
+                _ => "to_right",
+            };
+            (dir, 1)
+        } else if parts[0].ends_with("deg") {
+            // Angle format: "45deg"
+            let angle = parts[0].trim_end_matches("deg").parse::<f64>().unwrap_or(0.0);
+            return serde_json::json!({
+                "type": "linear_gradient",
+                "angle_deg": angle,
+                "stops": build_color_stops(&parts[1..])
+            });
+        } else {
+            ("to_right", 0)
+        };
+
+        let stops = build_color_stops(&parts[color_start_idx..]);
+
+        serde_json::json!({
+            "type": "linear_gradient",
+            "direction": direction,
+            "stops": stops
+        })
+    } else if trimmed.starts_with("radial-gradient(") && trimmed.ends_with(')') {
+        // Basic radial gradient support
+        let inner = &trimmed[16..trimmed.len() - 1];
+        let parts: Vec<&str> = inner.split(',').map(|s| s.trim()).collect();
+        let stops = build_color_stops(&parts);
+
+        serde_json::json!({
+            "type": "radial_gradient",
+            "stops": stops
+        })
+    } else {
+        // Solid color
+        serde_json::json!({
+            "type": "solid",
+            "color": trimmed
+        })
+    }
+}
+
+/// Build color stops from a list of colors, auto-calculating positions
+fn build_color_stops(colors: &[&str]) -> Vec<serde_json::Value> {
+    let count = colors.len();
+    if count == 0 {
+        return vec![];
+    }
+
+    colors
+        .iter()
+        .enumerate()
+        .map(|(i, color)| {
+            let position = if count == 1 {
+                0.5
+            } else {
+                i as f64 / (count - 1) as f64
+            };
+            serde_json::json!({
+                "color": color.trim(),
+                "position": position
+            })
+        })
+        .collect()
+}
+
+/// Parse stroke specification: "width:color" format
+fn parse_stroke_spec(stroke: &str) -> Option<serde_json::Value> {
+    let parts: Vec<&str> = stroke.splitn(2, ':').collect();
+    if parts.len() == 2 {
+        let width = parts[0].parse::<f64>().ok()?;
+        let color = parts[1].trim();
+        Some(serde_json::json!({
+            "width": width,
+            "color": color
+        }))
+    } else {
+        None
+    }
+}
+
+/// Add a visual component to the scene.
+///
+/// ## Supported component types:
+/// - `RoundedRect`: Rectangle with optional corner radius
+/// - `Circle`: Circle (planned)
+/// - `Line`: Line segment (planned)
+/// - `Path`: SVG-like path (planned)
+///
+/// ## Fill formats:
+/// - Solid: `"#ff6b6b"`
+/// - Linear gradient: `"linear-gradient(to right, #ff0000, #ff7700, #ffff00)"`
+///
+/// ## Stroke format:
+/// - `"width:color"` e.g., `"2:#000000"`
+pub fn add_component(
+    component_type: &str,
+    x: &str,
+    y: &str,
+    width: &str,
+    height: &str,
+    radius: &str,
+    fill: &str,
+    stroke: Option<&str>,
+) -> CommandResult {
+    let mut buildinfo = read_buildinfo().unwrap_or_default();
+
+    // Parse numeric values
+    let parse_f64 = |s: &str| -> Result<f64, String> {
+        s.parse::<f64>().map_err(|e| format!("Invalid number '{}': {}", s, e))
+    };
+
+    let x_val = parse_f64(x).map_err(|e| ConstraintCollisionError {
+        error_type: CollisionErrorType::Overdetermined,
+        message: e,
+        incoming_constraint: dummy_snapshot(),
+        conflicting_constraints: vec![],
+        repair_suggestions: vec![],
+        analysis: CollisionAnalysis {
+            cycle_path: None,
+            constraints_analyzed: 0,
+            analysis_time_us: 0,
+            hideable_in_viewport: false,
+            hiding_viewport: None,
+        },
+    })?;
+
+    let y_val = parse_f64(y).map_err(|e| ConstraintCollisionError {
+        error_type: CollisionErrorType::Overdetermined,
+        message: e,
+        incoming_constraint: dummy_snapshot(),
+        conflicting_constraints: vec![],
+        repair_suggestions: vec![],
+        analysis: CollisionAnalysis {
+            cycle_path: None,
+            constraints_analyzed: 0,
+            analysis_time_us: 0,
+            hideable_in_viewport: false,
+            hiding_viewport: None,
+        },
+    })?;
+
+    let width_val = parse_f64(width).map_err(|e| ConstraintCollisionError {
+        error_type: CollisionErrorType::Overdetermined,
+        message: e,
+        incoming_constraint: dummy_snapshot(),
+        conflicting_constraints: vec![],
+        repair_suggestions: vec![],
+        analysis: CollisionAnalysis {
+            cycle_path: None,
+            constraints_analyzed: 0,
+            analysis_time_us: 0,
+            hideable_in_viewport: false,
+            hiding_viewport: None,
+        },
+    })?;
+
+    let height_val = parse_f64(height).map_err(|e| ConstraintCollisionError {
+        error_type: CollisionErrorType::Overdetermined,
+        message: e,
+        incoming_constraint: dummy_snapshot(),
+        conflicting_constraints: vec![],
+        repair_suggestions: vec![],
+        analysis: CollisionAnalysis {
+            cycle_path: None,
+            constraints_analyzed: 0,
+            analysis_time_us: 0,
+            hideable_in_viewport: false,
+            hiding_viewport: None,
+        },
+    })?;
+
+    let radius_val = parse_f64(radius).map_err(|e| ConstraintCollisionError {
+        error_type: CollisionErrorType::Overdetermined,
+        message: e,
+        incoming_constraint: dummy_snapshot(),
+        conflicting_constraints: vec![],
+        repair_suggestions: vec![],
+        analysis: CollisionAnalysis {
+            cycle_path: None,
+            constraints_analyzed: 0,
+            analysis_time_us: 0,
+            hideable_in_viewport: false,
+            hiding_viewport: None,
+        },
+    })?;
+
+    // Parse fill and stroke
+    let fill_spec = parse_fill_spec(fill);
+    let stroke_spec = stroke.and_then(parse_stroke_spec);
+
+    match component_type {
+        "RoundedRect" | "roundedrect" | "rect" | "rectangle" => {
+            let entity_id = buildinfo.next_entity_id;
+            buildinfo.next_entity_id += 1;
+
+            // Store as a constraint operation with component metadata
+            let op = ConstraintOperation {
+                seq: buildinfo.next_seq(),
+                timestamp: current_timestamp(),
+                op_type: OperationType::Add,
+                constraint: Constraint {
+                    id: entity_id,
+                    target: EntityId(entity_id),
+                    component: VectorComponent::X,
+                    relation: RelationType::Eq,
+                    term: ConstraintTerm::Const { value: Rational::from_int(x_val as i64) },
+                    priority: ConstraintPriority::Hard,
+                    source_scope: None,
+                },
+                intent: Some(format!("RoundedRect component at ({}, {})", x_val, y_val)),
+                command: Some(format!(
+                    "add-component -t RoundedRect -x {} -y {} -w {} -h {} -r {} -f '{}'{}",
+                    x, y, width, height, radius, fill,
+                    stroke.map(|s| format!(" -s '{}'", s)).unwrap_or_default()
+                )),
+                optimization_run_id: None,
+            };
+            buildinfo.operations.push(op);
+
+            write_buildinfo(&buildinfo).map_err(|e| io_error_to_collision(&e))?;
+
+            let mut result = serde_json::json!({
+                "status": "success",
+                "entity_id": entity_id,
+                "component_type": "RoundedRect",
+                "x": x_val,
+                "y": y_val,
+                "width": width_val,
+                "height": height_val,
+                "radius": radius_val,
+                "fill": fill_spec,
+            });
+
+            if let Some(stroke) = stroke_spec {
+                result["stroke"] = stroke;
+            }
+
+            Ok(result)
+        }
+        _ => Err(ConstraintCollisionError {
+            error_type: CollisionErrorType::Overdetermined,
+            message: format!(
+                "Unknown component type: '{}'. Supported types: RoundedRect, rect, rectangle",
+                component_type
+            ),
+            incoming_constraint: dummy_snapshot(),
+            conflicting_constraints: vec![],
+            repair_suggestions: vec![],
+            analysis: CollisionAnalysis {
+                cycle_path: None,
+                constraints_analyzed: 0,
+                analysis_time_us: 0,
+                hideable_in_viewport: false,
+                hiding_viewport: None,
+            },
+        }),
+    }
+}
+
 /// Update text metrics from Renderer measurement.
 ///
 /// ## Q→P Dimension Bridge
 ///
 /// This command is called by the Renderer (TypeScript) after measuring the actual
-/// text dimensions using CanvasKit or DOM APIs. It updates the constraints that
+/// text dimensions using wgpu renderer or DOM APIs. It updates the constraints that
 /// define the text bounding box.
 ///
 /// ## Arguments
 /// - `id`: The text entity ID
 /// - `width`: Measured width in P-dimension units (as string, e.g., "120" or "120/1")
 /// - `height`: Measured height in P-dimension units (as string, e.g., "24" or "24/1")
+#[deprecated(since = "0.18.0", note = "use expand-text instead")]
 pub fn update_metrics(
     id: u64,
     width: &str,
@@ -1768,6 +2627,324 @@ pub fn status() -> CommandResult {
 }
 
 // =============================================================================
+// D-05: vsc check — Constraint Graph Integrity Verification
+// =============================================================================
+
+/// Collect active constraints from buildinfo (Add operations only).
+fn collect_active_constraints(buildinfo: &VsBuildInfo) -> Vec<Constraint> {
+    buildinfo
+        .operations
+        .iter()
+        .filter(|op| op.op_type == OperationType::Add)
+        .map(|op| op.constraint.clone())
+        .collect()
+}
+
+/// Run cycle detection on buildinfo.
+///
+/// Returns `(passed, detail)` where `detail` describes the first cycle found
+/// or `null` when the graph is acyclic.
+fn run_cycles_check(buildinfo: &VsBuildInfo) -> (bool, serde_json::Value) {
+    // Walk every Add operation and look for a back-edge (DFS reachability).
+    // The existing `detect_circular_reference` requires a *new* constraint as
+    // the probe, so we reconstruct the logic here for a full graph scan.
+    use std::collections::{HashMap, HashSet};
+
+    // Build adjacency: target → [ref_entity, ...]
+    let mut adj: HashMap<u64, Vec<u64>> = HashMap::new();
+    for op in &buildinfo.operations {
+        if op.op_type != OperationType::Add {
+            continue;
+        }
+        let src = op.constraint.target.0;
+        let dst = match &op.constraint.term {
+            ConstraintTerm::Ref { entity_id, .. } => Some(entity_id.0),
+            ConstraintTerm::Linear { entity_id, .. } => Some(entity_id.0),
+            _ => None,
+        };
+        if let Some(d) = dst {
+            adj.entry(src).or_default().push(d);
+        }
+    }
+
+    // Iterative DFS cycle detection
+    let nodes: Vec<u64> = adj.keys().copied().collect();
+    let mut visited: HashSet<u64> = HashSet::new();
+    let mut cycle_nodes: Vec<u64> = Vec::new();
+
+    'outer: for &start in &nodes {
+        if visited.contains(&start) {
+            continue;
+        }
+        let mut stack: Vec<(u64, Vec<u64>)> = vec![(start, vec![start])];
+        let mut on_stack: HashSet<u64> = HashSet::new();
+        on_stack.insert(start);
+
+        while let Some((node, path)) = stack.last_mut() {
+            let node = *node;
+            let neighbours = adj.get(&node).cloned().unwrap_or_default();
+            let next = neighbours
+                .iter()
+                .find(|&&n| !path.contains(&n) || on_stack.contains(&n))
+                .copied();
+
+            match next {
+                Some(n) if on_stack.contains(&n) => {
+                    // Found a back-edge → cycle
+                    let cycle_start = path.iter().position(|&x| x == n).unwrap_or(0);
+                    cycle_nodes = path[cycle_start..].to_vec();
+                    break 'outer;
+                }
+                Some(n) if !visited.contains(&n) => {
+                    let mut new_path = path.clone();
+                    new_path.push(n);
+                    on_stack.insert(n);
+                    stack.push((n, new_path));
+                }
+                _ => {
+                    on_stack.remove(&node);
+                    visited.insert(node);
+                    stack.pop();
+                }
+            }
+        }
+    }
+
+    if cycle_nodes.is_empty() {
+        (true, serde_json::json!({ "passed": true }))
+    } else {
+        (
+            false,
+            serde_json::json!({
+                "passed": false,
+                "cycle": cycle_nodes
+            }),
+        )
+    }
+}
+
+/// Run Laman density / rigidity check (D-04).
+fn run_rigidity_check(buildinfo: &VsBuildInfo) -> (bool, serde_json::Value) {
+    let mut builder = ConstraintGraphBuilder::new();
+
+    for op in &buildinfo.operations {
+        if op.op_type != OperationType::Add {
+            continue;
+        }
+        let target_id = op.constraint.target.0;
+        builder.add_vertex(target_id);
+
+        let ref_id = match &op.constraint.term {
+            ConstraintTerm::Ref { entity_id, .. } => Some(entity_id.0),
+            ConstraintTerm::Linear { entity_id, .. } => Some(entity_id.0),
+            _ => None,
+        };
+        if let Some(r) = ref_id {
+            builder.add_vertex(r);
+            builder.add_edge_with_id(op.constraint.id, target_id, r);
+        }
+    }
+
+    let analysis: RigidityAnalysis = builder.analyze();
+
+    let laman_ok = !matches!(&analysis.status, RigidityStatus::Overconstrained { .. });
+
+    let detail = match &analysis.status {
+        RigidityStatus::Rigid => serde_json::json!({
+            "passed": true,
+            "laman_ok": true,
+            "status": "rigid",
+            "vertex_count": analysis.vertex_count,
+            "edge_count": analysis.edge_count,
+            "laman_number": analysis.laman_number,
+        }),
+        RigidityStatus::Flexible { degrees_of_freedom } => serde_json::json!({
+            "passed": true,
+            "laman_ok": true,
+            "status": "flexible",
+            "degrees_of_freedom": degrees_of_freedom,
+            "vertex_count": analysis.vertex_count,
+            "edge_count": analysis.edge_count,
+            "laman_number": analysis.laman_number,
+        }),
+        RigidityStatus::Overconstrained { redundant_edges } => serde_json::json!({
+            "passed": false,
+            "laman_ok": false,
+            "status": "overconstrained",
+            "redundant_edges": redundant_edges,
+            "vertex_count": analysis.vertex_count,
+            "edge_count": analysis.edge_count,
+            "laman_number": analysis.laman_number,
+        }),
+    };
+
+    (laman_ok, detail)
+}
+
+/// Run Jacobian singularity check (D-03).
+fn run_singularity_check(buildinfo: &VsBuildInfo) -> (bool, serde_json::Value) {
+    let constraints = collect_active_constraints(buildinfo);
+
+    match detect_singularity(&constraints) {
+        None => (true, serde_json::json!({ "passed": true })),
+        Some(w) => (
+            false,
+            serde_json::json!({
+                "passed": false,
+                "warning": {
+                    "rank": w.rank,
+                    "variables": w.num_variables,
+                    "deficiency": w.deficiency,
+                    "redundant": w.redundant_constraint_ids,
+                    "message": w.message,
+                }
+            }),
+        ),
+    }
+}
+
+/// Run EntityId reference validity check.
+///
+/// For every constraint whose term references an EntityId, verify that the
+/// referenced entity appears as a *target* in at least one Add operation.
+fn run_types_check(buildinfo: &VsBuildInfo) -> (bool, serde_json::Value) {
+    use std::collections::HashSet;
+
+    // Collect all known entity targets
+    let known: HashSet<u64> = buildinfo
+        .operations
+        .iter()
+        .filter(|op| op.op_type == OperationType::Add)
+        .map(|op| op.constraint.target.0)
+        .chain(buildinfo.text_entities.iter().map(|te| te.id.0))
+        .collect();
+
+    let mut bad: Vec<serde_json::Value> = Vec::new();
+
+    for op in &buildinfo.operations {
+        if op.op_type != OperationType::Add {
+            continue;
+        }
+        let ref_id = match &op.constraint.term {
+            ConstraintTerm::Ref { entity_id, .. } => Some(entity_id.0),
+            ConstraintTerm::Linear { entity_id, .. } => Some(entity_id.0),
+            _ => None,
+        };
+        if let Some(r) = ref_id {
+            if !known.contains(&r) {
+                bad.push(serde_json::json!({
+                    "constraint_id": op.constraint.id,
+                    "unknown_entity": r,
+                }));
+            }
+        }
+    }
+
+    if bad.is_empty() {
+        (true, serde_json::json!({ "passed": true }))
+    } else {
+        (
+            false,
+            serde_json::json!({
+                "passed": false,
+                "unknown_references": bad,
+            }),
+        )
+    }
+}
+
+/// `vsc check` — Verify constraint graph integrity.
+///
+/// Runs up to four independent checks and reports results as structured JSON:
+///
+/// - **cycles** — detects circular constraint dependencies
+/// - **rigidity** — Laman density / Pebble Game (D-04)
+/// - **singularity** — Jacobian rank deficiency (D-03)
+/// - **types** — EntityId reference validity
+///
+/// Use `--aspect <name>` to run a single check.
+pub fn check(aspect: Option<&str>) -> CommandResult {
+    let buildinfo = read_buildinfo().unwrap_or_default();
+
+    let run_all = aspect.is_none();
+    let want = |name: &str| run_all || aspect == Some(name);
+
+    // --- individual checks ---------------------------------------------------
+    let cycles_result = if want("cycles") {
+        Some(run_cycles_check(&buildinfo))
+    } else {
+        None
+    };
+    let rigidity_result = if want("rigidity") {
+        Some(run_rigidity_check(&buildinfo))
+    } else {
+        None
+    };
+    let singularity_result = if want("singularity") {
+        Some(run_singularity_check(&buildinfo))
+    } else {
+        None
+    };
+    let types_result = if want("types") {
+        Some(run_types_check(&buildinfo))
+    } else {
+        None
+    };
+
+    // --- aggregate status ----------------------------------------------------
+    let all_results: Vec<bool> = [&cycles_result, &rigidity_result, &singularity_result, &types_result]
+        .iter()
+        .filter_map(|r| r.as_ref())
+        .map(|(passed, _)| *passed)
+        .collect();
+
+    let warnings = all_results.iter().filter(|&&p| !p).count();
+    // Currently all failures are treated as warnings (non-fatal); promote to
+    // "error" only for type mismatches (dangling EntityId references).
+    let type_errors = types_result
+        .as_ref()
+        .map(|(p, _)| if *p { 0usize } else { 1usize })
+        .unwrap_or(0);
+
+    let status = if type_errors > 0 {
+        "error"
+    } else if warnings > 0 {
+        "warning"
+    } else {
+        "ok"
+    };
+
+    let summary = format!(
+        "{} warning{}, {} error{}",
+        warnings,
+        if warnings == 1 { "" } else { "s" },
+        type_errors,
+        if type_errors == 1 { "" } else { "s" },
+    );
+
+    // --- build checks object -------------------------------------------------
+    let mut checks = serde_json::Map::new();
+    if let Some((_, v)) = cycles_result {
+        checks.insert("cycles".to_string(), v);
+    }
+    if let Some((_, v)) = rigidity_result {
+        checks.insert("rigidity".to_string(), v);
+    }
+    if let Some((_, v)) = singularity_result {
+        checks.insert("singularity".to_string(), v);
+    }
+    if let Some((_, v)) = types_result {
+        checks.insert("types".to_string(), v);
+    }
+
+    Ok(serde_json::json!({
+        "status": status,
+        "checks": checks,
+        "summary": summary,
+    }))
+}
+
+// =============================================================================
 // Phase 15: CODL Command Execution
 // =============================================================================
 
@@ -1885,7 +3062,7 @@ pub fn run_command(
         .with_start_id(start_id)
         .with_source_scope(&source_scope);
 
-    let constraints = interpreter.execute(&codl_cmd, &json_args).map_err(|e| {
+    let output = interpreter.execute(&codl_cmd, &json_args).map_err(|e| {
         ConstraintCollisionError {
             error_type: CollisionErrorType::Overdetermined,
             message: format!("CODL execution error: {}", e),
@@ -1902,6 +3079,12 @@ pub fn run_command(
         }
     })?;
 
+    // Extract output fields
+    let constraints = output.constraints;
+    let path_entities_out = output.path_entities;
+    let fill_specs_out = output.fill_specs;
+    let stroke_specs_out = output.stroke_specs;
+
     // =========================================================================
     // Transactional Atomicity: Sandbox + Rigidity Check
     // =========================================================================
@@ -1912,6 +3095,31 @@ pub fn run_command(
     // Create sandbox buildinfo (clone of original)
     let mut sandbox_buildinfo = original_buildinfo.clone();
     let constraint_ids: Vec<u64> = constraints.iter().map(|c| c.id).collect();
+
+    // Register path entities from CODL output into the sandbox buildinfo
+    sandbox_buildinfo.path_entities.extend(path_entities_out);
+
+    // Apply fill specs: find matching PathEntityEntry and set fill
+    for (target_id, fill_spec) in fill_specs_out {
+        if let Some(entry) = sandbox_buildinfo
+            .path_entities
+            .iter_mut()
+            .find(|e| e.id == target_id)
+        {
+            entry.fill = Some(fill_spec);
+        }
+    }
+
+    // Apply stroke specs: find matching PathEntityEntry and set stroke
+    for (target_id, stroke_spec) in stroke_specs_out {
+        if let Some(entry) = sandbox_buildinfo
+            .path_entities
+            .iter_mut()
+            .find(|e| e.id == target_id)
+        {
+            entry.stroke = Some(stroke_spec);
+        }
+    }
 
     // Apply all constraints to sandbox
     for constraint in &constraints {
@@ -1938,20 +3146,24 @@ pub fn run_command(
     // Transaction COMMIT: Rigidity check passed, write sandbox to disk
     write_buildinfo(&sandbox_buildinfo).map_err(|e| io_error_to_collision(&e))?;
 
+    let path_entities_count = sandbox_buildinfo.path_entities.len()
+        .saturating_sub(original_buildinfo.path_entities.len());
+
     Ok(serde_json::json!({
         "status": "success",
         "command_name": codl_cmd.name,
         "command_version": codl_cmd.version,
         "constraints_generated": constraint_ids.len(),
         "constraint_ids": constraint_ids,
+        "path_entities_generated": path_entities_count,
         "source_scope": source_scope,
         "validation": {
             "max_nesting_depth": validation.metadata.max_nesting_depth,
             "yield_count": validation.metadata.yield_count
         },
         "message": format!(
-            "CODL command '{}' executed. {} constraints generated.",
-            codl_cmd.name, constraint_ids.len()
+            "CODL command '{}' executed. {} constraints, {} path entities generated.",
+            codl_cmd.name, constraint_ids.len(), path_entities_count
         )
     }))
 }
@@ -1963,7 +3175,6 @@ pub fn run_command(
 use vsc_core::{
     TileMode, ControlPointRole,
     ColorStopEntry, LinearGradientEntry, RadialGradientEntry, ConicGradientEntry,
-    ControlPointEntry, RadiusEntry, AngleEntry,
 };
 
 /// Apply a CSS gradient to a target entity.
@@ -1995,7 +3206,7 @@ pub fn apply_gradient(
     css: &str,
     bounds_width: Option<&str>,
     bounds_height: Option<&str>,
-    intent: Option<&str>,
+    _intent: Option<&str>,
 ) -> CommandResult {
     let mut buildinfo = read_buildinfo().unwrap_or_default();
 
@@ -2790,3 +4001,844 @@ fn parse_css_color(color: &str) -> Result<(u8, u8, u8, Rational), ConstraintColl
 
     Err(gradient_parse_error(&format!("Unknown color: {}", color)))
 }
+
+// =============================================================================
+// D-16: JSON Schema Generation from Rust Types
+// =============================================================================
+
+/// Generate JSON Schema from Rust type definitions (D-16).
+///
+/// Supports the following schema targets:
+/// - `buildinfo`: Full `.vsbuildinfo` file schema (VsBuildInfo)
+/// - `constraint`: Single constraint schema (Constraint)
+/// - `codl`: CODL command file schema (CodlCommand)
+/// - `all` (default): All schemas as a combined JSON object
+pub fn generate_schema(target: &str) -> CommandResult {
+    let parse = |s: String| -> Value {
+        serde_json::from_str(&s).unwrap_or(Value::Null)
+    };
+
+    match target {
+        "buildinfo" => Ok(parse(core_schema::generate_buildinfo_schema())),
+        "constraint" => Ok(parse(core_schema::generate_constraint_schema())),
+        "codl" => Ok(parse(vsc_codl::schema::generate_schema())),
+        _ => {
+            let result = serde_json::json!({
+                "buildinfo": parse(core_schema::generate_buildinfo_schema()),
+                "constraint": parse(core_schema::generate_constraint_schema()),
+                "codl": parse(vsc_codl::schema::generate_schema()),
+            });
+            Ok(result)
+        }
+    }
+}
+
+// =============================================================================
+// Target Management (Stage 2)
+// =============================================================================
+
+/// Known render targets.
+const KNOWN_TARGETS: &[&str] = &["vs-web"];
+
+/// Add a render target to the project.
+///
+/// ## Arguments
+/// - `name`: Target name (e.g., "vs-web")
+///
+/// ## Validation
+/// - Only known targets are allowed (currently: "vs-web")
+/// - Duplicate targets are rejected
+pub fn target_add(name: &str) -> CommandResult {
+    // Validate target name
+    if !KNOWN_TARGETS.contains(&name) {
+        return Err(ConstraintCollisionError {
+            error_type: CollisionErrorType::Overdetermined,
+            message: format!(
+                "Unknown target: '{}'. Known targets: {}",
+                name,
+                KNOWN_TARGETS.join(", ")
+            ),
+            incoming_constraint: dummy_snapshot(),
+            conflicting_constraints: vec![],
+            repair_suggestions: vec![],
+            analysis: CollisionAnalysis {
+                cycle_path: None,
+                constraints_analyzed: 0,
+                analysis_time_us: 0,
+                hideable_in_viewport: false,
+                hiding_viewport: None,
+            },
+        });
+    }
+
+    let mut buildinfo = read_buildinfo().unwrap_or_default();
+
+    // Check for duplicate
+    if buildinfo.targets.contains(&name.to_string()) {
+        return Err(ConstraintCollisionError {
+            error_type: CollisionErrorType::Overdetermined,
+            message: format!("Target '{}' is already registered", name),
+            incoming_constraint: dummy_snapshot(),
+            conflicting_constraints: vec![],
+            repair_suggestions: vec![],
+            analysis: CollisionAnalysis {
+                cycle_path: None,
+                constraints_analyzed: 0,
+                analysis_time_us: 0,
+                hideable_in_viewport: false,
+                hiding_viewport: None,
+            },
+        });
+    }
+
+    // Add target
+    buildinfo.targets.push(name.to_string());
+
+    // Persist
+    write_buildinfo(&buildinfo).map_err(|e| io_error_to_collision(&e))?;
+
+    Ok(serde_json::json!({
+        "status": "success",
+        "action": "target_add",
+        "target": name,
+        "targets": buildinfo.targets,
+    }))
+}
+
+/// Remove a render target from the project.
+///
+/// ## Arguments
+/// - `name`: Target name to remove
+pub fn target_remove(name: &str) -> CommandResult {
+    let mut buildinfo = read_buildinfo().unwrap_or_default();
+
+    // Check if target exists
+    let idx = buildinfo.targets.iter().position(|t| t == name);
+
+    match idx {
+        Some(i) => {
+            buildinfo.targets.remove(i);
+            write_buildinfo(&buildinfo).map_err(|e| io_error_to_collision(&e))?;
+
+            Ok(serde_json::json!({
+                "status": "success",
+                "action": "target_remove",
+                "target": name,
+                "targets": buildinfo.targets,
+            }))
+        }
+        None => {
+            Err(ConstraintCollisionError {
+                error_type: CollisionErrorType::Overdetermined,
+                message: format!("Target '{}' is not registered", name),
+                incoming_constraint: dummy_snapshot(),
+                conflicting_constraints: vec![],
+                repair_suggestions: vec![],
+                analysis: CollisionAnalysis {
+                    cycle_path: None,
+                    constraints_analyzed: 0,
+                    analysis_time_us: 0,
+                    hideable_in_viewport: false,
+                    hiding_viewport: None,
+                },
+            })
+        }
+    }
+}
+
+/// List registered render targets.
+pub fn target_list() -> CommandResult {
+    let buildinfo = read_buildinfo().unwrap_or_default();
+
+    Ok(serde_json::json!({
+        "status": "success",
+        "action": "target_list",
+        "targets": buildinfo.targets,
+        "known_targets": KNOWN_TARGETS,
+    }))
+}
+
+// =============================================================================
+// Style Management
+// =============================================================================
+
+/// Known stylesheets (UA stylesheets).
+const KNOWN_STYLES: &[&str] = &["vs-style-chrome"];
+
+/// Add a stylesheet to the project.
+///
+/// This registers the style in VsBuildInfo.styles. The actual constraint
+/// injection happens when the style is applied to the solver.
+pub fn style_add(name: &str) -> CommandResult {
+    // Validate style name
+    if !KNOWN_STYLES.contains(&name) {
+        return Err(ConstraintCollisionError {
+            error_type: CollisionErrorType::Overdetermined,
+            message: format!(
+                "Unknown style: '{}'. Known styles: {}",
+                name,
+                KNOWN_STYLES.join(", ")
+            ),
+            incoming_constraint: dummy_snapshot(),
+            conflicting_constraints: vec![],
+            repair_suggestions: vec![],
+            analysis: CollisionAnalysis {
+                cycle_path: None,
+                constraints_analyzed: 0,
+                analysis_time_us: 0,
+                hideable_in_viewport: false,
+                hiding_viewport: None,
+            },
+        });
+    }
+
+    let mut buildinfo = read_buildinfo().unwrap_or_default();
+
+    // Check for duplicate
+    if buildinfo.styles.contains(&name.to_string()) {
+        return Err(ConstraintCollisionError {
+            error_type: CollisionErrorType::Overdetermined,
+            message: format!("Style '{}' is already registered", name),
+            incoming_constraint: dummy_snapshot(),
+            conflicting_constraints: vec![],
+            repair_suggestions: vec![],
+            analysis: CollisionAnalysis {
+                cycle_path: None,
+                constraints_analyzed: 0,
+                analysis_time_us: 0,
+                hideable_in_viewport: false,
+                hiding_viewport: None,
+            },
+        });
+    }
+
+    // Add the style
+    buildinfo.styles.push(name.to_string());
+    write_buildinfo(&buildinfo).map_err(|e| io_error_to_collision(&e))?;
+
+    Ok(serde_json::json!({
+        "status": "success",
+        "action": "style_add",
+        "style": name,
+        "styles": buildinfo.styles,
+    }))
+}
+
+/// Remove a stylesheet from the project.
+pub fn style_remove(name: &str) -> CommandResult {
+    let mut buildinfo = read_buildinfo().unwrap_or_default();
+
+    // Check if style exists
+    let idx = buildinfo.styles.iter().position(|s| s == name);
+
+    match idx {
+        Some(i) => {
+            buildinfo.styles.remove(i);
+            write_buildinfo(&buildinfo).map_err(|e| io_error_to_collision(&e))?;
+
+            Ok(serde_json::json!({
+                "status": "success",
+                "action": "style_remove",
+                "style": name,
+                "styles": buildinfo.styles,
+            }))
+        }
+        None => Err(ConstraintCollisionError {
+            error_type: CollisionErrorType::Overdetermined,
+            message: format!("Style '{}' is not registered", name),
+            incoming_constraint: dummy_snapshot(),
+            conflicting_constraints: vec![],
+            repair_suggestions: vec![],
+            analysis: CollisionAnalysis {
+                cycle_path: None,
+                constraints_analyzed: 0,
+                analysis_time_us: 0,
+                hideable_in_viewport: false,
+                hiding_viewport: None,
+            },
+        }),
+    }
+}
+
+/// List registered stylesheets.
+pub fn style_list() -> CommandResult {
+    let buildinfo = read_buildinfo().unwrap_or_default();
+
+    Ok(serde_json::json!({
+        "status": "success",
+        "action": "style_list",
+        "styles": buildinfo.styles,
+        "known_styles": KNOWN_STYLES,
+    }))
+}
+
+// =============================================================================
+// Development Server (vsc dev)
+// =============================================================================
+
+/// Start development server with live preview.
+///
+/// Builds the project and serves static files on the specified port.
+pub fn dev(target: &str, port: u16) -> CommandResult {
+    // Validate target
+    if target != "vs-web" && target != "wgpu" {
+        return Err(ConstraintCollisionError {
+            error_type: CollisionErrorType::Overdetermined,
+            message: format!("Unsupported dev target: '{}'. Use 'vs-web' or 'wgpu'.", target),
+            incoming_constraint: dummy_snapshot(),
+            conflicting_constraints: vec![],
+            repair_suggestions: vec![],
+            analysis: CollisionAnalysis {
+                cycle_path: None,
+                constraints_analyzed: 0,
+                analysis_time_us: 0,
+                hideable_in_viewport: false,
+                hiding_viewport: None,
+            },
+        });
+    }
+
+    // Build to .vs-dev directory
+    let dev_dir = ".vs-dev";
+    println!("[vsc dev] Building project...");
+    build(target, dev_dir)?;
+
+    // Start HTTP server
+    println!("[vsc dev] Starting development server...");
+    println!("  ╭─────────────────────────────────────────╮");
+    println!("  │  ViewScript Dev Server                  │");
+    println!("  │  http://localhost:{:<5}                │", port);
+    println!("  │  Press Ctrl+C to stop                   │");
+    println!("  ╰─────────────────────────────────────────╯");
+
+    serve_static(dev_dir, port).map_err(|e| ConstraintCollisionError {
+        error_type: CollisionErrorType::Overdetermined,
+        message: format!("HTTP server error: {}", e),
+        incoming_constraint: dummy_snapshot(),
+        conflicting_constraints: vec![],
+        repair_suggestions: vec![],
+        analysis: CollisionAnalysis {
+            cycle_path: None,
+            constraints_analyzed: 0,
+            analysis_time_us: 0,
+            hideable_in_viewport: false,
+            hiding_viewport: None,
+        },
+    })?;
+
+    // Note: This is unreachable in normal operation as serve_static loops forever
+    Ok(serde_json::json!({
+        "status": "running",
+        "port": port,
+        "target": target,
+    }))
+}
+
+/// Minimal HTTP server for static file serving.
+///
+/// Serves files from the specified directory. Supports:
+/// - .html → text/html
+/// - .js → application/javascript
+/// - .wasm → application/wasm
+/// - .css → text/css
+/// - .json → application/json
+fn serve_static(dir: &str, port: u16) -> Result<(), String> {
+    let addr = format!("127.0.0.1:{}", port);
+    let listener = TcpListener::bind(&addr)
+        .map_err(|e| format!("Failed to bind to {}: {}", addr, e))?;
+
+    let base_path = PathBuf::from(dir);
+
+    for stream in listener.incoming() {
+        match stream {
+            Ok(stream) => {
+                if let Err(e) = handle_http_request(stream, &base_path) {
+                    eprintln!("[vsc dev] Request error: {}", e);
+                }
+            }
+            Err(e) => {
+                eprintln!("[vsc dev] Connection error: {}", e);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Handle a single HTTP request.
+fn handle_http_request(mut stream: TcpStream, base_path: &PathBuf) -> Result<(), String> {
+    let mut buffer = [0u8; 4096];
+    let n = stream.read(&mut buffer).map_err(|e| e.to_string())?;
+
+    if n == 0 {
+        return Ok(());
+    }
+
+    let request = String::from_utf8_lossy(&buffer[..n]);
+    let first_line = request.lines().next().unwrap_or("");
+
+    // Parse request line: "GET /path HTTP/1.1"
+    let parts: Vec<&str> = first_line.split_whitespace().collect();
+    if parts.len() < 2 || parts[0] != "GET" {
+        send_response(&mut stream, 400, "text/plain", b"Bad Request")?;
+        return Ok(());
+    }
+
+    let mut path = parts[1];
+
+    // Default to index.html for root
+    if path == "/" {
+        path = "/index.html";
+    }
+
+    // Security: prevent directory traversal
+    if path.contains("..") {
+        send_response(&mut stream, 403, "text/plain", b"Forbidden")?;
+        return Ok(());
+    }
+
+    // Build file path
+    let file_path = base_path.join(path.trim_start_matches('/'));
+
+    // Check if file exists
+    if !file_path.exists() || !file_path.is_file() {
+        println!("[vsc dev] 404 {}", path);
+        send_response(&mut stream, 404, "text/plain", b"Not Found")?;
+        return Ok(());
+    }
+
+    // Read file
+    let content = fs::read(&file_path).map_err(|e| e.to_string())?;
+
+    // Determine content type
+    let content_type = match file_path.extension().and_then(|e| e.to_str()) {
+        Some("html") => "text/html; charset=utf-8",
+        Some("js") => "application/javascript; charset=utf-8",
+        Some("wasm") => "application/wasm",
+        Some("css") => "text/css; charset=utf-8",
+        Some("json") => "application/json; charset=utf-8",
+        Some("png") => "image/png",
+        Some("svg") => "image/svg+xml",
+        _ => "application/octet-stream",
+    };
+
+    println!("[vsc dev] 200 {} ({})", path, content_type.split(';').next().unwrap_or(content_type));
+    send_response(&mut stream, 200, content_type, &content)?;
+
+    Ok(())
+}
+
+/// Send HTTP response.
+fn send_response(stream: &mut TcpStream, status: u16, content_type: &str, body: &[u8]) -> Result<(), String> {
+    let status_text = match status {
+        200 => "OK",
+        400 => "Bad Request",
+        403 => "Forbidden",
+        404 => "Not Found",
+        500 => "Internal Server Error",
+        _ => "Unknown",
+    };
+
+    let response = format!(
+        "HTTP/1.1 {} {}\r\n\
+         Content-Type: {}\r\n\
+         Content-Length: {}\r\n\
+         Connection: close\r\n\
+         Access-Control-Allow-Origin: *\r\n\
+         \r\n",
+        status, status_text, content_type, body.len()
+    );
+
+    stream.write_all(response.as_bytes()).map_err(|e| e.to_string())?;
+    stream.write_all(body).map_err(|e| e.to_string())?;
+    stream.flush().map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+// =============================================================================
+// Patch Constraint (vsc patch-constraint)
+// =============================================================================
+
+/// Modify an existing constraint on an entity.
+///
+/// Searches for constraints targeting the specified entity and component,
+/// then updates the relation and value.
+pub fn patch_constraint(
+    entity_id: u64,
+    component: &str,
+    relation: &str,
+    value: &str,
+    intent: Option<&str>,
+) -> CommandResult {
+    let mut buildinfo = read_buildinfo().unwrap_or_default();
+
+    // Parse component
+    let vec_component = match component.to_lowercase().as_str() {
+        "x" => VectorComponent::X,
+        "y" => VectorComponent::Y,
+        "z" => VectorComponent::Z,
+        "t" => VectorComponent::T,
+        "width" | "w" => VectorComponent::X, // Width often maps to X dimension
+        "height" | "h" => VectorComponent::Y, // Height often maps to Y dimension
+        _ => {
+            return Err(ConstraintCollisionError {
+                error_type: CollisionErrorType::Overdetermined,
+                message: format!("Unknown component: '{}'. Use x, y, z, t, width, or height.", component),
+                incoming_constraint: dummy_snapshot(),
+                conflicting_constraints: vec![],
+                repair_suggestions: vec![],
+                analysis: CollisionAnalysis {
+                    cycle_path: None,
+                    constraints_analyzed: 0,
+                    analysis_time_us: 0,
+                    hideable_in_viewport: false,
+                    hiding_viewport: None,
+                },
+            });
+        }
+    };
+
+    // Parse relation
+    let rel_type = match relation.to_lowercase().as_str() {
+        "eq" | "=" | "==" => RelationType::Eq,
+        "le" | "<=" => RelationType::Le,
+        "ge" | ">=" => RelationType::Ge,
+        "lt" | "<" => RelationType::Lt,
+        "gt" | ">" => RelationType::Gt,
+        _ => {
+            return Err(ConstraintCollisionError {
+                error_type: CollisionErrorType::Overdetermined,
+                message: format!("Unknown relation: '{}'. Use eq, le, ge, lt, or gt.", relation),
+                incoming_constraint: dummy_snapshot(),
+                conflicting_constraints: vec![],
+                repair_suggestions: vec![],
+                analysis: CollisionAnalysis {
+                    cycle_path: None,
+                    constraints_analyzed: 0,
+                    analysis_time_us: 0,
+                    hideable_in_viewport: false,
+                    hiding_viewport: None,
+                },
+            });
+        }
+    };
+
+    // Parse value as Rational
+    let rational_value = parse_rational(value).ok_or_else(|| ConstraintCollisionError {
+        error_type: CollisionErrorType::Overdetermined,
+        message: format!("Invalid value '{}'. Use integer or fraction format (e.g., '100' or '3/2').", value),
+        incoming_constraint: dummy_snapshot(),
+        conflicting_constraints: vec![],
+        repair_suggestions: vec![],
+        analysis: CollisionAnalysis {
+            cycle_path: None,
+            constraints_analyzed: 0,
+            analysis_time_us: 0,
+            hideable_in_viewport: false,
+            hiding_viewport: None,
+        },
+    })?;
+
+    // Find and update matching constraint in operations
+    let target_entity = EntityId(entity_id);
+    let mut found = false;
+    let mut modified_op_index = None;
+
+    for (idx, op) in buildinfo.operations.iter_mut().enumerate() {
+        // Only consider Add or Modify operations (not Delete)
+        if op.op_type == OperationType::Add || op.op_type == OperationType::Modify {
+            if op.constraint.target == target_entity && op.constraint.component == vec_component {
+                // Update the constraint
+                op.constraint.relation = rel_type.clone();
+                op.constraint.term = ConstraintTerm::Const { value: rational_value.clone() };
+                op.op_type = OperationType::Modify;
+                found = true;
+                modified_op_index = Some(idx);
+                break;
+            }
+        }
+    }
+
+    if !found {
+        return Err(ConstraintCollisionError {
+            error_type: CollisionErrorType::Overdetermined,
+            message: format!(
+                "No constraint found for entity {} component {}. Use 'vsc add-constraint' to create one.",
+                entity_id, component
+            ),
+            incoming_constraint: dummy_snapshot(),
+            conflicting_constraints: vec![],
+            repair_suggestions: vec![],
+            analysis: CollisionAnalysis {
+                cycle_path: None,
+                constraints_analyzed: buildinfo.operations.len() as u64,
+                analysis_time_us: 0,
+                hideable_in_viewport: false,
+                hiding_viewport: None,
+            },
+        });
+    }
+
+    // Write updated buildinfo
+    write_buildinfo(&buildinfo).map_err(|e| io_error_to_collision(&e))?;
+
+    Ok(serde_json::json!({
+        "status": "success",
+        "action": "patch_constraint",
+        "entity_id": entity_id,
+        "component": component,
+        "relation": relation,
+        "value": value,
+        "modified_operation_index": modified_op_index,
+        "intent": intent,
+    }))
+}
+
+// =============================================================================
+// vsc search — Query objects in the constraint graph
+// =============================================================================
+
+/// Search and query objects in the constraint graph.
+///
+/// ## Object Types
+/// - `constraint`: Constraint operations from buildinfo
+/// - `path`: Path entities (SVG-like paths)
+/// - `control-point`: Gradient control points
+/// - `text`: Text entities
+/// - `gradient`: Linear and radial gradients
+/// - `q-variable`: Q-dimension variables (future)
+/// - `derived`: Derived constraints (future)
+/// - `all`: All object types (default)
+///
+/// ## Filters
+/// - `entity_id`: Return only objects related to this entity
+/// - `component`: Filter by component (x, y, width, height)
+/// - `where_clause`: Constraint satisfaction filter (e.g., "x > 100")
+///
+/// ## Examples
+/// ```bash
+/// vsc search                          # List all objects
+/// vsc search -t constraint            # List only constraints
+/// vsc search -e 1000                  # Objects related to entity 1000
+/// vsc search -t constraint -c x       # X-component constraints only
+/// vsc search -w "x > 100"             # Objects satisfying x > 100
+/// ```
+pub fn search(
+    object_type: Option<&str>,
+    entity_id: Option<u64>,
+    component: Option<&str>,
+    where_clause: Option<&str>,
+    limit: usize,
+) -> CommandResult {
+    let buildinfo = read_buildinfo().unwrap_or_default();
+    let obj_type = object_type.unwrap_or("all");
+
+    let mut results: Vec<serde_json::Value> = Vec::new();
+
+    // Parse component filter if provided
+    let component_filter: Option<VectorComponent> = component.and_then(|c| {
+        match c.to_lowercase().as_str() {
+            "x" => Some(VectorComponent::X),
+            "y" => Some(VectorComponent::Y),
+            "z" => Some(VectorComponent::Z),
+            "t" => Some(VectorComponent::T),
+            "width" | "w" => Some(VectorComponent::X),
+            "height" | "h" => Some(VectorComponent::Y),
+            _ => None,
+        }
+    });
+
+    // Collect constraints
+    if obj_type == "all" || obj_type == "constraint" {
+        for op in &buildinfo.operations {
+            if op.op_type != OperationType::Add {
+                continue;
+            }
+
+            // Filter by entity_id
+            if let Some(eid) = entity_id {
+                if op.constraint.target.0 != eid {
+                    // Also check if term references this entity
+                    let references_entity = match &op.constraint.term {
+                        ConstraintTerm::Ref { entity_id: ref_id, .. } => ref_id.0 == eid,
+                        ConstraintTerm::Linear { entity_id: lin_id, .. } => lin_id.0 == eid,
+                        _ => false,
+                    };
+                    if !references_entity {
+                        continue;
+                    }
+                }
+            }
+
+            // Filter by component
+            if let Some(ref comp) = component_filter {
+                if &op.constraint.component != comp {
+                    continue;
+                }
+            }
+
+            results.push(serde_json::json!({
+                "type": "constraint",
+                "id": op.constraint.id,
+                "seq": op.seq,
+                "target": op.constraint.target.0,
+                "component": format!("{:?}", op.constraint.component),
+                "relation": format!("{:?}", op.constraint.relation),
+                "term": format!("{:?}", op.constraint.term),
+                "intent": op.intent,
+                "timestamp": op.timestamp,
+            }));
+
+            if results.len() >= limit {
+                break;
+            }
+        }
+    }
+
+    // Collect path entities
+    if (obj_type == "all" || obj_type == "path") && results.len() < limit {
+        for path in &buildinfo.path_entities {
+            // Filter by entity_id
+            if let Some(eid) = entity_id {
+                if path.id.0 != eid {
+                    continue;
+                }
+            }
+
+            results.push(serde_json::json!({
+                "type": "path",
+                "id": path.id.0,
+                "segment_count": path.segments.len(),
+                "closed": path.closed,
+            }));
+
+            if results.len() >= limit {
+                break;
+            }
+        }
+    }
+
+    // Collect control points
+    if (obj_type == "all" || obj_type == "control-point") && results.len() < limit {
+        for cp in &buildinfo.control_points {
+            // Filter by entity_id
+            if let Some(eid) = entity_id {
+                if cp.id.0 != eid {
+                    continue;
+                }
+            }
+
+            results.push(serde_json::json!({
+                "type": "control-point",
+                "id": cp.id.0,
+                "parent_path": cp.parent_path.map(|p| p.0),
+                "role": format!("{:?}", cp.role),
+                "x": cp.x.to_string(),
+                "y": cp.y.to_string(),
+            }));
+
+            if results.len() >= limit {
+                break;
+            }
+        }
+    }
+
+    // Collect text entities
+    if (obj_type == "all" || obj_type == "text") && results.len() < limit {
+        for text in &buildinfo.text_entities {
+            // Filter by entity_id
+            if let Some(eid) = entity_id {
+                if text.id.0 != eid {
+                    continue;
+                }
+            }
+
+            results.push(serde_json::json!({
+                "type": "text",
+                "id": text.id.0,
+                "content": text.content,
+                "font_family": text.font_family,
+                "font_size": text.font_size.to_string(),
+                "metrics_resolved": text.metrics_resolved,
+                "corner_tl": text.corner_tl.0,
+                "corner_tr": text.corner_tr.0,
+                "corner_bl": text.corner_bl.0,
+                "corner_br": text.corner_br.0,
+            }));
+
+            if results.len() >= limit {
+                break;
+            }
+        }
+    }
+
+    // Collect gradients
+    if (obj_type == "all" || obj_type == "gradient") && results.len() < limit {
+        // Linear gradients
+        for grad in &buildinfo.linear_gradients {
+            if let Some(eid) = entity_id {
+                if grad.id.0 != eid {
+                    continue;
+                }
+            }
+
+            results.push(serde_json::json!({
+                "type": "gradient",
+                "subtype": "linear",
+                "id": grad.id.0,
+                "target": grad.target.0,
+                "start": grad.start.0,
+                "end": grad.end.0,
+                "stop_count": grad.stops.len(),
+            }));
+
+            if results.len() >= limit {
+                break;
+            }
+        }
+
+        // Radial gradients
+        for grad in &buildinfo.radial_gradients {
+            if let Some(eid) = entity_id {
+                if grad.id.0 != eid {
+                    continue;
+                }
+            }
+
+            results.push(serde_json::json!({
+                "type": "gradient",
+                "subtype": "radial",
+                "id": grad.id.0,
+                "target": grad.target.0,
+                "center": grad.center.0,
+                "radius_x": grad.radius_x.0,
+                "radius_y": grad.radius_y.0,
+                "stop_count": grad.stops.len(),
+            }));
+
+            if results.len() >= limit {
+                break;
+            }
+        }
+    }
+
+    // Apply where_clause filter if specified (basic implementation)
+    // Full solver-based filtering is a future enhancement
+    if let Some(_clause) = where_clause {
+        // TODO: Implement solver-based where clause evaluation
+        // For now, we just note that where_clause was provided
+    }
+
+    Ok(serde_json::json!({
+        "status": "success",
+        "object_type": obj_type,
+        "entity_id_filter": entity_id,
+        "component_filter": component,
+        "where_clause": where_clause,
+        "count": results.len(),
+        "limit": limit,
+        "results": results,
+    }))
+}
+

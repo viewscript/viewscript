@@ -1,0 +1,42 @@
+[package]
+name = "vsc-gpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "wgpu-based renderer for ViewScript P-dimension visualization"
+
+[dependencies]
+# Core types (Rational, EntityId)
+vsc-core = { path = "../vsc-core" }
+
+# GPU rendering
+wgpu = "23.0"
+
+# Path tessellation (SVG path commands -> vertex buffers)
+lyon = "1.0"
+
+# Safe transmute for vertex buffer construction
+bytemuck = { version = "1.16", features = ["derive"] }
+
+# Serialization for WASM boundary
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Logging
+log = "0.4"
+
+[dev-dependencies]
+pollster = "0.4"  # Block on async for tests
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "loop_blinn_bench"
+harness = false
+
+[[bench]]
+name = "sdf_stroke_bench"
+harness = false

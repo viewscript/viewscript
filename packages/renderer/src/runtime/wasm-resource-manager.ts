@@ -1,9 +1,9 @@
 /**
  * WASM Resource Manager
  *
- * This module provides explicit lifecycle management for CanvasKit WASM resources.
+ * This module provides explicit lifecycle management for WASM GPU resources.
  * JavaScript's garbage collector cannot free WASM heap memory - we must call
- * delete() explicitly on CanvasKit objects.
+ * delete() explicitly on GPU objects.
  *
  * ## Problem
  *
@@ -21,10 +21,10 @@
  *
  * | Resource | Lifetime | Release Strategy |
  * |----------|----------|------------------|
- * | SkPaint  | Entity   | On entity remove / HMR update |
- * | SkPath   | Entity   | On path change / entity remove |
- * | SkImage  | Async    | On image unload / src change |
- * | SkFont   | Global   | On font unload (rare) |
+ * | PaintSpec  | Entity   | On entity remove / HMR update |
+ * | PathEntity | Entity   | On path change / entity remove |
+ * | GpuImage   | Async    | On image unload / src change |
+ * | GpuFont    | Global   | On font unload (rare) |
  */
 
 // =============================================================================
@@ -32,7 +32,7 @@
 // =============================================================================
 
 /**
- * Any CanvasKit object with a delete() method.
+ * Any GPU WASM object with a delete() method.
  */
 interface Deletable {
   delete(): void;
@@ -100,7 +100,7 @@ export class WASMResourceManager {
   /**
    * Register a WASM resource for tracking.
    *
-   * @param resource - CanvasKit object with delete() method
+   * @param resource - GPU WASM object with delete() method
    * @param type - Resource category
    * @param entityId - Associated entity (optional)
    * @returns Symbol token for explicit release

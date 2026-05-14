@@ -1,0 +1,17 @@
+[package]
+name = "vsc-ffi-c"
+version.workspace = true
+edition.workspace = true
+description = "C ABI bindings for ViewScript constraint engine"
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+vsc-core = { path = "../vsc-core" }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+# For C ABI tests

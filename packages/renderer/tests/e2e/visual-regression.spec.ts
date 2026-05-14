@@ -2,7 +2,7 @@
  * Deterministic Visual Regression Tests
  *
  * This module ensures bit-perfect reproducibility of Canvas rendering
- * by forcing CanvasKit into CPU-only software rendering mode.
+ * by forcing the GPU renderer into CPU-only software rendering mode.
  *
  * ## The Problem: GPU Non-Determinism
  *
@@ -13,7 +13,7 @@
  *
  * ## Solution: Software Rendering + Hash Comparison
  *
- * 1. Force CanvasKit to use CPU rasterizer (no GPU)
+ * 1. Force wgpu renderer to use CPU rasterizer (no GPU)
  * 2. Disable subpixel text positioning
  * 3. Use fixed-width fonts for text tests
  * 4. Compare output against golden snapshots via SHA-256 hash
@@ -44,9 +44,9 @@ const GOLDEN_DIR = path.join(__dirname, 'golden');
 const FAILURE_DIR = path.join(__dirname, 'failures');
 
 /**
- * CanvasKit initialization options for deterministic rendering.
+ * GPU renderer initialization options for deterministic rendering.
  */
-const CANVASKIT_DETERMINISTIC_CONFIG = {
+const WGPU_DETERMINISTIC_CONFIG = {
   // Force CPU-only rendering (no WebGL)
   disableWebGL: true,
 
@@ -207,7 +207,7 @@ test.describe('Visual Regression: Bit-Perfect Rendering', () => {
 // =============================================================================
 
 /**
- * Setup Playwright page with deterministic CanvasKit configuration.
+ * Setup Playwright page with deterministic wgpu renderer configuration.
  */
 async function setupDeterministicRenderer(page: Page): Promise<void> {
   // Navigate to test harness (follow redirect if needed)
@@ -215,10 +215,10 @@ async function setupDeterministicRenderer(page: Page): Promise<void> {
 
   // Inject deterministic configuration
   await page.evaluate((config) => {
-    (window as any).__VS_CANVASKIT_CONFIG__ = config;
-  }, CANVASKIT_DETERMINISTIC_CONFIG);
+    (window as any).__VS_RENDERER_CONFIG__ = config;
+  }, WGPU_DETERMINISTIC_CONFIG);
 
-  // Wait for CanvasKit initialization
+  // Wait for renderer initialization
   await page.waitForFunction(() => (window as any).__VS_RENDERER_READY__ === true, {
     timeout: 10000,
   });

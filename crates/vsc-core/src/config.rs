@@ -118,7 +118,7 @@ pub struct BuildConfig {
     pub minify: bool,
 }
 
-fn default_target() -> String { "canvaskit".to_string() }
+fn default_target() -> String { "vs-web".to_string() }
 fn default_outdir() -> String { "dist".to_string() }
 fn default_minify() -> bool { true }
 

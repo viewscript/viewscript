@@ -16,6 +16,13 @@ pub mod solver;
 pub mod algebra;
 pub mod analyzer;
 pub mod component;
+pub mod schema;
+pub mod scene;
+pub mod target;
+pub mod ffi;
+
+#[cfg(feature = "text-shaping")]
+pub mod text;
 
 #[cfg(feature = "proptest-tests")]
 pub mod proptest_checks;
@@ -32,3 +39,9 @@ pub use solver::*;
 pub use algebra::*;
 pub use analyzer::*;
 pub use component::*;
+pub use scene::*;
+pub use target::*;
+pub use ffi::*;
+
+#[cfg(feature = "text-shaping")]
+pub use text::*;

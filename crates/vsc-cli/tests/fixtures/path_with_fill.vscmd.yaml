@@ -1,0 +1,33 @@
+# Path Entity + Fill Spec CODL Command
+# Phase G: Tests path_entity and fill_spec yield support in run_command.
+#
+# Creates one PathEntityEntry with an empty segment list (for testing),
+# then applies a solid red fill to it.
+
+name: path_with_fill
+version: "1.0.0"
+description: "Creates a path entity and applies a solid fill"
+
+parameters:
+  - name: path_id
+    type: EntityId
+    description: "Entity ID to assign to the new path"
+
+operations:
+  - type: path_entity
+    id: "${path_id}"
+    segments: []
+    closed: false
+
+  - type: fill_spec
+    target: "${path_id}"
+    fill:
+      type: solid
+      r: "255"
+      g: "0"
+      b: "0"
+      a: "1"
+
+metadata:
+  author: "test"
+  category: "test"

@@ -23,9 +23,9 @@ pub type VertexId = u64;
 /// Unique identifier for an edge (constraint) in the graph.
 pub type EdgeId = u64;
 
-/// An edge in the constraint graph.
+/// An edge in the constraint graph (renamed from Edge to avoid collision with types::Edge).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Edge {
+pub struct ConstraintEdge {
     pub id: EdgeId,
     pub v1: VertexId,
     pub v2: VertexId,
@@ -187,7 +187,7 @@ impl PebbleGame {
     ///
     /// Returns true if the edge is independent (non-redundant),
     /// false if it is redundant.
-    fn add_edge(&mut self, edge: &Edge) -> bool {
+    fn add_edge(&mut self, edge: &ConstraintEdge) -> bool {
         let v1 = edge.v1;
         let v2 = edge.v2;
 
@@ -275,7 +275,7 @@ impl PebbleGame {
 /// - How many degrees of freedom remain (if flexible)
 pub fn analyze_rigidity(
     vertices: impl IntoIterator<Item = VertexId>,
-    edges: impl IntoIterator<Item = Edge>,
+    edges: impl IntoIterator<Item = ConstraintEdge>,
 ) -> RigidityAnalysis {
     let vertices: Vec<_> = vertices.into_iter().collect();
     let edges: Vec<_> = edges.into_iter().collect();
@@ -357,7 +357,7 @@ pub fn analyze_rigidity(
 /// Maps ViewScript entities to vertices and constraints to edges.
 pub struct ConstraintGraphBuilder {
     vertices: HashSet<VertexId>,
-    edges: Vec<Edge>,
+    edges: Vec<ConstraintEdge>,
     next_edge_id: EdgeId,
 }
 
@@ -385,7 +385,7 @@ impl ConstraintGraphBuilder {
 
         self.vertices.insert(v1);
         self.vertices.insert(v2);
-        self.edges.push(Edge { id, v1, v2 });
+        self.edges.push(ConstraintEdge { id, v1, v2 });
 
         id
     }
@@ -394,7 +394,7 @@ impl ConstraintGraphBuilder {
     pub fn add_edge_with_id(&mut self, id: EdgeId, v1: VertexId, v2: VertexId) {
         self.vertices.insert(v1);
         self.vertices.insert(v2);
-        self.edges.push(Edge { id, v1, v2 });
+        self.edges.push(ConstraintEdge { id, v1, v2 });
     }
 
     /// Build and analyze the constraint graph.

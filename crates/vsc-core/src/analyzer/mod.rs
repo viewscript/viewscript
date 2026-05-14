@@ -5,6 +5,11 @@
 
 pub mod rigidity;
 pub mod jacobian;
+pub mod singularity;
 
 pub use rigidity::*;
 pub use jacobian::*;
+pub use singularity::{
+    build_jacobian_matrix, compute_rank_rational, detect_singularity, JacVar, JacobianMatrix,
+    SingularityWarning,
+};

@@ -148,10 +148,9 @@ impl Validator {
             return errors;
         }
 
-        // Check: path starts with MoveTo
-        if !matches!(path.segments.first(), Some(PathSegment::MoveTo { .. })) {
-            errors.push(ValidationError::PathMissingMoveTo { path_id: path.id });
-        }
+        // Note: Phase G design uses explicit from/to in each segment.
+        // The first segment's `from` serves as the implicit MoveTo.
+        // No separate MoveTo variant exists.
 
         // Check: all referenced entities are valid ControlPoints
         for (idx, segment) in path.segments.iter().enumerate() {
@@ -212,21 +211,29 @@ impl Validator {
     }
 
     /// Get point IDs from a segment with expected roles (None = anchor, Some("handle") = handle).
+    ///
+    /// Phase G design: Each segment has explicit from/to. Both `from` and `to` are anchors.
     fn get_segment_point_ids(&self, segment: &PathSegment) -> Vec<(EntityId, Option<&'static str>)> {
         match segment {
-            PathSegment::MoveTo { point } => vec![(*point, Some("anchor"))],
-            PathSegment::LineTo { point } => vec![(*point, Some("anchor"))],
-            PathSegment::QuadTo { control, point } => vec![
-                (*control, Some("handle")),
-                (*point, Some("anchor")),
+            PathSegment::Line { from, to } => vec![
+                (*from, Some("anchor")),
+                (*to, Some("anchor")),
             ],
-            PathSegment::CubicTo { control1, control2, point } => vec![
-                (*control1, Some("handle")),
-                (*control2, Some("handle")),
-                (*point, Some("anchor")),
+            PathSegment::Quad { from, handle, to } => vec![
+                (*from, Some("anchor")),
+                (*handle, Some("handle")),
+                (*to, Some("anchor")),
             ],
-            PathSegment::ArcTo { point, .. } => vec![(*point, Some("anchor"))],
-            PathSegment::Close => vec![],
+            PathSegment::Cubic { from, handle1, handle2, to } => vec![
+                (*from, Some("anchor")),
+                (*handle1, Some("handle")),
+                (*handle2, Some("handle")),
+                (*to, Some("anchor")),
+            ],
+            PathSegment::Arc { from, to, .. } => vec![
+                (*from, Some("anchor")),
+                (*to, Some("anchor")),
+            ],
         }
     }
 
@@ -338,14 +345,17 @@ mod tests {
 
     #[test]
     fn test_valid_line_path() {
+        // Phase G design: Line { from, to } with explicit endpoints
         let entities = vec![
             make_anchor(1, 0, 0),
             make_anchor(2, 100, 100),
             Entity::Path(Path {
                 id: EntityId(100),
                 segments: vec![
-                    PathSegment::MoveTo { point: EntityId(1) },
-                    PathSegment::LineTo { point: EntityId(2) },
+                    PathSegment::Line {
+                        from: EntityId(1),
+                        to: EntityId(2),
+                    },
                 ],
                 fill_rule: crate::FillRule::NonZero,
                 closed: false,
@@ -358,6 +368,7 @@ mod tests {
 
     #[test]
     fn test_valid_cubic_bezier_path() {
+        // Phase G design: Cubic { from, handle1, handle2, to }
         let entities = vec![
             make_anchor(1, 0, 0),      // Start
             make_handle(2, 50, 100),   // Control 1
@@ -366,11 +377,11 @@ mod tests {
             Entity::Path(Path {
                 id: EntityId(100),
                 segments: vec![
-                    PathSegment::MoveTo { point: EntityId(1) },
-                    PathSegment::CubicTo {
-                        control1: EntityId(2),
-                        control2: EntityId(3),
-                        point: EntityId(4),
+                    PathSegment::Cubic {
+                        from: EntityId(1),
+                        handle1: EntityId(2),
+                        handle2: EntityId(3),
+                        to: EntityId(4),
                     },
                 ],
                 fill_rule: crate::FillRule::NonZero,
@@ -390,8 +401,10 @@ mod tests {
             Entity::Path(Path {
                 id: EntityId(100),
                 segments: vec![
-                    PathSegment::MoveTo { point: EntityId(1) },
-                    PathSegment::LineTo { point: EntityId(2) }, // References missing entity
+                    PathSegment::Line {
+                        from: EntityId(1),
+                        to: EntityId(2), // References missing entity
+                    },
                 ],
                 fill_rule: crate::FillRule::NonZero,
                 closed: false,
@@ -421,8 +434,10 @@ mod tests {
             Entity::Path(Path {
                 id: EntityId(100),
                 segments: vec![
-                    PathSegment::MoveTo { point: EntityId(1) },
-                    PathSegment::LineTo { point: EntityId(2) }, // References Rect, not ControlPoint!
+                    PathSegment::Line {
+                        from: EntityId(1),
+                        to: EntityId(2), // References Rect, not ControlPoint!
+                    },
                 ],
                 fill_rule: crate::FillRule::NonZero,
                 closed: false,
@@ -454,28 +469,8 @@ mod tests {
         assert!(matches!(errors[0], ValidationError::EmptyPath { .. }));
     }
 
-    #[test]
-    fn test_rejects_path_without_moveto() {
-        let entities = vec![
-            make_anchor(1, 0, 0),
-            make_anchor(2, 100, 100),
-            Entity::Path(Path {
-                id: EntityId(100),
-                segments: vec![
-                    PathSegment::LineTo { point: EntityId(1) }, // Should start with MoveTo!
-                    PathSegment::LineTo { point: EntityId(2) },
-                ],
-                fill_rule: crate::FillRule::NonZero,
-                closed: false,
-            }),
-        ];
-
-        let validator = Validator::new(entities);
-        let result = validator.validate_paths();
-        assert!(result.is_err());
-        let errors = result.unwrap_err();
-        assert!(matches!(errors[0], ValidationError::PathMissingMoveTo { .. }));
-    }
+    // Note: test_rejects_path_without_moveto removed.
+    // Phase G design uses explicit from/to in segments; no MoveTo variant.
 
     #[test]
     fn test_rejects_constraint_on_path_entity() {

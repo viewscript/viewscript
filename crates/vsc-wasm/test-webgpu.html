@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ViewScript WebGPU Stage 1 Test</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: system-ui, sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+    }
+    h1 {
+      margin: 0 0 20px 0;
+      font-size: 24px;
+    }
+    #status {
+      margin-bottom: 20px;
+      padding: 10px;
+      border-radius: 4px;
+      background: #16213e;
+    }
+    #status.success { background: #0f3d0f; }
+    #status.error { background: #3d0f0f; }
+    canvas {
+      border: 2px solid #4a4a6a;
+      border-radius: 4px;
+    }
+    pre {
+      background: #16213e;
+      padding: 10px;
+      border-radius: 4px;
+      overflow-x: auto;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>ViewScript WebGPU Stage 1 Test</h1>
+
+  <div id="status">Initializing...</div>
+
+  <canvas id="vs-canvas" width="400" height="300"></canvas>
+
+  <h2>Adapter Info</h2>
+  <pre id="adapter-info">Loading...</pre>
+
+  <h2>Render Log</h2>
+  <pre id="render-log"></pre>
+
+  <script type="module">
+    import init, { WasmGpuRenderer, is_webgpu_available, get_adapter_info } from './pkg/vsc_wasm.js';
+
+    const statusEl = document.getElementById('status');
+    const adapterInfoEl = document.getElementById('adapter-info');
+    const renderLogEl = document.getElementById('render-log');
+
+    function log(msg) {
+      renderLogEl.textContent += msg + '\n';
+      console.log(msg);
+    }
+
+    async function main() {
+      try {
+        // Initialize WASM module
+        log('[1] Initializing WASM module...');
+        await init();
+        log('[1] WASM module initialized');
+
+        // Check WebGPU availability
+        log('[2] Checking WebGPU availability...');
+        const available = is_webgpu_available();
+        log(`[2] WebGPU available: ${available}`);
+
+        if (!available) {
+          throw new Error('WebGPU is not available in this browser');
+        }
+
+        // Get adapter info
+        log('[3] Getting adapter info...');
+        const adapterInfo = await get_adapter_info();
+        adapterInfoEl.textContent = JSON.stringify(JSON.parse(adapterInfo), null, 2);
+        log('[3] Adapter info retrieved');
+
+        // Create renderer
+        log('[4] Creating renderer...');
+        const canvas = document.getElementById('vs-canvas');
+        const renderer = await WasmGpuRenderer.create(canvas);
+        log(`[4] Renderer created: ${renderer.width}x${renderer.height}`);
+
+        // Render clear (white background)
+        log('[5] Rendering clear frame...');
+        renderer.render_clear();
+        log('[5] Clear frame rendered');
+
+        // Render a red triangle
+        log('[6] Rendering red triangle...');
+        const triangleNode = [{
+          kind: "path",
+          entity_id: 1,
+          bounds: {
+            top_left: { x: "0/1", y: "0/1", z: "0/1", t: "0/1" },
+            bottom_right: { x: "200/1", y: "150/1", z: "0/1", t: "0/1" }
+          },
+          z_order: 0,
+          chunk_id: "main",
+          path_data: [
+            { type: "M", x: "100/1", y: "10/1" },
+            { type: "L", x: "190/1", y: "140/1" },
+            { type: "L", x: "10/1", y: "140/1" },
+            { type: "Z" }
+          ],
+          fill: { type: "solid", color: "#ff4444" },
+          stroke: null
+        }];
+        renderer.render(JSON.stringify(triangleNode));
+        log('[6] Red triangle rendered');
+
+        // Render a second shape (blue rectangle)
+        log('[7] Rendering blue rectangle...');
+        const rectNode = [{
+          kind: "path",
+          entity_id: 2,
+          bounds: {
+            top_left: { x: "220/1", y: "50/1", z: "0/1", t: "0/1" },
+            bottom_right: { x: "380/1", y: "250/1", z: "0/1", t: "0/1" }
+          },
+          z_order: 0,
+          chunk_id: "main",
+          path_data: [
+            { type: "M", x: "220/1", y: "50/1" },
+            { type: "L", x: "380/1", y: "50/1" },
+            { type: "L", x: "380/1", y: "250/1" },
+            { type: "L", x: "220/1", y: "250/1" },
+            { type: "Z" }
+          ],
+          fill: { type: "solid", color: "#4444ff" },
+          stroke: null
+        }];
+        renderer.render(JSON.stringify(rectNode));
+        log('[7] Blue rectangle rendered');
+
+        // Success!
+        statusEl.textContent = 'Stage 1 Complete: WebGPU pipeline working!';
+        statusEl.className = 'success';
+        log('[DONE] Stage 1 complete!');
+
+      } catch (error) {
+        statusEl.textContent = `Error: ${error.message}`;
+        statusEl.className = 'error';
+        log(`[ERROR] ${error.message}`);
+        console.error(error);
+      }
+    }
+
+    main();
+  </script>
+</body>
+</html>

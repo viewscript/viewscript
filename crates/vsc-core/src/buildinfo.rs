@@ -3,11 +3,13 @@
 //! This module defines the structure of the append-only ledger that tracks
 //! the order and intent of constraint additions by the LLM.
 
+use crate::ffi::{DerivedQVariable, QVariable};
 use crate::types::*;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// The .vsbuildinfo file structure: an append-only event log.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct VsBuildInfo {
     /// Schema version for forward compatibility.
     pub version: u32,
@@ -37,6 +39,10 @@ pub struct VsBuildInfo {
     /// Higher-order constraints that expand into multiple linear constraints.
     #[serde(default)]
     pub layout_macros: Vec<LayoutMacroOperation>,
+
+    /// Phase G: Path entities (from CODL or scene builder).
+    #[serde(default)]
+    pub path_entities: Vec<PathEntityEntry>,
 
     // =========================================================================
     // Phase 17: Gradient Entities
@@ -69,6 +75,36 @@ pub struct VsBuildInfo {
     /// Angle entities (for conic gradients).
     #[serde(default)]
     pub angles: Vec<AngleEntry>,
+
+    // =========================================================================
+    // Target System
+    // =========================================================================
+
+    /// Registered render targets (e.g., "vs-web", "vs-native").
+    #[serde(default)]
+    pub targets: Vec<String>,
+
+    // =========================================================================
+    // Style System
+    // =========================================================================
+
+    /// Registered style packages (e.g., "vs-style-chrome", "vs-style-firefox").
+    #[serde(default)]
+    pub styles: Vec<String>,
+
+    // =========================================================================
+    // Q-Dimension FFI
+    // =========================================================================
+
+    /// Q-dimension variable declarations.
+    /// These define external inputs that can bind to T-dimension variables.
+    #[serde(default)]
+    pub q_variables: Vec<QVariable>,
+
+    /// Derived Q-dimension variables.
+    /// These are computed from rules using Q-values and P-dimension state.
+    #[serde(default)]
+    pub derived_q_variables: Vec<DerivedQVariable>,
 }
 
 impl Default for VsBuildInfo {
@@ -81,6 +117,8 @@ impl Default for VsBuildInfo {
             text_entities: Vec::new(),
             next_entity_id: 1000, // Reserve 0-999 for legacy/manual IDs
             layout_macros: Vec::new(),
+            // Phase G: Path entities
+            path_entities: Vec::new(),
             // Phase 17: Gradient entities
             control_points: Vec::new(),
             color_stops: Vec::new(),
@@ -89,12 +127,19 @@ impl Default for VsBuildInfo {
             conic_gradients: Vec::new(),
             radii: Vec::new(),
             angles: Vec::new(),
+            // Target system
+            targets: Vec::new(),
+            // Style system
+            styles: Vec::new(),
+            // Q-dimension FFI
+            q_variables: Vec::new(),
+            derived_q_variables: Vec::new(),
         }
     }
 }
 
 /// Entry for a text entity in the buildinfo (Phase 10).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct TextEntityEntry {
     /// Unique identifier for the text entity.
     pub id: EntityId,
@@ -130,7 +175,7 @@ pub struct TextEntityEntry {
 }
 
 /// Entry for a tangent (collinearity) constraint.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct TangentConstraintEntry {
     /// Unique identifier.
     pub id: u64,
@@ -153,7 +198,7 @@ pub struct TangentConstraintEntry {
 
 /// Entry for a control point in the buildinfo (Phase 17).
 /// Used for gradient start/end points, centers, etc.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ControlPointEntry {
     /// Unique entity ID.
     pub id: EntityId,
@@ -169,7 +214,7 @@ pub struct ControlPointEntry {
 }
 
 /// Entry for a color stop in a gradient (Phase 17).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ColorStopEntry {
     /// Unique entity ID.
     pub id: EntityId,
@@ -186,7 +231,7 @@ pub struct ColorStopEntry {
 }
 
 /// Entry for a linear gradient (Phase 17).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct LinearGradientEntry {
     /// Unique entity ID.
     pub id: EntityId,
@@ -204,7 +249,7 @@ pub struct LinearGradientEntry {
 }
 
 /// Entry for a radial gradient (Phase 17).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RadialGradientEntry {
     /// Unique entity ID.
     pub id: EntityId,
@@ -224,7 +269,7 @@ pub struct RadialGradientEntry {
 }
 
 /// Entry for a conic gradient (Phase 17).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ConicGradientEntry {
     /// Unique entity ID.
     pub id: EntityId,
@@ -244,7 +289,7 @@ pub struct ConicGradientEntry {
 
 /// Entry for a radius value (Phase 17).
 /// Used for radial gradient radii.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RadiusEntry {
     /// Unique entity ID.
     pub id: EntityId,
@@ -254,7 +299,7 @@ pub struct RadiusEntry {
 
 /// Entry for an angle value (Phase 17).
 /// Used for conic gradient angles.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct AngleEntry {
     /// Unique entity ID.
     pub id: EntityId,
@@ -263,7 +308,7 @@ pub struct AngleEntry {
 }
 
 /// A single constraint operation in the event log.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ConstraintOperation {
     /// Monotonically increasing sequence number (never reused).
     pub seq: u64,
@@ -291,7 +336,7 @@ pub struct ConstraintOperation {
 }
 
 /// Types of constraint operations.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum OperationType {
     /// A new constraint was added.
@@ -316,7 +361,7 @@ pub enum OperationType {
 // =============================================================================
 
 /// Layout type for higher-order layout combinators.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum LayoutType {
     /// Vertical stacking: each item's TL.y = previous item's BL.y + gap
@@ -326,7 +371,7 @@ pub enum LayoutType {
 }
 
 /// Anchor point for layout alignment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum LayoutAnchor {
     TL,
@@ -342,7 +387,7 @@ impl Default for LayoutAnchor {
 }
 
 /// Origin coordinates for layout (nullable for optional positioning).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct LayoutOrigin {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub x: Option<Rational>,
@@ -357,7 +402,7 @@ impl Default for LayoutOrigin {
 }
 
 /// Layout specification for a macro operation.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct LayoutSpec {
     /// Type of layout combinator.
     #[serde(rename = "type")]
@@ -389,7 +434,7 @@ fn default_gap() -> Rational {
 /// This represents a higher-order layout constraint that expands into
 /// multiple linear constraints. The expanded constraints are tracked
 /// so they can be rolled back atomically.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct LayoutMacroOperation {
     /// Monotonically increasing sequence number.
     pub seq: u64,
@@ -415,7 +460,7 @@ pub struct LayoutMacroOperation {
 }
 
 /// Record of an optimization run.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct OptimizationRun {
     /// Unique identifier for this optimization run.
     pub run_id: u64,
@@ -745,7 +790,7 @@ impl VsBuildInfo {
 }
 
 /// Result of a rollback operation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct RollbackResult {
     /// Original constraint IDs that are being removed.
     pub original_ids: Vec<u64>,
@@ -1024,5 +1069,46 @@ mod tests {
         // Restore should return None (was deleted)
         let restored = buildinfo.restore_pre_optimization_state(10, 99);
         assert!(restored.is_none());
+    }
+
+    #[test]
+    fn test_vsbuildinfo_backward_compatibility_q_variables() {
+        // Test that existing JSON without q_variables still deserializes correctly.
+        // This ensures #[serde(default)] works as expected.
+        let legacy_json = r#"{
+            "version": 1,
+            "operations": [],
+            "optimization_runs": []
+        }"#;
+
+        let buildinfo: VsBuildInfo =
+            serde_json::from_str(legacy_json).expect("legacy JSON should deserialize");
+
+        // q_variables should default to empty vec
+        assert!(buildinfo.q_variables.is_empty());
+        assert_eq!(buildinfo.version, 1);
+    }
+
+    #[test]
+    fn test_vsbuildinfo_with_q_variables() {
+        use crate::ffi::{QValue, QVariable};
+        use crate::solver::VarId;
+
+        let mut buildinfo = VsBuildInfo::default();
+
+        // Add a Q-variable declaration
+        let q_var = QVariable {
+            name: "input.pointer.x".to_string(),
+            default: QValue::Int(0),
+            target_var: VarId::new(EntityId(100), VectorComponent::X),
+        };
+        buildinfo.q_variables.push(q_var);
+
+        // Serialize and deserialize
+        let json = serde_json::to_string(&buildinfo).expect("serialize");
+        let parsed: VsBuildInfo = serde_json::from_str(&json).expect("deserialize");
+
+        assert_eq!(parsed.q_variables.len(), 1);
+        assert_eq!(parsed.q_variables[0].name, "input.pointer.x");
     }
 }

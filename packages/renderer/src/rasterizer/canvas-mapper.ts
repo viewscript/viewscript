@@ -1,8 +1,8 @@
 /**
- * CanvasKit Path Projection (Phase 6)
+ * Path Projection (Phase 6)
  *
  * This module transforms P-dimension ControlPoint entities (with exact rational
- * coordinates) into CanvasKit SkPath objects for rasterization.
+ * coordinates) into rasterized PathEntity objects for rendering.
  *
  * ## Architecture
  *
@@ -11,7 +11,7 @@
  *   ───────────────────────────────────────────────────────────────────────────
  *
  *   ControlPoint                   ┌──────────────────┐
- *   entities with   ─────────────▶ │  canvas-mapper   │ ─────────────▶  SkPath
+ *   entities with   ─────────────▶ │  canvas-mapper   │ ─────────────▶  PathEntity
  *   Rational coords                │  (this module)   │               objects
  *                                  └──────────────────┘
  *                                          │
@@ -67,11 +67,11 @@ export interface PathDefinition {
 }
 
 // =============================================================================
-// Output Types (for CanvasKit)
+// Output Types (for GPU Renderer)
 // =============================================================================
 
 /**
- * Rasterized path ready for CanvasKit consumption.
+ * Rasterized path ready for GPU renderer consumption.
  */
 export interface RasterizedPath {
   /** Unique path ID */
@@ -100,12 +100,12 @@ export interface RasterizedPath {
 // =============================================================================
 
 /**
- * Maps P-dimension path definitions to rasterized CanvasKit paths.
+ * Maps P-dimension path definitions to rasterized PathEntity objects.
  *
  * @param paths - Path definitions with EntityId references
  * @param controlPoints - Map of resolved control point positions
  * @param devicePixelRatio - DPR for coordinate scaling
- * @returns Rasterized paths ready for CanvasKit
+ * @returns Rasterized paths ready for GPU renderer
  */
 export function mapPathsToCanvas(
   paths: PathDefinition[],
@@ -245,13 +245,13 @@ function mapSinglePath(
 }
 
 // =============================================================================
-// CanvasKit SkPath Builder
+// PathEntity Builder
 // =============================================================================
 
 /**
- * Interface matching CanvasKit's SkPath type (subset).
+ * Interface matching the GPU path builder type (subset).
  */
-export interface SkPathLike {
+export interface PathBuilderLike {
   moveTo(x: number, y: number): void;
   lineTo(x: number, y: number): void;
   quadTo(cpx: number, cpy: number, x: number, y: number): void;
@@ -263,7 +263,7 @@ export interface SkPathLike {
 }
 
 /**
- * CanvasKit fill type constants.
+ * Fill type constants.
  */
 export const FillType = {
   Winding: 0,   // nonzero
@@ -271,14 +271,14 @@ export const FillType = {
 };
 
 /**
- * Build a CanvasKit SkPath from rasterized path data.
+ * Build a PathEntity from rasterized path data.
  *
  * @param path - Rasterized path with float coordinates
- * @param skPath - CanvasKit path object to populate
+ * @param pathBuilder - Path builder object to populate
  */
-export function buildSkPath(path: RasterizedPath, skPath: SkPathLike): void {
+export function buildPathEntity(path: RasterizedPath, pathBuilder: PathBuilderLike): void {
   // Set fill rule
-  skPath.setFillType(path.fillRule === 'evenodd' ? FillType.EvenOdd : FillType.Winding);
+  pathBuilder.setFillType(path.fillRule === 'evenodd' ? FillType.EvenOdd : FillType.Winding);
 
   const toFloat = (r: Rational): number =>
     Number(r.numerator) / Number(r.denominator);
@@ -286,22 +286,22 @@ export function buildSkPath(path: RasterizedPath, skPath: SkPathLike): void {
   for (const cmd of path.commands) {
     switch (cmd.type) {
       case 'M':
-        skPath.moveTo(toFloat(cmd.x), toFloat(cmd.y));
+        pathBuilder.moveTo(toFloat(cmd.x), toFloat(cmd.y));
         break;
 
       case 'L':
-        skPath.lineTo(toFloat(cmd.x), toFloat(cmd.y));
+        pathBuilder.lineTo(toFloat(cmd.x), toFloat(cmd.y));
         break;
 
       case 'Q':
-        skPath.quadTo(
+        pathBuilder.quadTo(
           toFloat(cmd.x1), toFloat(cmd.y1),
           toFloat(cmd.x), toFloat(cmd.y),
         );
         break;
 
       case 'C':
-        skPath.cubicTo(
+        pathBuilder.cubicTo(
           toFloat(cmd.x1), toFloat(cmd.y1),
           toFloat(cmd.x2), toFloat(cmd.y2),
           toFloat(cmd.x), toFloat(cmd.y),
@@ -309,20 +309,20 @@ export function buildSkPath(path: RasterizedPath, skPath: SkPathLike): void {
         break;
 
       case 'A':
-        // CanvasKit uses arcToRotated for SVG-style arcs
-        skPath.arcToRotated(
+        // Uses arcToRotated for SVG-style arcs
+        pathBuilder.arcToRotated(
           toFloat(cmd.rx),
           toFloat(cmd.ry),
           cmd.rotation,  // already a number
-          !cmd.largeArc, // CanvasKit uses "useSmallArc" which is inverse
-          !cmd.sweep,    // CanvasKit uses "isCCW" which may differ
+          !cmd.largeArc, // useSmallArc is inverse of largeArc
+          !cmd.sweep,    // isCCW may differ from sweep
           toFloat(cmd.x),
           toFloat(cmd.y),
         );
         break;
 
       case 'Z':
-        skPath.close();
+        pathBuilder.close();
         break;
     }
   }
@@ -482,9 +482,9 @@ export interface ResolvedRoundedRect {
 }
 
 /**
- * Interface matching CanvasKit's canvas drawing methods.
+ * Interface matching the GPU canvas drawing surface methods.
  */
-export interface CanvasLike {
+export interface DrawSurfaceLike {
   drawArc(
     oval: { x: number; y: number; width: number; height: number },
     startAngle: number,
@@ -512,21 +512,21 @@ function toFloat(r: Rational): number {
 }
 
 /**
- * Draw an arc to a CanvasKit canvas.
+ * Draw an arc to a GPU draw surface.
  *
  * ## Deferred Evaluation (Phase 7)
  *
  * The arc's circumference points are NOT computed in P-dimension.
  * Only the center, radius, and angles are constrained linearly.
- * The actual arc rendering is delegated to CanvasKit which evaluates
+ * The actual arc rendering is delegated to the GPU renderer which evaluates
  * the parametric curve (cos/sin) in its native floating-point space.
  *
- * @param canvas - CanvasKit canvas
+ * @param canvas - GPU draw surface
  * @param arc - Resolved arc with rational center/radius/angles
  * @param paint - Paint style for the arc
  */
 export function drawArc(
-  canvas: CanvasLike,
+  canvas: DrawSurfaceLike,
   arc: ResolvedArc,
   paint: unknown
 ): void {
@@ -545,7 +545,7 @@ export function drawArc(
     sweepAngle += 360;
   }
 
-  // CanvasKit drawArc uses an oval bounds
+  // drawArc uses an oval bounds
   const oval = {
     x: cx - r,
     y: cy - r,
@@ -557,20 +557,20 @@ export function drawArc(
 }
 
 /**
- * Draw a rounded rectangle to a CanvasKit canvas.
+ * Draw a rounded rectangle to a GPU draw surface.
  *
  * ## Deferred Evaluation (Phase 7)
  *
  * Corner curves are NOT evaluated in P-dimension. Only the bounds and
- * radius scalars are constrained. CanvasKit evaluates the corner arcs
+ * radius scalars are constrained. The GPU renderer evaluates the corner arcs
  * internally using native floating-point math.
  *
- * @param canvas - CanvasKit canvas
+ * @param canvas - GPU draw surface
  * @param rect - Resolved rounded rect with rational bounds/radii
  * @param paint - Paint style
  */
 export function drawRoundedRect(
-  canvas: CanvasLike,
+  canvas: DrawSurfaceLike,
   rect: ResolvedRoundedRect,
   paint: unknown
 ): void {
@@ -594,7 +594,7 @@ export function drawRoundedRect(
       paint
     );
   } else {
-    // Different radii per corner - would need CanvasKit's RRect
+    // Different radii per corner - would need GPU renderer's RRect support
     // For now, use uniform radius (max of all)
     const maxR = Math.max(rTL, rTR, rBR, rBL);
     canvas.drawRoundRect(
@@ -609,13 +609,13 @@ export function drawRoundedRect(
 /**
  * Draw a full circle (special case of arc: 0° to 360°).
  *
- * @param canvas - CanvasKit canvas
+ * @param canvas - GPU draw surface
  * @param center - Resolved center control point
  * @param radius - Resolved radius entity
  * @param paint - Paint style
  */
 export function drawCircle(
-  canvas: CanvasLike,
+  canvas: DrawSurfaceLike,
   center: ResolvedControlPoint,
   radius: ResolvedRadius,
   paint: unknown

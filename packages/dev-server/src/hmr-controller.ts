@@ -472,7 +472,7 @@ export interface ICLIExecutor {
 /**
  * Text Metrics Measurer: Q→P Dimension Bridge
  *
- * This class measures text dimensions using browser APIs (CanvasKit or DOM)
+ * This class measures text dimensions using browser APIs (wgpu renderer or DOM)
  * and feeds the results back to the P-dimension constraint solver via CLI.
  *
  * ## Architecture
@@ -480,7 +480,7 @@ export interface ICLIExecutor {
  * ```
  *   Renderer (Q-dimension)          CLI (P-dimension)
  *   ┌─────────────────────┐        ┌─────────────────────┐
- *   │ CanvasKit/DOM       │        │ vsc update-metrics  │
+ *   │ wgpu renderer/DOM   │        │ vsc update-metrics  │
  *   │ measureText()       │───────▶│ --id=N              │
  *   │                     │        │ --width=W           │
  *   │                     │        │ --height=H          │
@@ -530,8 +530,8 @@ export class TextMetricsMeasurer {
   /**
    * Measure text dimensions using Canvas 2D API.
    *
-   * This is a fallback for environments without CanvasKit.
-   * For production, prefer CanvasKit's measureText for accuracy.
+   * This is a fallback for environments without the wgpu renderer.
+   * For production, prefer the GPU renderer's measureText for accuracy.
    */
   measureText(content: string, fontFamily: string, fontSize: number): TextMetrics {
     this.initMeasurementCanvas();

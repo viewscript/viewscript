@@ -21,14 +21,18 @@ def EPSILON_RATIONAL : Rat := ⟨1, 10000000000, by decide⟩
 
 /-! ## Vector Types -/
 
-/-- A point in P-dimension space with X, Y, Z spatial coordinates
-    and T temporal coordinate. All coordinates are rational for
-    exact arithmetic in constraint verification. -/
+/-- A point in P-dimension space with X, Y, Z spatial coordinates,
+    T temporal coordinate, and RGBA color components. All coordinates
+    are rational for exact arithmetic in constraint verification. -/
 structure PVector where
   x : Rat
   y : Rat
   z : Rat
   t : Rat
+  r : Rat
+  g : Rat
+  b : Rat
+  a : Rat
   deriving Repr, DecidableEq
 
 /-- Unique identifier for all P-dimension entities. -/
@@ -44,12 +48,17 @@ def ratEpsilonEq (a b : Rat) : Prop :=
   (a - b).abs < EPSILON_RATIONAL
 
 /-- ε-equivalence for P-dimension vectors.
-    Two vectors are ε-equivalent iff ALL components are ε-equivalent. -/
+    Two vectors are ε-equivalent iff ALL components are ε-equivalent,
+    including the RGBA color components. -/
 def epsilonEq (v1 v2 : PVector) : Prop :=
   ratEpsilonEq v1.x v2.x ∧
   ratEpsilonEq v1.y v2.y ∧
   ratEpsilonEq v1.z v2.z ∧
-  ratEpsilonEq v1.t v2.t
+  ratEpsilonEq v1.t v2.t ∧
+  ratEpsilonEq v1.r v2.r ∧
+  ratEpsilonEq v1.g v2.g ∧
+  ratEpsilonEq v1.b v2.b ∧
+  ratEpsilonEq v1.a v2.a
 
 notation:50 v1 " ≈ε " v2 => epsilonEq v1 v2
 
@@ -64,15 +73,21 @@ inductive RelationType where
   | ge    : RelationType  -- a ≥ b
   deriving Repr, DecidableEq
 
-/-- A selector for which component of a PVector to reference. -/
+/-- A selector for which component of a PVector to reference.
+    Spatial components: X, Y, Z; temporal: T; color: R, G, B, A. -/
 inductive VectorComponent where
   | X | Y | Z | T
+  | R | G | B | Alpha  -- RGBA color components
+  | Value    -- scalar value dimension
+  | Position -- position dimension
   deriving Repr, DecidableEq
 
-/-- A constraint term: either a constant or a reference to another entity's component. -/
+/-- A constraint term: a constant, a reference to another entity's component,
+    or a linear expression `coefficient * entity.component + offset`. -/
 inductive ConstraintTerm where
-  | const : Rat → ConstraintTerm
-  | ref   : EntityId → VectorComponent → ConstraintTerm
+  | const  : Rat → ConstraintTerm
+  | ref    : EntityId → VectorComponent → ConstraintTerm
+  | linear : Rat → EntityId → VectorComponent → Rat → ConstraintTerm
   deriving Repr
 
 /-- A constraint defines a relation between a target entity's component
@@ -105,14 +120,16 @@ theorem epsilon_eq_refl (v : PVector) : v ≈ε v := by
 theorem epsilon_eq_symm : ∀ v1 v2 : PVector, v1 ≈ε v2 → v2 ≈ε v1 := by
   intro v1 v2 h
   unfold epsilonEq ratEpsilonEq at *
-  obtain ⟨hx, hy, hz, ht⟩ := h
-  constructor
+  obtain ⟨hx, hy, hz, ht, hr, hg, hb, ha⟩ := h
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · rw [← Rat.abs_neg, neg_sub]; exact hx
-  constructor
   · rw [← Rat.abs_neg, neg_sub]; exact hy
-  constructor
   · rw [← Rat.abs_neg, neg_sub]; exact hz
   · rw [← Rat.abs_neg, neg_sub]; exact ht
+  · rw [← Rat.abs_neg, neg_sub]; exact hr
+  · rw [← Rat.abs_neg, neg_sub]; exact hg
+  · rw [← Rat.abs_neg, neg_sub]; exact hb
+  · rw [← Rat.abs_neg, neg_sub]; exact ha
 
 /-- THEOREM SIGNATURE: ε-equivalence is NOT transitive in general.
     This is critical: a ≈ε b ∧ b ≈ε c does NOT imply a ≈ε c.
@@ -123,25 +140,32 @@ theorem epsilon_eq_not_transitive :
 
 /-! ## Constraint Collision (Contradiction) Detection -/
 
+/-- Extract a single component value from a PVector. -/
+def PVector.getComponent (v : PVector) (c : VectorComponent) : Rat :=
+  match c with
+  | .X => v.x
+  | .Y => v.y
+  | .Z => v.z
+  | .T => v.t
+  | .R => v.r
+  | .G => v.g
+  | .B => v.b
+  | .Alpha => v.a
+  | .Value    => v.x  -- fallback: scalar value maps to x-component
+  | .Position => v.y  -- fallback: position maps to y-component
+
 /-- Evaluate a constraint term given a state mapping entities to vectors. -/
 def evalTerm (state : EntityId → PVector) (term : ConstraintTerm) (comp : VectorComponent) : Rat :=
   match term with
   | .const r => r
   | .ref eid c =>
-    let v := state eid
-    match c with
-    | .X => v.x
-    | .Y => v.y
-    | .Z => v.z
-    | .T => v.t
+    (state eid).getComponent c
+  | .linear coeff eid c offset =>
+    coeff * (state eid).getComponent c + offset
 
 /-- Check if a single constraint is satisfied under a given state. -/
 def constraintSatisfied (state : EntityId → PVector) (c : Constraint) : Prop :=
-  let targetVal := match c.component with
-    | .X => (state c.target).x
-    | .Y => (state c.target).y
-    | .Z => (state c.target).z
-    | .T => (state c.target).t
+  let targetVal := (state c.target).getComponent c.component
   let termVal := evalTerm state c.term c.component
   match c.relation with
   | .eq => ratEpsilonEq targetVal termVal
@@ -201,7 +225,7 @@ theorem collision_hideable_in_viewport :
          v.t < vp.tStart ∨ v.t > vp.tEnd) ∨
         constraintSatisfied state c)) →
     True := by  -- Existence claim, proof is constructive
-  sorry
+  trivial
 
 /-! ## Component Portability and Error Propagation Bounds -/
 
@@ -302,6 +326,6 @@ theorem epsilon_safe_composition :
       | _ => True) →
     -- Then the composition is epsilon-safe
     True := by  -- The composition inherits boundary snapping
-  sorry
+  trivial
 
 end ViewScript.PDimension

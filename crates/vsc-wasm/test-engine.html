@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>ViewScript Engine Test</title>
+  <style>
+    body { margin: 0; background: #1a1a2e; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; color: #eee; font-family: monospace; }
+    canvas { border: 1px solid #444; }
+    #log { margin-top: 16px; white-space: pre; font-size: 12px; max-height: 200px; overflow-y: auto; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas" width="800" height="600"></canvas>
+  <div id="log"></div>
+  <script type="module">
+    import init, { WasmViewScriptEngine } from './pkg/vsc_wasm.js';
+
+    const log = document.getElementById('log');
+    function print(msg) {
+      log.textContent += msg + '\n';
+      console.log(msg);
+    }
+
+    async function main() {
+      try {
+        print('[1] Initializing WASM module...');
+        await init();
+
+        const canvas = document.getElementById('canvas');
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = 800 * dpr;
+        canvas.height = 600 * dpr;
+
+        print('[2] Creating WasmViewScriptEngine...');
+        const engine = await WasmViewScriptEngine.create(canvas, dpr);
+        print('    Engine created successfully.');
+
+        print('[3] Adding RoundedRect component...');
+        const id = engine.add_component('RoundedRect', JSON.stringify({
+          x: 50, y: 50, width: 300, height: 200, radius: 16, fill: '#ff6b6b'
+        }));
+        print('    Component added, entity ID: ' + id);
+
+        print('[4] Running tick (constraint solve + render)...');
+        engine.tick('[]');
+        print('    Tick completed.');
+
+        print('[5] Adding second component...');
+        const id2 = engine.add_component('RoundedRect', JSON.stringify({
+          x: 400, y: 100, width: 200, height: 150, radius: 8, fill: '#4ecdc4'
+        }));
+        print('    Second component added, entity ID: ' + id2);
+
+        print('[6] Running second tick...');
+        engine.tick('[]');
+        print('    Second tick completed.');
+
+        // Phase J-3: External texture test
+        print('[7] Testing external texture...');
+
+        // Create a third component to apply texture to
+        const textureTargetId = engine.add_component('RoundedRect', JSON.stringify({
+          x: 200, y: 300, width: 200, height: 200, radius: 0, fill: '#888888'
+        }));
+        print('    Texture target component added, entity ID: ' + textureTargetId);
+
+        // Load image and register as texture
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          try {
+            const offscreen = new OffscreenCanvas(img.width, img.height);
+            const ctx = offscreen.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            const imageData = ctx.getImageData(0, 0, img.width, img.height);
+
+            const textureId = engine.register_image_texture(
+              img.width,
+              img.height,
+              new Uint8Array(imageData.data.buffer)
+            );
+            print('    Texture registered, id: ' + textureId);
+
+            // Apply texture to component
+            engine.set_component_fill_texture(textureTargetId, textureId);
+            print('    Texture applied to component ' + textureTargetId);
+
+            // Re-render with texture
+            engine.tick('[]');
+            print('    Tick with texture completed.');
+
+            print('\n=== SUCCESS: Full pipeline with texture operational ===');
+          } catch (e) {
+            print('\n=== TEXTURE ERROR ===');
+            print(e.toString());
+          }
+        };
+        img.onerror = (e) => {
+          print('    Image load failed: ' + e);
+        };
+        img.src = 'data:image/svg+xml,' + encodeURIComponent(
+          '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64">' +
+          '<rect width="64" height="64" fill="#00aa44"/>' +
+          '<circle cx="32" cy="32" r="20" fill="#ffcc00"/>' +
+          '</svg>'
+        );
+
+        print('\n=== SUCCESS: Full pipeline operational ===');
+      } catch (e) {
+        print('\n=== ERROR ===');
+        print(e.toString());
+        if (e.stack) print(e.stack);
+      }
+    }
+
+    main();
+  </script>
+</body>
+</html>

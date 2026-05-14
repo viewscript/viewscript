@@ -498,6 +498,246 @@ components:
         - `BR`: Bottom-right corner
 
     # ==========================================================================
+    # Phase G: Path Entity Types
+    # ==========================================================================
+
+    FillRule:
+      type: string
+      enum: [non_zero, even_odd]
+      description: |
+        Fill rule for closed paths (SVG semantics):
+        - `non_zero`: Non-zero winding rule
+        - `even_odd`: Even-odd rule
+
+    LineCap:
+      type: string
+      enum: [butt, round, square]
+      description: |
+        Line cap style for stroke endpoints:
+        - `butt`: Square cap, flush with endpoint
+        - `round`: Semicircular cap
+        - `square`: Square cap, extended by half stroke width
+
+    LineJoin:
+      type: string
+      enum: [miter, round, bevel]
+      description: |
+        Line join style for stroke corners:
+        - `miter`: Sharp pointed join
+        - `round`: Rounded join
+        - `bevel`: Flattened join
+
+    PathSegmentLine:
+      type: object
+      description: Line segment from one point entity to another
+      required:
+        - type
+        - from
+        - to
+      properties:
+        type:
+          type: string
+          const: line
+        from:
+          $ref: '#/components/schemas/EntityId'
+        to:
+          $ref: '#/components/schemas/EntityId'
+      additionalProperties: false
+
+    PathSegmentQuad:
+      type: object
+      description: Quadratic Bezier curve with one handle point
+      required:
+        - type
+        - from
+        - handle
+        - to
+      properties:
+        type:
+          type: string
+          const: quad
+        from:
+          $ref: '#/components/schemas/EntityId'
+        handle:
+          $ref: '#/components/schemas/EntityId'
+        to:
+          $ref: '#/components/schemas/EntityId'
+      additionalProperties: false
+
+    PathSegmentCubic:
+      type: object
+      description: Cubic Bezier curve with two handle points
+      required:
+        - type
+        - from
+        - handle1
+        - handle2
+        - to
+      properties:
+        type:
+          type: string
+          const: cubic
+        from:
+          $ref: '#/components/schemas/EntityId'
+        handle1:
+          $ref: '#/components/schemas/EntityId'
+        handle2:
+          $ref: '#/components/schemas/EntityId'
+        to:
+          $ref: '#/components/schemas/EntityId'
+      additionalProperties: false
+
+    PathSegmentArc:
+      type: object
+      description: Elliptical arc segment (SVG arc semantics) with EntityId endpoints
+      required:
+        - type
+        - from
+        - to
+        - rx
+        - ry
+        - rotation
+        - large_arc
+        - sweep
+      properties:
+        type:
+          type: string
+          const: arc
+        from:
+          $ref: '#/components/schemas/EntityId'
+        to:
+          $ref: '#/components/schemas/EntityId'
+        rx:
+          $ref: '#/components/schemas/Rational'
+          description: X-axis radius (exact rational)
+        ry:
+          $ref: '#/components/schemas/Rational'
+          description: Y-axis radius (exact rational)
+        rotation:
+          $ref: '#/components/schemas/Rational'
+          description: X-axis rotation in degrees (exact rational)
+        large_arc:
+          type: boolean
+          description: Large arc flag (SVG arc semantics)
+        sweep:
+          type: boolean
+          description: Sweep direction flag (SVG arc semantics)
+      additionalProperties: false
+
+    PathSegment:
+      description: |
+        A single segment of a path (line, quadratic Bezier, cubic Bezier, or arc).
+        All endpoints and handles are EntityId references into the constraint graph.
+        Discriminated by the `type` field.
+      oneOf:
+        - $ref: '#/components/schemas/PathSegmentLine'
+        - $ref: '#/components/schemas/PathSegmentQuad'
+        - $ref: '#/components/schemas/PathSegmentCubic'
+        - $ref: '#/components/schemas/PathSegmentArc'
+      discriminator:
+        propertyName: type
+        mapping:
+          line: '#/components/schemas/PathSegmentLine'
+          quad: '#/components/schemas/PathSegmentQuad'
+          cubic: '#/components/schemas/PathSegmentCubic'
+          arc: '#/components/schemas/PathSegmentArc'
+
+    FillSpecSolid:
+      type: object
+      description: Solid color fill
+      required:
+        - type
+        - color
+      properties:
+        type:
+          type: string
+          const: solid
+        color:
+          type: string
+          description: CSS color string (e.g., '#ff0000', 'rgb(255, 0, 0)')
+      additionalProperties: false
+
+    FillSpecGradient:
+      type: object
+      description: Gradient fill referencing a gradient entity
+      required:
+        - type
+        - gradient_id
+      properties:
+        type:
+          type: string
+          const: gradient
+        gradient_id:
+          $ref: '#/components/schemas/EntityId'
+          description: Reference to LinearGradient, RadialGradient, or ConicGradient entity
+      additionalProperties: false
+
+    FillSpec:
+      description: |
+        Fill specification for path entities.
+        Discriminated by the `type` field.
+      oneOf:
+        - $ref: '#/components/schemas/FillSpecSolid'
+        - $ref: '#/components/schemas/FillSpecGradient'
+      discriminator:
+        propertyName: type
+        mapping:
+          solid: '#/components/schemas/FillSpecSolid'
+          gradient: '#/components/schemas/FillSpecGradient'
+
+    StrokeSpec:
+      type: object
+      description: Stroke specification for path entities
+      required:
+        - color
+        - width
+      properties:
+        color:
+          type: string
+          description: CSS color string
+        width:
+          $ref: '#/components/schemas/Rational'
+          description: Stroke width (exact rational)
+        line_cap:
+          $ref: '#/components/schemas/LineCap'
+        line_join:
+          $ref: '#/components/schemas/LineJoin'
+        dash_array:
+          type: array
+          items:
+            $ref: '#/components/schemas/Rational'
+          description: Optional dash pattern (array of dash/gap lengths as exact rationals)
+
+    PathEntityEntry:
+      type: object
+      description: A path entity combining geometry (EntityId-referenced points) and style
+      required:
+        - id
+        - segments
+        - closed
+      properties:
+        id:
+          $ref: '#/components/schemas/EntityId'
+          description: Unique entity ID for this path
+        segments:
+          type: array
+          items:
+            $ref: '#/components/schemas/PathSegment'
+          description: Ordered path segments (each references point entities by EntityId)
+        closed:
+          type: boolean
+          description: Whether the path is closed (implicit line back to start)
+        fill_rule:
+          $ref: '#/components/schemas/FillRule'
+          description: Fill rule for closed paths (default non_zero)
+        fill:
+          $ref: '#/components/schemas/FillSpec'
+          description: Optional fill style (solid color or gradient reference)
+        stroke:
+          $ref: '#/components/schemas/StrokeSpec'
+          description: Optional stroke style
+
+    # ==========================================================================
     # Constraint Term Types
     # ==========================================================================
 
@@ -929,23 +1169,30 @@ components:
           type: integer
           description: Number of constant values to change
         relative_error:
-          $ref: '#/components/schemas/RationalString'
+          $ref: '#/components/schemas/Rational'
         reference_scale:
-          $ref: '#/components/schemas/RationalString'
+          $ref: '#/components/schemas/Rational'
         relation_changes:
           type: integer
           description: Number of relation types to change
         composite_score:
-          $ref: '#/components/schemas/RationalString'
+          $ref: '#/components/schemas/Rational'
 
     RepairAction:
       oneOf:
         - type: object
+          description: Delete the incoming (newest) constraint.
+          required:
+            - type
           properties:
             type:
               type: string
               const: reject_incoming
         - type: object
+          description: Delete one or more existing constraints.
+          required:
+            - type
+            - constraint_ids
           properties:
             type:
               type: string
@@ -956,25 +1203,47 @@ components:
                 type: integer
                 format: uint64
         - type: object
+          description: Modify constants in existing constraints (no additional fields).
+          required:
+            - type
           properties:
             type:
               type: string
-              const: modify_constant
-            constraint_id:
-              type: integer
-              format: uint64
-            new_value:
-              $ref: '#/components/schemas/Rational'
+              const: modify_constants
         - type: object
+          description: Change relation types (e.g., < to <=) to allow boundary equality.
+          required:
+            - type
+            - constraint_ids
+            - new_relations
           properties:
             type:
               type: string
-              const: change_relation
-            constraint_id:
+              const: relax_relations
+            constraint_ids:
+              type: array
+              items:
+                type: integer
+                format: uint64
+            new_relations:
+              type: array
+              items:
+                $ref: '#/components/schemas/RelationType'
+        - type: object
+          description: Break a circular reference by redirecting a dependency.
+          required:
+            - type
+            - constraint_to_modify
+            - new_term
+          properties:
+            type:
+              type: string
+              const: break_cycle
+            constraint_to_modify:
               type: integer
               format: uint64
-            new_relation:
-              $ref: '#/components/schemas/RelationType'
+            new_term:
+              $ref: '#/components/schemas/ConstraintTerm'
 
     RepairSuggestion:
       type: object

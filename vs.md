@@ -1,0 +1,511 @@
+# ViewScript Project Specification
+
+## 1. 基礎公理系 (Fundamental Axioms)
+
+ViewScriptは、グラフィカルユーザーインターフェース（GUI）を 「$\mathbb{Q}^3 \times \mathbb{Q}$（空間XYZ＋時間状態T）の連続的・厳密有理数空間における制約充足問題（CSP）」として数学的に厳密に定式化した、新規性の高いレンダリングフレームワークである。
+
+## 2. システムアーキテクチャ
+
+### 2.1 次元分離の公理的基盤
+
+ViewScriptの根幹をなす設計原理は、決定論的空間と非決定論的オラクルの厳密な分離である。以下にシステム全体の階層構造を示す。
+
+```mermaid
+flowchart TB
+    subgraph P_DIM["P次元 (Deterministic Domain)"]
+        direction TB
+        RATIONAL["厳密有理数空間 Q³×Q (x, y, z, t)<br/>num_rational::Ratio&lt;BigInt&gt;"]
+        CONSTRAINT["f32/f64 演算の禁止<br/>Rasterization Boundary まで遅延"]
+    end
+
+    subgraph SOLVER["制約ソルバー階層"]
+        direction TB
+        L0["L0: Fourier-Motzkin Elimination<br/>(線形制約・全体の95%)"]
+        L1["L1: Lazy Substitution<br/>(双線形 → 変数解決時に線形へ降格)"]
+        L2["L2: Gröbner Basis (Buchberger)<br/>(連立多項式・EXPSPACE完全)"]
+        L0 --> L1 --> L2
+    end
+
+    subgraph Q_DIM["Q次元 (Non-deterministic Oracle)"]
+        direction TB
+        USER["ユーザー入力<br/>(256キュー上限)"]
+        FONT["フォントメトリクス<br/>(CanvasKit/DOM計測)"]
+        API["外部API"]
+        T_MUTATE["T次元(状態)のみ<br/>ミューテート可能"]
+        USER --> T_MUTATE
+        FONT --> T_MUTATE
+        API --> T_MUTATE
+    end
+
+    subgraph RASTER["Rasterization Boundary"]
+        direction TB
+        F64["to_f64_for_rasterization()<br/>有理数→浮動小数点変換"]
+        TOPO["Topology-Preserving Rounding<br/>Union-Find + 最大剰余法"]
+        RENDER["CanvasKit (WebGL/Skia)<br/>+ 透明DOM層"]
+        F64 --> TOPO --> RENDER
+    end
+
+    P_DIM --> SOLVER
+    SOLVER --> RASTER
+    Q_DIM -.->|"T次元経由"| P_DIM
+```
+
+### 2.2 制約解決パイプライン
+
+制約グラフの解決は、計算量爆発を回避するため、以下の階層的パイプラインによって実行される。
+
+```mermaid
+flowchart LR
+    INPUT["制約集合"] --> L0_CHECK{"線形制約?"}
+    L0_CHECK -->|Yes| FM["Fourier-Motzkin<br/>消去法 O(n²)"]
+    L0_CHECK -->|No| L1_CHECK{"双線形制約?"}
+
+    L1_CHECK -->|Yes| SUSPEND["Suspended Queue<br/>に配置"]
+    SUSPEND --> DOF{"DoF = 0?"}
+    DOF -->|Yes| PROMOTE["線形へ降格<br/>(Promote)"]
+    PROMOTE --> FM
+    DOF -->|No| WAIT["変数解決を待機"]
+
+    L1_CHECK -->|No| GROEBNER["Gröbner Basis<br/>Buchberger Algorithm"]
+
+    FM --> SOLUTION["解の抽出"]
+    GROEBNER --> MULTI{"複数解?"}
+    MULTI -->|Yes| LLM["LLMに選択を委譲"]
+    MULTI -->|No| SOLUTION
+```
+
+## 3. 設計判断の理論的根拠
+
+以下の表に、ViewScriptが直面した技術的課題とその解決手法を整理する。
+
+| 課題 | 解決手法 | 理論的根拠 |
+|:-----|:---------|:-----------|
+| 浮動小数点演算の非決定性 | 有理数型 `Rational(Ratio<BigInt>)` による厳密演算 | IEEE 754の丸めモードがプラットフォーム依存であるため、LEAN 4における `Decidable` 証明との整合性を担保 |
+| ソルバーの計算量爆発 | L0→L1→L2 階層的遅延評価 | Gröbner基底計算はEXPSPACE完全であり、95%を占める線形制約をFM消去法で処理することで平均計算量を抑制 |
+| G1連続性（曲線接続）の表現 | 共線性制約を双線形項 $(H_1.y-P.y)(H_2.x-P.x) = (H_2.y-P.y)(H_1.x-P.x)$ で定式化 | 三点共線性条件を除算なしで表現し、変数解決時に線形制約へ降格 |
+| 円弧端点の座標計算 | `CircumferenceConstraint` による遅延評価 | 二次制約 $(P.x-C.x)^2+(P.y-C.y)^2=R^2$ を中心・半径解決後に評価 |
+| ピクセル境界における1px隙間 | Union-Findによる等価クラス構築と最大剰余法 | 隣接面の座標を同一等価クラスに配置し、一括丸めによりトポロジーを保存 |
+| LLMとの統合 | CODL (Turing-incomplete YAML DSL) | 静的検証器により停止性・有界性・参照健全性を実行前に証明 |
+
+## 4. モジュール構成
+
+本プロジェクトのモジュール構成を以下に示す。
+
+| Crate / Package | 責務 | 主要な実装 |
+|:----------------|:-----|:-----------|
+| `vsc-core` | 型定義・制約ソルバー・代数的幾何学演算 | `Rational`, `ConstraintSolver`, `compute_groebner_basis()` |
+| `vsc-codl` | LLM発行YAML命令のパース・解釈 | `CodlParser`, `CodlInterpreter` |
+| `vsc-cli` | コマンドラインインターフェース | 自己修復エージェント (`self_healing_agent.rs`) |
+| `vsc-wasm` | `vsc-core` のWebAssemblyバインディング | `pub use vsc_core::*` による全再エクスポート |
+| `vsc-linter` | 静的解析（浮動小数点汚染・循環参照検出） | `float_contamination.rs`, `cycle_detection.rs` |
+| `@viewscript/renderer` | TypeScript側ラスタライズ層 | `topology-rounding.ts`, `event-backpressure.ts` |
+
+## 5. 形式検証との対応
+
+本プロジェクトは `rfc/lean/ViewScriptRFC/PDimension.lean` においてLEAN 4による公理化が進行中である。Rust実装における `Rational`, `PVector`, `Constraint` 等の型は、LEAN 4での形式的定義と同型を保つよう設計されている。
+
+制約優先度 (`ConstraintPriority::Hard` / `ConstraintPriority::Soft`) による階層的シャドウイング機構は、コンポーネント合成時における制約衝突の自動解決を可能とする。
+
+## 6. Phase 17における拡張
+
+Phase 17において、CSS互換グラデーション機能が追加された。`ColorStop` エンティティのRGBAチャンネル（`r`, `g`, `b`, `a`, `position`）は全て有理数として表現され、P次元の制約システムに統合されている。これにより、以下のような制約式が可能となる：
+
+```
+stop.r = 255 * T.hover  // ホバー状態に応じた赤チャンネルの動的変化
+```
+
+*   **Axiom 1 (次元の直交分離):** 全てのシステムは決定論的な有理数空間である「P次元」と、非決定論的オラクル（ユーザー入力、フォントバイナリ、外部API）である「Q次元」に厳密に分離される。
+*   **Axiom 2 (ウロボロス・バインディング):** Q次元の入力は、P次元の空間座標（XYZ）を直接操作できない。Q次元はP次元の「Tベクトル（状態・時間）」のみをミューテートし、空間座標はTを独立変数とする制約グラフの再評価によってのみ導出される。
+*   **Axiom 3 (浮動小数点汚染の排除):** P次元コアロジック内での超越関数（$\sin, \cos$）および浮動小数点（`f32/f64`）演算を禁ずる。これらはラスタライズ境界（Rasterization Boundary）での遅延評価としてのみ許可される。
+
+## 7. 数理的境界と解決器 (Mathematical Boundaries & Solvers)
+
+制約グラフは、計算量爆発を防ぐため、以下の階層的パイプラインによって決定論的に解決される。
+
+*   **L0 (Linear - Fourier-Motzkin Elimination):** 
+    一次不等式・等式系。$O(n^2)$ で高速に解決可能。システムの95%の制約（配置、整列、パディング）を処理する。
+*   **L1 (Lazy Substitution - Bilinear/Quadratic):** 
+    G1連続性や円弧などから生じる双線形・二次制約。自由度（DoF）が0に収束した変数を定数代入することで次数を降下させ、L0へ昇格（Promote）させる遅延評価キュー。
+*   **L2 (Algebraic Geometry - Gröbner Basis):** 
+    L0/L1で解決不能な連立多項式系（アポロニウスの問題等）。Buchbergerアルゴリズムにより辞書式順序でイデアルの基底を計算する（EXPSPACE完全）。実数解のみを抽出し、複数解はLLMに選択を委譲する。
+*   **剛性と特異点の静的解析 (Rigidity & Singularity):** 
+    Lamanの定理に基づくペブルゲーム（$|E| \le 2|V| - 3$）により過剰制約を $O(V^2)$ で事前検知する。ヤコビ行列のランク判定により幾何学的特異点を警告する。
+
+## 8. 工学的構造と制約 (Engineering Constraints & Architecture)
+
+*   **Bilayer Orthogonal Architecture:** 
+    レンダリングは、視覚を100%担う `CanvasKit`（WebGL/Skia）層と、触覚・セマンティクスを担う透明な `DOM` 層に分離される。DOM層へのブラウザレイアウトエンジンの介入（Reflow）は完全に排除され、`transform: translate3d` による絶対配置のみが許可される。
+*   **Topology-Preserving Rounding:** 
+    有理数からピクセルグリッドへの射影時、1pxの隙間（アーティファクト）を防ぐため、Union-Findによる等価クラス構築と最大剰余方式（Largest Remainder Method）を適用し、空間的閉包を保証する。
+*   **CODL (Constraint Operation Description Language):** 
+    LLMが発行する操作は、チューリング不完全なYAML/JSON DSLとして定義される。静的検証器により、停止性（ネスト深度上限）、有界性、参照健全性が実行前に証明される。
+*   **Hierarchical Shadowing:** 
+    コンポーネント（`.vs`）内の `Soft` 制約は、親スコープからの `Hard` 制約と衝突した場合、暗黙的にシャドウイング（無効化）され、トポロジーの破綻を防ぐ。
+
+## 9. 既知の限界と意図的技術的負債 (Known Limitations & Intentional Debt)
+
+現行アーキテクチャは以下の境界条件を意図的に許容している。次期フェーズにおいてこれらを認識した上で設計を行うこと。
+
+1.  **Gröbner基底の次数爆発:** 変数>50かつ次数>4の系でメモリ爆発の危険。現在 `MAX_POLYNOMIAL_DEGREE = 4` およびタイムアウトで保護。
+2.  **テキストメトリクスの循環参照:** Q次元（フォント計測）とP次元（幅制約）間の循環はDAGソートで検知するが、深さ100以上の間接循環の検知精度は未保証。
+3.  **有理数精度の限界:** `Rational` から `f64` への変換時、分子/分母が $2^{53}$ を超える極端なアスペクト比でIEEE 754精度損失の可能性。
+4.  **2D剛性解析の限界:** 現在のLaman条件は2D平面専用。Z軸はレイヤー順序としてのみ機能。
+5.  **動的配列制約:** カラーストップ（Gradient）の数はFM決定可能性維持のため静的固定。
+6.  **超越関数の有理数近似:** CSS角度の $\sin, \cos$ 変換は特定角度（0, 30, 45...）のみ厳密解、それ以外はテイラー展開による近似。
+7.  **イベントキュー飽和:** 1000 events/sec を超えるQ次元入力は、レイテンシ優先のため意図的にドロップ（最大256キュー）。
+
+## 10. 拡張公理 (Axioms for Future Expansion)
+
+Phase 18以降の拡張において、以下の新規公理をシステムに統合する準備がなされている。
+
+*   **3D空間への昇格 (Spatial Elevation):** $P = (x, y, z, t)$ における $z$ を連続有理数空間へ昇格する。剛性理論は $3n-6$ へ移行する。
+*   **シェーダーとP次元の同型性 (Shader Isomorphism):** カスタムフラグメントシェーダー（WGSL/GLSL）の Uniform 変数は、P次元の射影像として定義される。
+*   **外部信号のT次元バインディング (Signal-to-T Binding):** Web Audio API等の連続信号は、Q次元で離散化された後、T次元の汎用パラメータとしてP次元に注入される。
+*   **物理制約の微分方程式化 (ODE Constraints):** 物理シミュレーションは、時間発展演算子 $T(t+dt) = f(T(t))$ として定義され、線形ODEクラスに限定してソルバに統合される。
+*   **分散制約合意 (Distributed Constraint Consensus):** マルチウィンドウ間の制約グラフ共有は、論理クロックを用いたCRDT的アプローチによって因果順序を保証する。
+
+## 11. ディレクトリ構造
+
+```shell
+.
+├── .github/
+│   └── workflows/
+│       └── llm-drift-check.yml
+├── .gitignore
+├── Cargo.toml
+├── STRUCTURE.mermaid
+├── STRUCTURE_1747008000000.md
+├── STRUCTURE_1778519786000.mermaid
+├── STRUCTURE_1778563565.mermaid
+├── TREE_1778520626000.md
+├── crates/
+│   ├── vsc-cli/
+│   │   ├── Cargo.toml
+│   │   ├── src/
+│   │   │   ├── commands/
+│   │   │   │   └── mod.rs
+│   │   │   └── main.rs
+│   │   └── tests/
+│   │       ├── fixtures/
+│   │       │   └── stack_vertical.vscmd.yaml
+│   │       ├── integration_harness.rs
+│   │       └── self_healing_agent.rs
+│   ├── vsc-codl/
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── ast.rs
+│   │       ├── error.rs
+│   │       ├── interpreter.rs
+│   │       ├── lib.rs
+│   │       ├── parser.rs
+│   │       └── validator.rs
+│   ├── vsc-core/
+│   │   ├── Cargo.toml
+│   │   ├── proptest-regressions/
+│   │   │   └── .gitkeep
+│   │   └── src/
+│   │       ├── algebra/
+│   │       │   ├── groebner.rs
+│   │       │   ├── mod.rs
+│   │       │   ├── monomial.rs
+│   │       │   └── polynomial.rs
+│   │       ├── analyzer/
+│   │       │   ├── jacobian.rs
+│   │       │   ├── mod.rs
+│   │       │   └── rigidity.rs
+│   │       ├── buildinfo.rs
+│   │       ├── collision.rs
+│   │       ├── component.rs
+│   │       ├── config.rs
+│   │       ├── lib.rs
+│   │       ├── optimizer.rs
+│   │       ├── proptest_checks.rs
+│   │       ├── regression_promoter.rs
+│   │       ├── solver.rs
+│   │       ├── telemetry.rs
+│   │       ├── types.rs
+│   │       └── validator.rs
+│   ├── vsc-linter/
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── checks/
+│   │       │   ├── cycle_detection.rs
+│   │       │   ├── float_contamination.rs
+│   │       │   ├── global_state.rs
+│   │       │   ├── locus_prohibition.rs
+│   │       │   ├── mod.rs
+│   │       │   └── nonlinear_constraint.rs
+│   │       ├── lib.rs
+│   │       └── main.rs
+│   └── vsc-wasm/
+│       ├── Cargo.toml
+│       └── src/
+│           └── lib.rs
+├── docs/
+│   ├── ARCH_CONSTRAINTS.md
+│   └── openapi.yaml
+├── justfile
+├── package.json
+├── packages/
+│   ├── browser-defaults/
+│   │   ├── package.json
+│   │   ├── src/
+│   │   │   ├── components/
+│   │   │   │   ├── RoundedRect.vs
+│   │   │   │   ├── Text.vs
+│   │   │   │   └── index.vs
+│   │   │   └── index.ts
+│   │   └── tsconfig.json
+│   ├── dev-server/
+│   │   └── src/
+│   │       └── hmr-controller.ts
+│   └── renderer/
+│       ├── package-lock.json
+│       ├── package.json
+│       ├── playwright-report/
+│       │   └── index.html
+│       ├── playwright.config.ts
+│       ├── screenshot-chrome.png
+│       ├── screenshots/
+│       │   ├── visual-demo-verification.png
+│       │   └── visual-demo.png
+│       ├── src/
+│       │   ├── ast/
+│       │   │   └── types.ts
+│       │   ├── compiler/
+│       │   │   └── chunk-splitter.ts
+│       │   ├── index.ts
+│       │   ├── rasterizer/
+│       │   │   ├── __tests__/
+│       │   │   │   └── error-distribution.test.ts
+│       │   │   ├── canvas-mapper.ts
+│       │   │   ├── error-distribution.ts
+│       │   │   ├── gradient-mapper.ts
+│       │   │   └── topology-rounding.ts
+│       │   ├── runtime/
+│       │   │   ├── __tests__/
+│       │   │   │   └── event-backpressure.test.ts
+│       │   │   ├── event-backpressure.ts
+│       │   │   ├── render-loop.ts
+│       │   │   └── wasm-resource-manager.ts
+│       │   └── semantic/
+│       │       ├── __tests__/
+│       │       │   └── semantic-translator.test.ts
+│       │       └── semantic-translator.ts
+│       ├── test-results/
+│       │   ├── .last-run.json
+│       │   └── results.json
+│       ├── tests/
+│       │   └── e2e/
+│       │       ├── async-race.spec.ts
+│       │       ├── bilayer-sync.spec.ts
+│       │       ├── failures/
+│       │       │   └── .gitkeep
+│       │       ├── fullstack.spec.ts
+│       │       ├── g1-continuity.spec.ts
+│       │       ├── golden/
+│       │       │   ├── .gitkeep
+│       │       │   ├── adjacent-rectangles.raw
+│       │       │   ├── adjacent-rectangles.sha256
+│       │       │   ├── simple-rectangle.raw
+│       │       │   ├── simple-rectangle.sha256
+│       │       │   ├── text-monospace.raw
+│       │       │   └── text-monospace.sha256
+│       │       ├── gradient-animation.spec.ts
+│       │       ├── memory-stability.spec.ts
+│       │       ├── path-topology.spec.ts
+│       │       ├── performance-profile.spec.ts
+│       │       ├── screenshot.spec.ts
+│       │       ├── test-harness.html
+│       │       ├── text-layout.spec.ts
+│       │       ├── visual-demo.html
+│       │       └── visual-regression.spec.ts
+│       ├── tsconfig.json
+│       └── vitest.config.ts
+├── pnpm-workspace.yaml
+├── rfc/
+│   └── lean/
+│       ├── ViewScriptRFC.lean
+│       ├── ViewScriptRFC/
+│       │   └── PDimension.lean
+│       ├── lakefile.toml
+│       └── lean-toolchain
+├── schemas/
+│   └── constraint-collision-error.schema.json
+├── tests/
+│   ├── llm-drift/
+│   │   ├── baselines/
+│   │   │   ├── card-grid.json
+│   │   │   ├── modal-dialog.json
+│   │   │   └── nav-bar.json
+│   │   ├── drift-calculator.ts
+│   │   ├── executor.ts
+│   │   └── run-drift-check.ts
+│   └── wasi-e2e/
+│       ├── deterministic_runner.sh
+│       ├── package.json
+│       ├── run_wasi_tests.sh
+│       └── runner.mjs
+└── vs.md
+```
+
+
+## 12. 依存関係
+
+```mermaid
+flowchart TB
+    subgraph ring[" "]
+        direction TB
+
+        %% === vsc-core ===
+        subgraph rust_core["vsc-core"]
+            core_types["types.rs"]
+            core_solver["solver.rs"]
+            core_collision["collision.rs"]
+            core_optimizer["optimizer.rs"]
+            core_validator["validator.rs"]
+            core_component["component.rs"]
+            core_buildinfo["buildinfo.rs"]
+            core_config["config.rs"]
+            core_telemetry["telemetry.rs"]
+            core_regression["regression_promoter.rs"]
+            core_proptest["proptest_checks.rs"]
+            %% algebra/
+            alg_mod["algebra/mod.rs"]
+            alg_polynomial["algebra/polynomial.rs"]
+            alg_monomial["algebra/monomial.rs"]
+            alg_groebner["algebra/groebner.rs"]
+            %% analyzer/
+            ana_mod["analyzer/mod.rs"]
+            ana_jacobian["analyzer/jacobian.rs"]
+            ana_rigidity["analyzer/rigidity.rs"]
+        end
+
+        %% === vsc-codl ===
+        subgraph rust_codl["vsc-codl"]
+            codl_lib["lib.rs"]
+            codl_ast["ast.rs"]
+            codl_parser["parser.rs"]
+            codl_interpreter["interpreter.rs"]
+            codl_validator["validator.rs"]
+            codl_error["error.rs"]
+        end
+
+        %% === vsc-cli ===
+        subgraph rust_cli["vsc-cli"]
+            cli_main["main.rs"]
+            cli_commands["commands/mod.rs"]
+        end
+
+        %% === vsc-wasm ===
+        subgraph rust_wasm["vsc-wasm"]
+            wasm_lib["lib.rs"]
+        end
+
+        %% === vsc-linter ===
+        subgraph rust_linter["vsc-linter"]
+            linter_lib["lib.rs"]
+            linter_main["main.rs"]
+            chk_mod["checks/mod.rs"]
+            chk_global["checks/global_state.rs"]
+            chk_float["checks/float_contamination.rs"]
+            chk_cycle["checks/cycle_detection.rs"]
+            chk_nonlinear["checks/nonlinear_constraint.rs"]
+            chk_locus["checks/locus_prohibition.rs"]
+        end
+
+        %% === TypeScript Renderer ===
+        subgraph ts_renderer["packages/renderer/src"]
+            ts_index["index.ts"]
+            ts_ast_types["ast/types.ts"]
+            ts_rast_canvas["rasterizer/canvas-mapper.ts"]
+            ts_rast_error["rasterizer/error-distribution.ts"]
+            ts_rast_gradient["rasterizer/gradient-mapper.ts"]
+            ts_rast_topology["rasterizer/topology-rounding.ts"]
+            ts_rt_loop["runtime/render-loop.ts"]
+            ts_rt_backpressure["runtime/event-backpressure.ts"]
+            ts_rt_wasm["runtime/wasm-resource-manager.ts"]
+            ts_comp_splitter["compiler/chunk-splitter.ts"]
+            ts_sem_translator["semantic/semantic-translator.ts"]
+        end
+    end
+
+    %% === vsc-core Internal ===
+    core_types -->|"Rational, EntityId\nVectorComponent"| core_solver
+    core_types -->|"Rational"| alg_mod
+    alg_mod -->|"re-export"| alg_polynomial
+    alg_mod -->|"re-export"| alg_monomial
+    alg_mod -->|"re-export"| alg_groebner
+    alg_polynomial -->|"Polynomial"| alg_groebner
+    alg_monomial -->|"Monomial"| alg_polynomial
+    alg_groebner -->|"GroebnerBasis"| core_solver
+    core_solver -->|"VarId, SolveProgress"| ana_mod
+    ana_mod -->|"re-export"| ana_jacobian
+    ana_mod -->|"re-export"| ana_rigidity
+    ana_jacobian -->|"JacobianTerm"| ana_rigidity
+    core_types -->|"EntityId, PVector"| core_collision
+    core_types -->|"Constraint, ConstraintTerm"| core_optimizer
+    core_types -->|"RelationType, ConstraintPriority"| core_validator
+    core_types -->|"EntityId, Rational"| core_buildinfo
+    core_types -->|"Constraint"| core_component
+    core_collision -->|"CollisionAnalysis"| core_telemetry
+    core_solver -->|"SolverError"| core_proptest
+
+    %% === vsc-core → vsc-codl ===
+    core_types -->|"Constraint, EntityId\nRational, VectorComponent\nRelationType, ConstraintTerm\nConstraintPriority"| codl_interpreter
+    codl_ast -->|"CodlCommand, CodlExpr"| codl_parser
+    codl_parser -->|"parse_expr()"| codl_interpreter
+    codl_ast -->|"CodlType"| codl_validator
+    codl_error -->|"CodlError, CodlResult"| codl_interpreter
+    codl_lib -->|"re-export"| codl_ast
+    codl_lib -->|"re-export"| codl_interpreter
+    codl_lib -->|"re-export"| codl_validator
+
+    %% === vsc-core → vsc-cli ===
+    core_types -->|"Constraint, EntityId\nVectorComponent, Rational"| cli_commands
+    core_collision -->|"ConstraintCollisionError\nCollisionErrorType\nRepairSuggestion"| cli_commands
+    core_buildinfo -->|"VsBuildInfo\nConstraintOperation\nLayoutSpec, LayoutMacroOperation"| cli_commands
+    ana_rigidity -->|"RigidityStatus"| cli_commands
+    ana_jacobian -->|"JacobianTerm\nPolynomialConstraint"| cli_commands
+
+    %% === vsc-codl → vsc-cli ===
+    codl_lib -->|"CodlCommand\nCodlInterpreter\nvalidate_codl()"| cli_commands
+
+    %% === vsc-core → vsc-wasm ===
+    core_solver -->|"ConstraintSolver\nSolveProgress, SolverError\nLinearConstraint, LinearRelation\nVariableState, VarId"| wasm_lib
+    core_types -->|"EntityId, Rational\nVectorComponent\nConstraintPriority"| wasm_lib
+
+    %% === vsc-linter Internal ===
+    linter_lib -->|"re-export"| chk_mod
+    chk_mod -->|"LintCheck trait"| chk_global
+    chk_mod -->|"LintCheck trait"| chk_float
+    chk_mod -->|"LintCheck trait"| chk_cycle
+    chk_mod -->|"LintCheck trait"| chk_nonlinear
+    chk_mod -->|"LintCheck trait"| chk_locus
+    linter_lib -->|"run_checks()\nLintResult, Severity"| linter_main
+
+    %% === TypeScript Internal ===
+    ts_ast_types -->|"EntityId, Rational\nPathCommand\nFillStyle, StrokeStyle"| ts_rast_canvas
+    ts_ast_types -->|"EntityId, Rational"| ts_rast_error
+    ts_ast_types -->|"Rational, RasterBounds"| ts_rast_gradient
+    ts_ast_types -->|"EntityId, Rational\nRasterBounds, PVectorBounds"| ts_rast_topology
+    ts_ast_types -->|"EntityId"| ts_rt_backpressure
+    ts_ast_types -->|"EntityId, Rational"| ts_sem_translator
+
+    %% === WASM Bridge (Ring Closure) ===
+    wasm_lib ==>|"JSON: SolveProgressJson\nSolutionPreview\n{entity_id:component: value}\nResolutionEvent[]"| ts_rt_wasm
+    ts_rt_wasm ==>|"ResourceStats\nDeletable refs"| ts_rt_loop
+    ts_rt_loop ==>|"RasterCoord\nCanvasNode"| ts_rast_canvas
+
+    %% === Styling ===
+    classDef rustCrate fill:#2d3748,stroke:#4a9eff,color:#fff
+    classDef tsPkg fill:#1a365d,stroke:#63b3ed,color:#fff
+    classDef core fill:#553c9a,stroke:#b794f4,color:#fff
+    classDef bridge fill:#744210,stroke:#f6ad55,color:#fff
+
+    class rust_core,rust_codl,rust_cli,rust_wasm,rust_linter rustCrate
+    class ts_renderer tsPkg
+    class core_types,core_solver core
+    class wasm_lib,ts_rt_wasm bridge
+
+```

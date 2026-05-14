@@ -19,9 +19,9 @@
  *   │ 2. Evaluate constraint graph (P-dimension solver)              │
  *   │ 3. Topology-preserving rounding (with error distribution)      │
  *   │ 4. Diff against previous frame's RasterBounds                  │
- *   │ 5. Batch Canvas draw commands (CanvasKit)                      │
+ *   │ 5. Batch Canvas draw commands (wgpu)                          │
  *   │ 6. Batch DOM style mutations (transform only, no reflow)       │
- *   │ 7. Commit: CanvasKit.flush() + requestAnimationFrame boundary  │
+ *   │ 7. Commit: GpuRenderer.flush() + requestAnimationFrame boundary│
  *   └─────────────────────────────────────────────────────────────────┘
  * ```
  *
@@ -95,7 +95,7 @@ interface FrameState {
 }
 
 /**
- * Canvas draw command (batched for CanvasKit).
+ * Canvas draw command (batched for GPU renderer).
  */
 interface DrawCommand {
   entityId: EntityId;
@@ -404,7 +404,7 @@ export class AtomicRenderLoop {
    * Phase 7: Atomic commit of Canvas and DOM updates.
    *
    * This function guarantees that by the time rAF callback returns:
-   * 1. All CanvasKit draw commands have been flushed to GPU
+   * 1. All wgpu draw commands have been flushed to GPU
    * 2. All DOM transforms have been written
    * 3. Browser's compositor will see consistent state
    *
@@ -415,7 +415,7 @@ export class AtomicRenderLoop {
    */
   private commitFrame(drawCommands: DrawCommand[], domMutations: DOMMutation[]): void {
     // --- Canvas Commit ---
-    // CanvasKit batches internally; we just need to issue commands and flush
+    // GPU renderer batches internally; we just need to issue commands and flush
     for (const cmd of drawCommands) {
       this.canvasRenderer.draw(cmd);
     }

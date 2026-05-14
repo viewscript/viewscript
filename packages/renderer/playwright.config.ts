@@ -140,6 +140,15 @@ export default defineConfig({
         deviceScaleFactor: 1,
       },
     },
+    {
+      name: 'gradient-animation',
+      testMatch: /gradient-animation\.spec\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 800, height: 600 },
+        deviceScaleFactor: 1,
+      },
+    },
   ],
 
   webServer: {

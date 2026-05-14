@@ -7,11 +7,13 @@ license.workspace = true
 [features]
 default = []
 proptest-tests = ["proptest", "proptest-derive"]
+text-shaping = ["ttf-parser", "rustybuzz"]
 
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+schemars = "0.8"
 proptest = { version = "1.4", optional = true }
 proptest-derive = { version = "0.4", optional = true }
 
@@ -19,6 +21,13 @@ proptest-derive = { version = "0.4", optional = true }
 num-rational = "0.4"
 num-bigint = "0.4"
 num-traits = "0.2"
+
+# Base64 encoding for QValue::Bytes serialization
+base64 = "0.22"
+
+# Text shaping (optional)
+ttf-parser = { version = "0.24", optional = true }
+rustybuzz = { version = "0.18", optional = true }
 
 [dev-dependencies]
 # Test utilities only

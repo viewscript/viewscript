@@ -326,12 +326,17 @@ test.describe('Bilayer Sync: Atomic Canvas + DOM Updates', () => {
       };
     });
 
+    // Wait one frame so the render loop re-registers itself through the wrapper.
+    // Without this, the first render loop rAF was queued before the wrapper was installed
+    // and would fire unwrapped, causing the constraint-apply frame to go undetected.
+    await waitForStableFrame(page);
+
     // Apply constraint that moves entity
     await applyConstraints(page, [
       { id: 1001, target: 1, component: 'x', term: { type: 'const', value: 300 } },
     ]);
 
-    // Wait for update to process
+    // Wait for update to process (constraint is applied in the next rAF cycle)
     await waitForStableFrame(page);
 
     // Analyze frame captures
@@ -435,9 +440,9 @@ test.describe('Q-Dimension Isolation', () => {
   test('mocked measureText returns deterministic width', async ({ page }) => {
     await setupTestPage(page);
 
-    // Inject deterministic font metric mock
-    await page.addInitScript(() => {
-      const originalMeasureText = CanvasRenderingContext2D.prototype.measureText;
+    // Inject deterministic font metric mock via evaluate (page is already loaded)
+    // addInitScript would not apply after page.goto, so we use page.evaluate instead
+    await page.evaluate(() => {
       CanvasRenderingContext2D.prototype.measureText = function(text: string) {
         // Deterministic: 8px per character
         return {
@@ -448,7 +453,7 @@ test.describe('Q-Dimension Isolation', () => {
           fontBoundingBoxDescent: 4,
           actualBoundingBoxLeft: 0,
           actualBoundingBoxRight: text.length * 8,
-        } as TextMetrics;
+        } as unknown as TextMetrics;
       };
     });
 
@@ -526,31 +531,17 @@ async function renderInteractiveEntities(page: Page, entities: EntitySpec[]): Pr
 async function applyConstraints(page: Page, constraints: Constraint[]): Promise<void> {
   await page.evaluate((cs) => {
     const renderer = (window as any).__VS_RENDERER__;
-    const state = renderer.getTVectorState ? renderer.getTVectorState() : {};
 
-    for (const c of cs) {
-      const entity = (window as any).__VS_RENDERER__.getEntityBounds(c.target);
-      if (!entity) continue;
-
-      // Apply constraint to entity bounds
-      if (c.term.type === 'const') {
-        entity[c.component] = c.term.value;
-      }
-
-      // Update DOM element if exists
-      const domEl = document.querySelector(`[data-entity-id="${c.target}"]`) as HTMLElement;
-      if (domEl) {
-        domEl.style.transform = `translate3d(${entity.x}px, ${entity.y}px, 0)`;
-      }
+    // Use setConstraints to avoid recreating DOM elements (which would
+    // invalidate any cached DOM element references in frame-capture tests).
+    // The render loop's evaluateConstraints() will apply constraints each rAF cycle.
+    if (renderer.setConstraints) {
+      renderer.setConstraints(cs);
+    } else {
+      // Fallback: re-render preserving all entities
+      const allEntities = renderer.getAllEntities ? renderer.getAllEntities() : [];
+      renderer.render({ entities: allEntities, constraints: cs });
     }
-
-    // Trigger re-render
-    renderer.render({
-      entities: Array.from((window as any).__VS_RENDERER__.getEntityBounds ?
-        [{ id: cs[0]?.target, type: 'rect', bounds: (window as any).__VS_RENDERER__.getEntityBounds(cs[0]?.target), fill: '#0064C8' }] :
-        []),
-      constraints: cs,
-    });
   }, constraints);
 }
 
@@ -595,22 +586,14 @@ async function simulateUserDrag(
 ): Promise<void> {
   await page.evaluate(({ id, pos }) => {
     const renderer = (window as any).__VS_RENDERER__;
-    const entity = renderer.getEntityBounds(id);
-    if (entity) {
-      entity.x = pos.x;
-      entity.y = pos.y;
 
-      // Update T-vector state
-      const tState = renderer.getTVectorState?.();
-      if (tState && tState[id]) {
-        tState[id].drag_progress = 1;
-      }
+    // Use updateEntityBounds to modify the actual stored entity (not a stale copy)
+    renderer.updateEntityBounds(id, { x: pos.x, y: pos.y });
 
-      // Update DOM
-      const domEl = document.querySelector(`[data-entity-id="${id}"]`) as HTMLElement;
-      if (domEl) {
-        domEl.style.transform = `translate3d(${pos.x}px, ${pos.y}px, 0)`;
-      }
+    // Update T-vector state to mark as user-dragged
+    const tState = renderer.getTVectorState?.();
+    if (tState && tState[id]) {
+      tState[id].drag_progress = 1;
     }
   }, { id: entityId, pos: newPosition });
 }
@@ -643,26 +626,18 @@ async function simulateHMRUpdate(page: Page, config: HMRUpdateConfig): Promise<v
       }
     }
 
-    // Apply new constraints
+    // Register new constraints so the render loop evaluates them each rAF
+    renderer.setConstraints(cfg.newConstraints);
+
+    // Apply bounds immediately for non-dragged entities
     for (const c of cfg.newConstraints) {
-      const entity = renderer.getEntityBounds(c.target);
-      if (!entity) continue;
+      if (c.term.type !== 'const') continue;
 
-      if (!cfg.preserveTVector && c.term.type === 'const') {
-        entity[c.component] = c.term.value;
-      } else if (cfg.preserveTVector) {
-        // Only update if not user-modified
-        const tState = renderer.getTVectorState?.();
-        const isDragged = tState?.[c.target]?.drag_progress > 0;
-        if (!isDragged && c.term.type === 'const') {
-          entity[c.component] = c.term.value;
-        }
-      }
+      const tState = renderer.getTVectorState?.();
+      const isDragged = cfg.preserveTVector && (tState?.[c.target]?.drag_progress > 0);
 
-      // Update DOM
-      const domEl = document.querySelector(`[data-entity-id="${c.target}"]`) as HTMLElement;
-      if (domEl) {
-        domEl.style.transform = `translate3d(${entity.x}px, ${entity.y}px, 0)`;
+      if (!isDragged) {
+        renderer.updateEntityBounds(c.target, { [c.component]: c.term.value });
       }
     }
   }, config);

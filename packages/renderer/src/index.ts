@@ -1,7 +1,7 @@
 /**
  * ViewScript Renderer
  *
- * Compiles .vs IR files into target-specific output (CanvasKit, WebGL, SVG).
+ * Compiles .vs IR files into target-specific output (wgpu, WebGL, SVG).
  */
 
 export interface RenderTarget {
@@ -47,11 +47,11 @@ export interface CompiledOutput {
   assets: Map<string, Uint8Array>;
 }
 
-export class CanvasKitTarget implements RenderTarget {
-  name = 'canvaskit';
+export class WgpuTarget implements RenderTarget {
+  name = 'wgpu';
 
   async compile(ir: VsIR): Promise<CompiledOutput> {
-    // TODO: Implement CanvasKit compilation
+    // TODO: Implement wgpu compilation
     return {
       html: '',
       js: '',

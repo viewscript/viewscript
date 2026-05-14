@@ -2,7 +2,7 @@
  * ViewScript Renderer AST: Bilayer Orthogonal Architecture
  *
  * This module defines the type system for the dual-layer rendering model:
- * - Canvas Layer: Visual representation (CanvasKit/Skia commands)
+ * - Canvas Layer: Visual representation (wgpu draw commands)
  * - DOM Layer: Interaction regions (accessibility, events, focus)
  *
  * ## Architectural Invariants
@@ -87,7 +87,7 @@ export interface RasterCoord {
 
 /**
  * Base interface for all Canvas layer nodes.
- * These produce CanvasKit drawing commands.
+ * These produce wgpu draw commands.
  */
 export interface CanvasNodeBase {
   /** Discriminant for node type */

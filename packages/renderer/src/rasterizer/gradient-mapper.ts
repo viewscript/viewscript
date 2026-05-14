@@ -1,7 +1,7 @@
 /**
- * Gradient Shader Mapper: P-Dimension to CanvasKit
+ * Gradient Shader Mapper: P-Dimension to GPU Shaders
  *
- * This module maps P-dimension gradient entities to CanvasKit/Skia shader objects.
+ * This module maps P-dimension gradient entities to GPU shader objects.
  * It handles the critical transition from exact rational arithmetic to GPU-compatible
  * floating-point representation while preserving visual fidelity.
  *
@@ -11,7 +11,7 @@
  *   P-Dimension (Exact)                        GPU (Float)
  *   ─────────────────────────────────────────────────────────────
  *
- *   LinearGradient {                           CanvasKit.Shader
+ *   LinearGradient {                           GpuShaderBackend.Shader
  *     start: Rational(1, 3)    ────────────▶   MakeLinearGradient(
  *     end: Rational(2, 3)                        [0.333..., 0.666...],
  *     stops: [                                   colors: Float32Array,
@@ -43,8 +43,8 @@ import type { Rational, RasterBounds } from '../ast/types';
 // Types
 // =============================================================================
 
-/** CanvasKit interface (minimal subset needed for gradients) */
-export interface CanvasKitInstance {
+/** GPU shader backend interface (minimal subset needed for gradients) */
+export interface GpuShaderBackend {
   Shader: {
     MakeLinearGradient(
       start: Float32Array,
@@ -162,16 +162,16 @@ export interface PConicGradient {
 // =============================================================================
 
 /**
- * Map a P-dimension linear gradient to a CanvasKit shader.
+ * Map a P-dimension linear gradient to a GPU shader.
  *
- * @param ck - CanvasKit instance
+ * @param ck - GPU shader backend instance
  * @param gradient - P-dimension linear gradient definition
  * @param bounds - Rasterized bounds for coordinate transformation
  * @param devicePixelRatio - Device pixel ratio for coordinate scaling
- * @returns CanvasKit shader instance (caller must call delete() when done)
+ * @returns GPU shader instance (caller must call delete() when done)
  */
 export function mapLinearGradientToShader(
-  ck: CanvasKitInstance,
+  ck: GpuShaderBackend,
   gradient: PLinearGradient,
   bounds: RasterBounds,
   devicePixelRatio: number,
@@ -182,7 +182,7 @@ export function mapLinearGradientToShader(
   const endX = rationalToFloat(gradient.end.x) * devicePixelRatio;
   const endY = rationalToFloat(gradient.end.y) * devicePixelRatio;
 
-  // Sort stops by position (required by CanvasKit)
+  // Sort stops by position (required by GPU shader backend)
   const sortedStops = [...gradient.stops].sort(
     (a, b) => rationalToFloat(a.position) - rationalToFloat(b.position),
   );
@@ -204,20 +204,20 @@ export function mapLinearGradientToShader(
 }
 
 /**
- * Map a P-dimension radial gradient to a CanvasKit shader.
+ * Map a P-dimension radial gradient to a GPU shader.
  *
- * CanvasKit uses two-point conical gradients which can express:
+ * The GPU backend uses two-point conical gradients which can express:
  * - Circle gradients (same center, different radii)
  * - Focal gradients (different centers)
  *
- * @param ck - CanvasKit instance
+ * @param ck - GPU shader backend instance
  * @param gradient - P-dimension radial gradient definition
  * @param bounds - Rasterized bounds for coordinate transformation
  * @param devicePixelRatio - Device pixel ratio for coordinate scaling
- * @returns CanvasKit shader instance
+ * @returns GPU shader instance
  */
 export function mapRadialGradientToShader(
-  ck: CanvasKitInstance,
+  ck: GpuShaderBackend,
   gradient: PRadialGradient,
   bounds: RasterBounds,
   devicePixelRatio: number,
@@ -267,16 +267,16 @@ export function mapRadialGradientToShader(
 }
 
 /**
- * Map a P-dimension conic (sweep) gradient to a CanvasKit shader.
+ * Map a P-dimension conic (sweep) gradient to a GPU shader.
  *
- * @param ck - CanvasKit instance
+ * @param ck - GPU shader backend instance
  * @param gradient - P-dimension conic gradient definition
  * @param bounds - Rasterized bounds for coordinate transformation
  * @param devicePixelRatio - Device pixel ratio for coordinate scaling
- * @returns CanvasKit shader instance
+ * @returns GPU shader instance
  */
 export function mapConicGradientToShader(
-  ck: CanvasKitInstance,
+  ck: GpuShaderBackend,
   gradient: PConicGradient,
   bounds: RasterBounds,
   devicePixelRatio: number,
@@ -285,7 +285,7 @@ export function mapConicGradientToShader(
   const centerX = rationalToFloat(gradient.center.x) * devicePixelRatio;
   const centerY = rationalToFloat(gradient.center.y) * devicePixelRatio;
 
-  // Convert angles (CanvasKit expects degrees)
+  // Convert angles (GPU shader expects degrees)
   const startAngle = rationalToFloat(gradient.startAngle) + rationalToFloat(gradient.rotation);
   const endAngle = rationalToFloat(gradient.endAngle) + rationalToFloat(gradient.rotation);
 
@@ -296,7 +296,7 @@ export function mapConicGradientToShader(
   const colors = colorStopsToFloat32Array(sortedStops);
   const positions = positionsToFloat32Array(sortedStops);
 
-  // CanvasKit sweep gradient always uses Clamp-like behavior
+  // Sweep gradient always uses Clamp-like behavior
   return ck.Shader.MakeSweepGradient(
     centerX,
     centerY,
@@ -328,7 +328,7 @@ export function rationalToFloat(r: Rational): number {
 /**
  * Convert P-dimension color stops to a Float32Array of RGBA values.
  *
- * CanvasKit expects colors in RGBA order, with each channel in [0, 1].
+ * GPU shader expects colors in RGBA order, with each channel in [0, 1].
  * P-dimension stores RGB in [0, 255] and Alpha in [0, 1].
  *
  * ## Topology-Preserving Rounding (Clamping)
@@ -383,10 +383,10 @@ function clamp01(value: number): number {
 }
 
 /**
- * Map P-dimension tile mode to CanvasKit tile mode constant.
+ * Map P-dimension tile mode to GPU tile mode constant.
  */
 function mapTileMode(
-  ck: CanvasKitInstance,
+  ck: GpuShaderBackend,
   mode: 'clamp' | 'repeat' | 'mirror' | 'decal',
 ): number {
   switch (mode) {
@@ -408,13 +408,13 @@ function mapTileMode(
 // =============================================================================
 
 /**
- * Create a CanvasKit shader from a FillStyle gradient definition.
+ * Create a GPU shader from a FillStyle gradient definition.
  *
  * This is a higher-level factory that integrates with the existing
  * FillStyle type from the AST.
  */
 export function createGradientShader(
-  ck: CanvasKitInstance,
+  ck: GpuShaderBackend,
   fillType: 'linear-gradient' | 'radial-gradient',
   stops: Array<{ offset: Rational; color: string }>,
   bounds: RasterBounds,

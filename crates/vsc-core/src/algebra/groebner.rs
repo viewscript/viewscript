@@ -188,7 +188,7 @@ pub fn compute_groebner_basis(
 ///
 /// Removes polynomials whose leading monomial is divisible by another's,
 /// and inter-reduces the remaining polynomials.
-fn reduce_groebner_basis(mut basis: Vec<Polynomial>, order: MonomialOrder) -> Vec<Polynomial> {
+fn reduce_groebner_basis(basis: Vec<Polynomial>, order: MonomialOrder) -> Vec<Polynomial> {
     // Step 1: Remove polynomials with divisible leading monomials
     let mut minimal = Vec::new();
     for i in 0..basis.len() {

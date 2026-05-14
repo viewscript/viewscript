@@ -7,6 +7,7 @@ use clap::{Parser, Subcommand};
 use std::process::ExitCode;
 
 mod commands;
+pub mod embedded_wasm;
 
 #[derive(Parser)]
 #[command(name = "vsc")]
@@ -86,13 +87,77 @@ enum Commands {
 
     /// Build the project for a target renderer
     Build {
-        /// Target renderer (canvaskit, webgl, svg)
-        #[arg(short, long, default_value = "canvaskit")]
+        /// Target renderer (wgpu, webgl, svg)
+        #[arg(short, long, default_value = "wgpu")]
         target: String,
 
         /// Output directory
         #[arg(short, long, default_value = "dist")]
         outdir: String,
+    },
+
+    /// Start development server with live preview
+    Dev {
+        /// Target renderer (vs-web)
+        #[arg(long, default_value = "vs-web")]
+        target: String,
+
+        /// Port number
+        #[arg(long, default_value = "8787")]
+        port: u16,
+    },
+
+    /// Modify an existing constraint on an entity
+    PatchConstraint {
+        /// Entity ID to modify
+        #[arg(long)]
+        entity_id: u64,
+
+        /// Component to modify (x, y, width, height, etc.)
+        #[arg(long)]
+        component: String,
+
+        /// New relation (eq, le, ge)
+        #[arg(long)]
+        relation: String,
+
+        /// New value (rational, e.g., "100" or "100/1")
+        #[arg(long)]
+        value: String,
+
+        /// Natural language intent
+        #[arg(long)]
+        intent: Option<String>,
+    },
+
+    /// Add a layout combinator (alias for apply-layout)
+    AddLayout {
+        /// Layout type (stack_vertical, stack_horizontal)
+        layout_type: String,
+
+        /// Instance IDs as JSON array, e.g., "[101, 102, 103]"
+        #[arg(long)]
+        instances: String,
+
+        /// Anchor point (TL, TR, BL, BR)
+        #[arg(long, default_value = "TL")]
+        anchor: Option<String>,
+
+        /// Gap between instances (rational, e.g., "16" or "32/2")
+        #[arg(long, default_value = "0")]
+        gap: Option<String>,
+
+        /// X origin for first instance
+        #[arg(long)]
+        origin_x: Option<String>,
+
+        /// Y origin for first instance
+        #[arg(long)]
+        origin_y: Option<String>,
+
+        /// Natural language intent
+        #[arg(long)]
+        intent: Option<String>,
     },
 
     /// Add a new entity to the constraint graph (Phase 10)
@@ -120,6 +185,41 @@ enum Commands {
         /// Initial Y position
         #[arg(long, short = 'y')]
         y: Option<String>,
+    },
+
+    /// Add a visual component (RoundedRect, Circle, etc.)
+    AddComponent {
+        /// Component type (RoundedRect, Circle, Line, Path)
+        #[arg(long, short = 't')]
+        component_type: String,
+
+        /// X position
+        #[arg(long, short = 'x', default_value = "0")]
+        x: String,
+
+        /// Y position
+        #[arg(long, short = 'y', default_value = "0")]
+        y: String,
+
+        /// Width (for RoundedRect)
+        #[arg(long, short = 'w', default_value = "100")]
+        width: String,
+
+        /// Height (for RoundedRect)
+        #[arg(long, default_value = "100")]
+        height: String,
+
+        /// Corner radius (for RoundedRect)
+        #[arg(long, short = 'r', default_value = "0")]
+        radius: String,
+
+        /// Fill: solid color "#ff6b6b" or gradient "linear-gradient(to right, #ff0000, #00ff00)"
+        #[arg(long, short = 'f', default_value = "#888888")]
+        fill: String,
+
+        /// Stroke: "width:color" format (e.g., "2:#000000")
+        #[arg(long, short = 's')]
+        stroke: Option<String>,
     },
 
     /// Update text metrics from Renderer measurement (Phase 10 Q→P bridge)
@@ -184,8 +284,45 @@ enum Commands {
         format: String,
     },
 
+    /// Generate JSON Schema from Rust type definitions (D-16)
+    GenerateSchema {
+        /// Schema target: buildinfo, constraint, codl, or all (default)
+        #[arg(long, default_value = "all")]
+        target: String,
+    },
+
     /// Get current project status
     Status,
+
+    /// Search and query objects in the constraint graph
+    Search {
+        /// Object type filter: constraint, path, control-point, text, gradient, q-variable, derived, all
+        #[arg(short = 't', long)]
+        object_type: Option<String>,
+
+        /// Filter by entity ID
+        #[arg(short = 'e', long)]
+        entity_id: Option<u64>,
+
+        /// Filter by component (x, y, width, height, etc.)
+        #[arg(short = 'c', long)]
+        component: Option<String>,
+
+        /// Constraint satisfaction filter (e.g., "x > 100", "width == 200")
+        #[arg(short = 'w', long)]
+        where_clause: Option<String>,
+
+        /// Maximum results to return
+        #[arg(short = 'l', long, default_value = "100")]
+        limit: usize,
+    },
+
+    /// Check constraint graph integrity (D-05)
+    Check {
+        /// Check specific aspects (all if omitted): cycles, rigidity, singularity, types
+        #[arg(long)]
+        aspect: Option<String>,
+    },
 
     /// Run a CODL command file (Phase 15)
     RunCommand {
@@ -200,6 +337,56 @@ enum Commands {
         #[arg(long)]
         intent: Option<String>,
     },
+
+    /// Manage render targets
+    Target {
+        #[command(subcommand)]
+        action: TargetAction,
+    },
+
+    /// Manage stylesheets (UA stylesheets like vs-style-chrome)
+    Style {
+        #[command(subcommand)]
+        action: StyleAction,
+    },
+}
+
+/// Actions for the `target` subcommand.
+#[derive(Subcommand)]
+enum TargetAction {
+    /// Add a render target to the project
+    Add {
+        /// Target name (e.g., "vs-web")
+        name: String,
+    },
+
+    /// Remove a render target from the project
+    Remove {
+        /// Target name to remove
+        name: String,
+    },
+
+    /// List registered render targets
+    List,
+}
+
+/// Actions for the `style` subcommand.
+#[derive(Subcommand)]
+enum StyleAction {
+    /// Add a stylesheet to the project (e.g., "vs-style-chrome")
+    Add {
+        /// Style name (e.g., "vs-style-chrome")
+        name: String,
+    },
+
+    /// Remove a stylesheet from the project
+    Remove {
+        /// Style name to remove
+        name: String,
+    },
+
+    /// List registered stylesheets
+    List,
 }
 
 fn main() -> ExitCode {
@@ -222,6 +409,31 @@ fn main() -> ExitCode {
         } => commands::add_constraint(target, &component, &relation, &term, intent.as_deref()),
         Commands::Optimize { dry_run } => commands::optimize(dry_run),
         Commands::Build { target, outdir } => commands::build(&target, &outdir),
+        Commands::Dev { target, port } => commands::dev(&target, port),
+        Commands::PatchConstraint {
+            entity_id,
+            component,
+            relation,
+            value,
+            intent,
+        } => commands::patch_constraint(entity_id, &component, &relation, &value, intent.as_deref()),
+        Commands::AddLayout {
+            layout_type,
+            instances,
+            anchor,
+            gap,
+            origin_x,
+            origin_y,
+            intent,
+        } => commands::apply_layout(
+            &layout_type,
+            &instances,
+            anchor.as_deref(),
+            gap.as_deref(),
+            origin_x.as_deref(),
+            origin_y.as_deref(),
+            intent.as_deref(),
+        ),
         Commands::AddEntity {
             entity_type,
             content,
@@ -236,6 +448,25 @@ fn main() -> ExitCode {
             font_size.as_deref(),
             x.as_deref(),
             y.as_deref(),
+        ),
+        Commands::AddComponent {
+            component_type,
+            x,
+            y,
+            width,
+            height,
+            radius,
+            fill,
+            stroke,
+        } => commands::add_component(
+            &component_type,
+            &x,
+            &y,
+            &width,
+            &height,
+            &radius,
+            &fill,
+            stroke.as_deref(),
         ),
         Commands::UpdateMetrics { id, width, height } => {
             commands::update_metrics(id, &width, &height)
@@ -261,12 +492,37 @@ fn main() -> ExitCode {
             commands::remove_constraint(target_id, intent.as_deref())
         }
         Commands::ExportSchema { format } => commands::export_schema(&format),
+        Commands::GenerateSchema { target } => commands::generate_schema(&target),
         Commands::Status => commands::status(),
+        Commands::Search {
+            object_type,
+            entity_id,
+            component,
+            where_clause,
+            limit,
+        } => commands::search(
+            object_type.as_deref(),
+            entity_id,
+            component.as_deref(),
+            where_clause.as_deref(),
+            limit,
+        ),
+        Commands::Check { aspect } => commands::check(aspect.as_deref()),
         Commands::RunCommand {
             command_file,
             args,
             intent,
         } => commands::run_command(&command_file, &args, intent.as_deref()),
+        Commands::Target { action } => match action {
+            TargetAction::Add { name } => commands::target_add(&name),
+            TargetAction::Remove { name } => commands::target_remove(&name),
+            TargetAction::List => commands::target_list(),
+        },
+        Commands::Style { action } => match action {
+            StyleAction::Add { name } => commands::style_add(&name),
+            StyleAction::Remove { name } => commands::style_remove(&name),
+            StyleAction::List => commands::style_list(),
+        },
     };
 
     match result {

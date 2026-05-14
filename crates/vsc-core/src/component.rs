@@ -57,6 +57,16 @@ pub struct ComponentDefinition {
 
     /// Parameters that can be customized during instantiation.
     pub parameters: Vec<ComponentParameter>,
+
+    /// Path entities defined by this component (Phase D-01).
+    ///
+    /// Path segments reference control points by local ID (stored as EntityId(local_id)).
+    /// These are remapped to global EntityIds during instantiation.
+    ///
+    /// For components like `Text` where paths are dynamically generated,
+    /// this vector is empty.
+    #[serde(default)]
+    pub path_entities: Vec<PathEntityEntry>,
 }
 
 /// A control point definition within a component.
@@ -153,6 +163,9 @@ pub struct ComponentInstance {
     pub resolved_constraints: Vec<Constraint>,
     /// Control points after namespace resolution.
     pub resolved_control_points: Vec<ControlPoint>,
+    /// Path entities after namespace resolution (Phase D-01).
+    /// Ready for registration in VsBuildInfo.path_entities.
+    pub resolved_path_entities: Vec<PathEntityEntry>,
 }
 
 /// Namespace resolver for component instantiation.
@@ -201,7 +214,9 @@ impl NamespaceResolver {
         let instance_id = self.next_instance_id;
         self.next_instance_id += 1;
 
-        let namespace = format!("{}_{}", definition.name.to_lowercase(), instance_id);
+        // Use next_entity_id as namespace suffix for cross-session uniqueness
+        // (instance_id resets if resolver is recreated between CLI calls)
+        let namespace = format!("{}_{}", definition.name.to_lowercase(), self.next_entity_id);
 
         // Build ID mapping: local ID -> global EntityId
         let mut id_mapping = HashMap::new();
@@ -262,6 +277,33 @@ impl NamespaceResolver {
             })
             .collect();
 
+        // Resolve path entities (Phase D-01)
+        let resolved_path_entities: Vec<PathEntityEntry> = definition
+            .path_entities
+            .iter()
+            .map(|pe| {
+                // Allocate new EntityId for the path entity itself
+                let path_id = EntityId(self.next_entity_id);
+                self.next_entity_id += 1;
+
+                // Remap segment EntityIds from local to global
+                let resolved_segments: Vec<PathSegment> = pe
+                    .segments
+                    .iter()
+                    .map(|seg| self.resolve_path_segment(seg, &id_mapping))
+                    .collect();
+
+                PathEntityEntry {
+                    id: path_id,
+                    segments: resolved_segments,
+                    closed: pe.closed,
+                    fill_rule: pe.fill_rule,
+                    fill: pe.fill.clone(),
+                    stroke: pe.stroke.clone(),
+                }
+            })
+            .collect();
+
         ComponentInstance {
             instance_id,
             component_name: definition.name.clone(),
@@ -270,6 +312,41 @@ impl NamespaceResolver {
             parameters: resolved_params,
             resolved_constraints,
             resolved_control_points,
+            resolved_path_entities,
+        }
+    }
+
+    /// Resolve a PathSegment by remapping local EntityIds to global ones.
+    fn resolve_path_segment(
+        &self,
+        segment: &PathSegment,
+        id_mapping: &HashMap<u64, EntityId>,
+    ) -> PathSegment {
+        match segment {
+            PathSegment::Line { from, to } => PathSegment::Line {
+                from: id_mapping.get(&from.0).copied().unwrap_or(*from),
+                to: id_mapping.get(&to.0).copied().unwrap_or(*to),
+            },
+            PathSegment::Quad { from, handle, to } => PathSegment::Quad {
+                from: id_mapping.get(&from.0).copied().unwrap_or(*from),
+                handle: id_mapping.get(&handle.0).copied().unwrap_or(*handle),
+                to: id_mapping.get(&to.0).copied().unwrap_or(*to),
+            },
+            PathSegment::Cubic { from, handle1, handle2, to } => PathSegment::Cubic {
+                from: id_mapping.get(&from.0).copied().unwrap_or(*from),
+                handle1: id_mapping.get(&handle1.0).copied().unwrap_or(*handle1),
+                handle2: id_mapping.get(&handle2.0).copied().unwrap_or(*handle2),
+                to: id_mapping.get(&to.0).copied().unwrap_or(*to),
+            },
+            PathSegment::Arc { from, to, rx, ry, rotation, large_arc, sweep } => PathSegment::Arc {
+                from: id_mapping.get(&from.0).copied().unwrap_or(*from),
+                to: id_mapping.get(&to.0).copied().unwrap_or(*to),
+                rx: rx.clone(),
+                ry: ry.clone(),
+                rotation: *rotation,
+                large_arc: *large_arc,
+                sweep: *sweep,
+            },
         }
     }
 
@@ -438,6 +515,37 @@ pub fn std_rounded_rect() -> ComponentDefinition {
                 initial_x: ComponentValue::Param { name: "x".to_string() },
                 initial_y: ComponentValue::Param { name: "y".to_string() },
             },
+            // Scalar radius entities (local_ids 9-12).
+            // The X component stores the radius value; Y is unused (zero).
+            // Ge constraints on these enforce radius >= 0 at the solver level.
+            ComponentControlPoint {
+                local_id: 9,
+                name: "radius_tl".to_string(),
+                role: ControlPointRole::Handle,
+                initial_x: ComponentValue::Param { name: "radius_tl".to_string() },
+                initial_y: ComponentValue::Const { value: Rational::zero() },
+            },
+            ComponentControlPoint {
+                local_id: 10,
+                name: "radius_tr".to_string(),
+                role: ControlPointRole::Handle,
+                initial_x: ComponentValue::Param { name: "radius_tr".to_string() },
+                initial_y: ComponentValue::Const { value: Rational::zero() },
+            },
+            ComponentControlPoint {
+                local_id: 11,
+                name: "radius_bl".to_string(),
+                role: ControlPointRole::Handle,
+                initial_x: ComponentValue::Param { name: "radius_bl".to_string() },
+                initial_y: ComponentValue::Const { value: Rational::zero() },
+            },
+            ComponentControlPoint {
+                local_id: 12,
+                name: "radius_br".to_string(),
+                role: ControlPointRole::Handle,
+                initial_x: ComponentValue::Param { name: "radius_br".to_string() },
+                initial_y: ComponentValue::Const { value: Rational::zero() },
+            },
         ],
         constraints: vec![
             // Top edge: tr_top.x = tl_top.x + width - radius_tr - radius_tl
@@ -484,6 +592,46 @@ pub fn std_rounded_rect() -> ComponentDefinition {
                 priority: ConstraintPriority::Hard,
                 description: Some("Top edge horizontal alignment".to_string()),
             },
+            // radius_tl >= 0 (Hard: radius_tl.x must be non-negative)
+            ComponentConstraint {
+                local_id: 4,
+                target_local_id: 9, // radius_tl
+                component: VectorComponent::X,
+                relation: RelationType::Ge,
+                term: ComponentTerm::Const { value: Rational::zero() },
+                priority: ConstraintPriority::Hard,
+                description: Some("std_rounded_rect:radius_validation: radius_tl >= 0".to_string()),
+            },
+            // radius_tr >= 0 (Hard: radius_tr.x must be non-negative)
+            ComponentConstraint {
+                local_id: 5,
+                target_local_id: 10, // radius_tr
+                component: VectorComponent::X,
+                relation: RelationType::Ge,
+                term: ComponentTerm::Const { value: Rational::zero() },
+                priority: ConstraintPriority::Hard,
+                description: Some("std_rounded_rect:radius_validation: radius_tr >= 0".to_string()),
+            },
+            // radius_bl >= 0 (Hard: radius_bl.x must be non-negative)
+            ComponentConstraint {
+                local_id: 6,
+                target_local_id: 11, // radius_bl
+                component: VectorComponent::X,
+                relation: RelationType::Ge,
+                term: ComponentTerm::Const { value: Rational::zero() },
+                priority: ConstraintPriority::Hard,
+                description: Some("std_rounded_rect:radius_validation: radius_bl >= 0".to_string()),
+            },
+            // radius_br >= 0 (Hard: radius_br.x must be non-negative)
+            ComponentConstraint {
+                local_id: 7,
+                target_local_id: 12, // radius_br
+                component: VectorComponent::X,
+                relation: RelationType::Ge,
+                term: ComponentTerm::Const { value: Rational::zero() },
+                priority: ConstraintPriority::Hard,
+                description: Some("std_rounded_rect:radius_validation: radius_br >= 0".to_string()),
+            },
         ],
         exports: {
             let mut m = HashMap::new();
@@ -495,6 +643,10 @@ pub fn std_rounded_rect() -> ComponentDefinition {
             m.insert("br_bottom".to_string(), 6);
             m.insert("bl_bottom".to_string(), 7);
             m.insert("bl_left".to_string(), 8);
+            m.insert("radius_tl".to_string(), 9);
+            m.insert("radius_tr".to_string(), 10);
+            m.insert("radius_bl".to_string(), 11);
+            m.insert("radius_br".to_string(), 12);
             m
         },
         parameters: vec![
@@ -527,6 +679,117 @@ pub fn std_rounded_rect() -> ComponentDefinition {
                 default: Rational::from_int(10),
                 allow_negative: false,
                 description: Some("Default corner radius (can be overridden per-corner)".to_string()),
+            },
+            ComponentParameter {
+                name: "radius_tl".to_string(),
+                default: Rational::from_int(10),
+                allow_negative: false,
+                description: Some("Top-left corner radius (overrides corner_radius)".to_string()),
+            },
+            ComponentParameter {
+                name: "radius_tr".to_string(),
+                default: Rational::from_int(10),
+                allow_negative: false,
+                description: Some("Top-right corner radius (overrides corner_radius)".to_string()),
+            },
+            ComponentParameter {
+                name: "radius_bl".to_string(),
+                default: Rational::from_int(10),
+                allow_negative: false,
+                description: Some("Bottom-left corner radius (overrides corner_radius)".to_string()),
+            },
+            ComponentParameter {
+                name: "radius_br".to_string(),
+                default: Rational::from_int(10),
+                allow_negative: false,
+                description: Some("Bottom-right corner radius (overrides corner_radius)".to_string()),
+            },
+        ],
+        // Path topology (Phase D-01)
+        // Local IDs:
+        //   1: tl_top,    2: tl_left
+        //   3: tr_top,    4: tr_right
+        //   5: br_right,  6: br_bottom
+        //   7: bl_bottom, 8: bl_left
+        //
+        // Path order (clockwise from tl_top):
+        //   tl_top -> tr_top (line, top edge)
+        //   tr_top -> tr_right (arc, top-right corner)
+        //   tr_right -> br_right (line, right edge)
+        //   br_right -> br_bottom (arc, bottom-right corner)
+        //   br_bottom -> bl_bottom (line, bottom edge)
+        //   bl_bottom -> bl_left (arc, bottom-left corner)
+        //   bl_left -> tl_left (line, left edge)
+        //   tl_left -> tl_top (arc, top-left corner)
+        path_entities: vec![
+            PathEntityEntry {
+                id: EntityId(100), // Placeholder; remapped during instantiation
+                segments: vec![
+                    // Top edge: tl_top -> tr_top
+                    PathSegment::Line {
+                        from: EntityId(1), // tl_top
+                        to: EntityId(3),   // tr_top
+                    },
+                    // Top-right corner arc: tr_top -> tr_right
+                    PathSegment::Arc {
+                        from: EntityId(3), // tr_top
+                        to: EntityId(4),   // tr_right
+                        rx: Rational::from_int(10), // Default corner_radius
+                        ry: Rational::from_int(10),
+                        rotation: 0.0,
+                        large_arc: false,
+                        sweep: true, // Clockwise
+                    },
+                    // Right edge: tr_right -> br_right
+                    PathSegment::Line {
+                        from: EntityId(4), // tr_right
+                        to: EntityId(5),   // br_right
+                    },
+                    // Bottom-right corner arc: br_right -> br_bottom
+                    PathSegment::Arc {
+                        from: EntityId(5), // br_right
+                        to: EntityId(6),   // br_bottom
+                        rx: Rational::from_int(10),
+                        ry: Rational::from_int(10),
+                        rotation: 0.0,
+                        large_arc: false,
+                        sweep: true,
+                    },
+                    // Bottom edge: br_bottom -> bl_bottom
+                    PathSegment::Line {
+                        from: EntityId(6), // br_bottom
+                        to: EntityId(7),   // bl_bottom
+                    },
+                    // Bottom-left corner arc: bl_bottom -> bl_left
+                    PathSegment::Arc {
+                        from: EntityId(7), // bl_bottom
+                        to: EntityId(8),   // bl_left
+                        rx: Rational::from_int(10),
+                        ry: Rational::from_int(10),
+                        rotation: 0.0,
+                        large_arc: false,
+                        sweep: true,
+                    },
+                    // Left edge: bl_left -> tl_left
+                    PathSegment::Line {
+                        from: EntityId(8), // bl_left
+                        to: EntityId(2),   // tl_left
+                    },
+                    // Top-left corner arc: tl_left -> tl_top
+                    PathSegment::Arc {
+                        from: EntityId(2), // tl_left
+                        to: EntityId(1),   // tl_top
+                        rx: Rational::from_int(10),
+                        ry: Rational::from_int(10),
+                        rotation: 0.0,
+                        large_arc: false,
+                        sweep: true,
+                    },
+                ],
+                closed: true,
+                fill_rule: FillRule::NonZero,
+                fill: None,   // Style injected at instantiation
+                stroke: None, // Style injected at instantiation
             },
         ],
     }
@@ -647,6 +910,9 @@ pub fn std_text() -> ComponentDefinition {
                 description: Some("Y position".to_string()),
             },
         ],
+        // Text paths are dynamically generated by expand-text-to-paths
+        // via TextShaper. No static path topology in the definition.
+        path_entities: vec![],
     }
 }
 
@@ -662,14 +928,15 @@ mod tests {
         let instance = resolver.instantiate(&text_def, HashMap::new());
 
         assert_eq!(instance.component_name, "Text");
-        assert_eq!(instance.namespace, "text_1");
+        // Namespace uses next_entity_id at instantiation time (10000 for new resolver)
+        assert_eq!(instance.namespace, "text_10000");
         assert_eq!(instance.id_mapping.len(), 4); // 4 control points
         assert_eq!(instance.resolved_constraints.len(), 4); // 4 structural constraints
         assert_eq!(instance.resolved_control_points.len(), 4);
 
         // All constraint source scopes should be set
         for c in &instance.resolved_constraints {
-            assert_eq!(c.source_scope, Some("text_1".to_string()));
+            assert_eq!(c.source_scope, Some("text_10000".to_string()));
         }
     }
 
@@ -681,8 +948,11 @@ mod tests {
         let inst1 = resolver.instantiate(&text_def, HashMap::new());
         let inst2 = resolver.instantiate(&text_def, HashMap::new());
 
-        assert_eq!(inst1.namespace, "text_1");
-        assert_eq!(inst2.namespace, "text_2");
+        // Namespaces use next_entity_id at instantiation time
+        // inst1: starts at 10000, allocates 4 IDs (10000-10003)
+        // inst2: starts at 10004, allocates 4 IDs (10004-10007)
+        assert_eq!(inst1.namespace, "text_10000");
+        assert_eq!(inst2.namespace, "text_10004");
 
         // IDs should not overlap
         let ids1: std::collections::HashSet<_> = inst1.id_mapping.values().collect();
@@ -724,5 +994,265 @@ mod tests {
             .count();
 
         assert!(soft_count > 0, "RoundedRect should have Soft constraints for override");
+    }
+
+    // =========================================================================
+    // Phase D-01: Path Entity Tests
+    // =========================================================================
+
+    #[test]
+    fn test_rounded_rect_has_path_entity() {
+        let rr_def = std_rounded_rect();
+
+        // Should have exactly one path entity (the outline)
+        assert_eq!(rr_def.path_entities.len(), 1);
+
+        let path = &rr_def.path_entities[0];
+
+        // Should have 8 segments: 4 Line + 4 Arc
+        assert_eq!(path.segments.len(), 8);
+
+        // Count segment types
+        let line_count = path.segments.iter().filter(|s| matches!(s, PathSegment::Line { .. })).count();
+        let arc_count = path.segments.iter().filter(|s| matches!(s, PathSegment::Arc { .. })).count();
+
+        assert_eq!(line_count, 4, "Should have 4 Line segments");
+        assert_eq!(arc_count, 4, "Should have 4 Arc segments");
+
+        // Path should be closed
+        assert!(path.closed);
+
+        // Fill and stroke should be None (injected at instantiation)
+        assert!(path.fill.is_none());
+        assert!(path.stroke.is_none());
+    }
+
+    #[test]
+    fn test_rounded_rect_path_segment_order() {
+        let rr_def = std_rounded_rect();
+        let path = &rr_def.path_entities[0];
+
+        // Verify segment order: Line, Arc, Line, Arc, Line, Arc, Line, Arc
+        assert!(matches!(path.segments[0], PathSegment::Line { .. })); // Top edge
+        assert!(matches!(path.segments[1], PathSegment::Arc { .. }));  // Top-right corner
+        assert!(matches!(path.segments[2], PathSegment::Line { .. })); // Right edge
+        assert!(matches!(path.segments[3], PathSegment::Arc { .. }));  // Bottom-right corner
+        assert!(matches!(path.segments[4], PathSegment::Line { .. })); // Bottom edge
+        assert!(matches!(path.segments[5], PathSegment::Arc { .. }));  // Bottom-left corner
+        assert!(matches!(path.segments[6], PathSegment::Line { .. })); // Left edge
+        assert!(matches!(path.segments[7], PathSegment::Arc { .. }));  // Top-left corner
+    }
+
+    #[test]
+    fn test_rounded_rect_path_connectivity() {
+        let rr_def = std_rounded_rect();
+        let path = &rr_def.path_entities[0];
+
+        // Extract "to" from each segment to verify connectivity
+        let endpoints: Vec<EntityId> = path.segments.iter().map(|seg| {
+            match seg {
+                PathSegment::Line { to, .. } => *to,
+                PathSegment::Arc { to, .. } => *to,
+                PathSegment::Quad { to, .. } => *to,
+                PathSegment::Cubic { to, .. } => *to,
+            }
+        }).collect();
+
+        // Each segment's "to" should be the next segment's "from"
+        for i in 0..path.segments.len() - 1 {
+            let next_from = match &path.segments[i + 1] {
+                PathSegment::Line { from, .. } => *from,
+                PathSegment::Arc { from, .. } => *from,
+                PathSegment::Quad { from, .. } => *from,
+                PathSegment::Cubic { from, .. } => *from,
+            };
+            assert_eq!(endpoints[i], next_from,
+                "Segment {} 'to' ({:?}) should equal segment {} 'from' ({:?})",
+                i, endpoints[i], i + 1, next_from);
+        }
+
+        // For closed path, last segment's "to" should be first segment's "from"
+        let first_from = match &path.segments[0] {
+            PathSegment::Line { from, .. } => *from,
+            PathSegment::Arc { from, .. } => *from,
+            PathSegment::Quad { from, .. } => *from,
+            PathSegment::Cubic { from, .. } => *from,
+        };
+        let last_to = endpoints.last().unwrap();
+        assert_eq!(*last_to, first_from,
+            "Last segment 'to' ({:?}) should equal first segment 'from' ({:?}) for closed path",
+            last_to, first_from);
+    }
+
+    #[test]
+    fn test_text_has_no_path_entity() {
+        let text_def = std_text();
+
+        // Text paths are dynamically generated, so no static paths
+        assert!(text_def.path_entities.is_empty());
+    }
+
+    #[test]
+    fn test_path_entity_instantiation() {
+        let mut resolver = NamespaceResolver::new();
+        let rr_def = std_rounded_rect();
+
+        let instance = resolver.instantiate(&rr_def, HashMap::new());
+
+        // Should have one resolved path entity
+        assert_eq!(instance.resolved_path_entities.len(), 1);
+
+        let path = &instance.resolved_path_entities[0];
+
+        // Path ID should be globally unique (not the placeholder 100)
+        assert_ne!(path.id.0, 100);
+
+        // All segment EntityIds should be remapped to global IDs
+        for seg in &path.segments {
+            let ids: Vec<EntityId> = match seg {
+                PathSegment::Line { from, to } => vec![*from, *to],
+                PathSegment::Arc { from, to, .. } => vec![*from, *to],
+                PathSegment::Quad { from, handle, to } => vec![*from, *handle, *to],
+                PathSegment::Cubic { from, handle1, handle2, to } => {
+                    vec![*from, *handle1, *handle2, *to]
+                }
+            };
+
+            for id in ids {
+                // Global IDs should be >= 10000 (NamespaceResolver's starting offset)
+                assert!(id.0 >= 10000,
+                    "EntityId {:?} should be remapped to global ID (>= 10000)", id);
+            }
+        }
+    }
+
+    // =========================================================================
+    // Phase D-14: radius >= 0 Constraint Tests
+    // =========================================================================
+
+    #[test]
+    fn test_rounded_rect_has_radius_ge_constraints() {
+        let rr_def = std_rounded_rect();
+
+        // Collect all Ge constraints targeting radius entities (local_ids 9-12)
+        let radius_local_ids: std::collections::HashSet<u64> = [9, 10, 11, 12].iter().cloned().collect();
+        let ge_constraints: Vec<&ComponentConstraint> = rr_def
+            .constraints
+            .iter()
+            .filter(|c| {
+                c.relation == RelationType::Ge
+                    && radius_local_ids.contains(&c.target_local_id)
+                    && c.priority == ConstraintPriority::Hard
+            })
+            .collect();
+
+        assert_eq!(
+            ge_constraints.len(),
+            4,
+            "Expected 4 Hard Ge constraints for radius_tl, radius_tr, radius_bl, radius_br; got {}",
+            ge_constraints.len()
+        );
+
+        // Each Ge constraint must compare against Rational::zero()
+        for c in &ge_constraints {
+            match &c.term {
+                ComponentTerm::Const { value } => {
+                    assert_eq!(
+                        *value,
+                        Rational::zero(),
+                        "Ge constraint for local_id {} must compare against zero",
+                        c.target_local_id
+                    );
+                }
+                other => panic!(
+                    "Expected Const term for radius Ge constraint, got {:?}",
+                    other
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn test_rounded_rect_radius_ge_constraint_covers_all_corners() {
+        let rr_def = std_rounded_rect();
+
+        // Verify each corner has a dedicated Ge constraint
+        for (local_id, name) in &[(9u64, "radius_tl"), (10u64, "radius_tr"), (11u64, "radius_bl"), (12u64, "radius_br")] {
+            let found = rr_def
+                .constraints
+                .iter()
+                .any(|c| {
+                    c.target_local_id == *local_id
+                        && c.relation == RelationType::Ge
+                        && c.priority == ConstraintPriority::Hard
+                });
+            assert!(
+                found,
+                "Missing Hard Ge(>= 0) constraint for corner '{}' (local_id {})",
+                name, local_id
+            );
+        }
+    }
+
+    #[test]
+    fn test_rounded_rect_negative_radius_violates_ge_constraint() {
+        // This test verifies that when a negative radius parameter is provided,
+        // the instantiated constraint reflects a violation scenario:
+        // the resolved control point's initial X value is negative, which the
+        // Hard Ge constraint (radius.x >= 0) would reject during solving.
+        let mut resolver = NamespaceResolver::new();
+        let rr_def = std_rounded_rect();
+
+        // Instantiate with a negative radius_tl
+        let mut params = HashMap::new();
+        params.insert("radius_tl".to_string(), Rational::from_int(-5));
+
+        let instance = resolver.instantiate(&rr_def, params);
+
+        // Find the resolved control point for radius_tl (local_id = 9)
+        let radius_tl_global_id = instance.id_mapping[&9];
+        let radius_tl_cp = instance
+            .resolved_control_points
+            .iter()
+            .find(|cp| cp.id == radius_tl_global_id)
+            .expect("radius_tl control point must exist after instantiation");
+
+        // The initial X value should be -5 (negative — violates the Ge >= 0 constraint)
+        assert_eq!(
+            radius_tl_cp.position.x,
+            Rational::from_int(-5),
+            "radius_tl initial X should carry the negative value from params"
+        );
+
+        // The Ge constraint for radius_tl must exist in the resolved constraints
+        let ge_constraint = instance
+            .resolved_constraints
+            .iter()
+            .find(|c| {
+                c.target == radius_tl_global_id
+                    && c.relation == RelationType::Ge
+                    && c.priority == ConstraintPriority::Hard
+            })
+            .expect("Hard Ge constraint for radius_tl must be present in resolved constraints");
+
+        // The constraint term must be Const { value: 0 }
+        match &ge_constraint.term {
+            ConstraintTerm::Const { value } => {
+                assert_eq!(
+                    *value,
+                    Rational::zero(),
+                    "Ge constraint bound must be zero"
+                );
+            }
+            other => panic!("Expected Const term, got {:?}", other),
+        }
+
+        // Confirm violation: initial value (-5) < 0, so the constraint is violated
+        // The solver would return SolverError::Infeasible when it encounters this
+        // Hard Ge constraint with a negative resolved value.
+        assert!(
+            radius_tl_cp.position.x < Rational::zero(),
+            "Negative radius (-5) must be less than zero, confirming Ge constraint violation"
+        );
     }
 }

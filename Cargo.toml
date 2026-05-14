@@ -6,6 +6,9 @@ members = [
     "crates/vsc-wasm",
     "crates/vsc-linter",
     "crates/vsc-codl",
+    "crates/vsc-gpu",
+    "crates/vsc-ffi-c",
+    "styles/vs-style-chrome",
 ]
 
 [workspace.package]

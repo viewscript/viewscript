@@ -9,7 +9,7 @@
  * Text dimensions are Q-dimension (non-deterministic, font-dependent).
  * P-dimension constraints need exact rational values. The bridge:
  *
- * 1. Renderer measures text using CanvasKit/DOM → W, H (pixels)
+ * 1. Renderer measures text using wgpu renderer/DOM → W, H (pixels)
  * 2. CLI receives: `vsc update-metrics --id=N --width=W --height=H`
  * 3. P-dimension solver updates bounding box constraints
  * 4. Containing elements (buttons, etc.) resize accordingly
@@ -32,6 +32,11 @@ import { execSync } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import { fileURLToPath } from 'url';
+
+// ESM-compatible __dirname replacement
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // =============================================================================
 // Test Configuration
@@ -129,10 +134,10 @@ test.describe('Text Layout: Q→P Dimension Bridge', () => {
   /**
    * Test: Text entity creation generates 4 corner control points
    */
-  test('add-entity --type=text creates text with 4 corner control points', async () => {
+  test('add-entity --entity-type=text creates text with 4 corner control points', async () => {
     const result = vsc([
       'add-entity',
-      '--type=text',
+      '--entity-type=text',
       '--content="Hello, World!"',
       '--font-family="monospace"',
       '--font-size=16',
@@ -170,7 +175,7 @@ test.describe('Text Layout: Q→P Dimension Bridge', () => {
     // Create text entity
     const addResult = vsc([
       'add-entity',
-      '--type=text',
+      '--entity-type=text',
       '--content="Test"',
       '--font-family="monospace"',
       '--font-size=16',
@@ -217,7 +222,7 @@ test.describe('Text Layout: Q→P Dimension Bridge', () => {
     // Step 1: Create text entity
     const addResult = vsc([
       'add-entity',
-      '--type=text',
+      '--entity-type=text',
       `--content="${textContent}"`,
       '--font-family="monospace"',
       '--font-size=16',
@@ -287,7 +292,7 @@ test.describe('Text Layout: Q→P Dimension Bridge', () => {
 
     const addResult = vsc([
       'add-entity',
-      '--type=text',
+      '--entity-type=text',
       `--content="${textContent}"`,
       '--font-family="monospace"',
       '--font-size=16',
@@ -319,7 +324,7 @@ test.describe('Text Layout: Q→P Dimension Bridge', () => {
     // Create two text entities with different font sizes
     const add16 = vsc([
       'add-entity',
-      '--type=text',
+      '--entity-type=text',
       `--content="${textContent}"`,
       '--font-family="monospace"',
       '--font-size=16',
@@ -330,7 +335,7 @@ test.describe('Text Layout: Q→P Dimension Bridge', () => {
 
     const add32 = vsc([
       'add-entity',
-      '--type=text',
+      '--entity-type=text',
       `--content="${textContent}"`,
       '--font-family="monospace"',
       '--font-size=32',
@@ -386,7 +391,7 @@ test.describe('Text Layout: Q→P Dimension Bridge', () => {
     // Create a text entity first
     const addResult = vsc([
       'add-entity',
-      '--type=text',
+      '--entity-type=text',
       '--content="Test"',
     ], testDir);
 

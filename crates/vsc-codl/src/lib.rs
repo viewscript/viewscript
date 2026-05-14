@@ -50,6 +50,7 @@ pub mod parser;
 pub mod validator;
 pub mod interpreter;
 pub mod error;
+pub mod schema;
 
 pub use ast::*;
 pub use parser::*;

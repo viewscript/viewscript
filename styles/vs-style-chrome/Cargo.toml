@@ -1,0 +1,10 @@
+[package]
+name = "vs-style-chrome"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+vsc-core = { path = "../../crates/vsc-core" }
+
+[dev-dependencies]
+serde_json.workspace = true

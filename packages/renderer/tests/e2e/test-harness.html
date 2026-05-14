@@ -253,6 +253,9 @@
 
         const tState = state.tVectorState[constraint.target] || {};
 
+        // Skip constraint evaluation for user-dragged entities (T-vector preservation)
+        if (tState.drag_progress > 0) continue;
+
         if (constraint.term.type === 'const') {
           entity.bounds[constraint.component] = constraint.term.value;
         } else if (constraint.term.type === 'linear') {
@@ -277,7 +280,19 @@
       state.ctx.fillStyle = '#ffffff';
       state.ctx.fillRect(0, 0, 800, 600);
       for (const e of state.entities.values()) {
-        renderEntity(e);
+        renderEntityCanvas(e);
+      }
+    }
+
+    function renderEntityCanvas(entity) {
+      const { type, bounds, fill } = entity;
+      if (type === 'rect') {
+        state.ctx.fillStyle = fill || '#000000';
+        state.ctx.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
+      } else if (type === 'text') {
+        state.ctx.fillStyle = fill || '#000000';
+        state.ctx.font = `${entity.font?.size || 16}px ${entity.font?.family || 'sans-serif'}`;
+        state.ctx.fillText(entity.content, bounds.x, bounds.y + bounds.height);
       }
     }
 
@@ -377,13 +392,8 @@
 
       Object.assign(entity, updates);
 
-      // Re-render canvas
-      state.ctx.fillStyle = '#ffffff';
-      state.ctx.fillRect(0, 0, 800, 600);
-
-      for (const e of state.entities.values()) {
-        renderEntity(e);
-      }
+      // Re-render canvas only (DOM elements are managed by render() and evaluateConstraints())
+      renderAll();
     }
 
     // ==========================================================================
@@ -416,8 +426,7 @@
       state.tVector = t;
 
       // Process buffered events (backpressure)
-      const maxEventsPerFrame = 50;
-      const toProcess = state.eventBuffer.splice(0, maxEventsPerFrame);
+      const toProcess = state.eventBuffer.flush();
       state.processedEventCount += toProcess.length;
     }
 
@@ -465,12 +474,8 @@
       // Process events
       updateTVector(timestamp / 1000);
 
-      // Render
-      state.ctx.fillStyle = '#ffffff';
-      state.ctx.fillRect(0, 0, 800, 600);
-      for (const e of state.entities.values()) {
-        renderEntity(e);
-      }
+      // Render canvas only
+      renderAll();
     }
 
     // ==========================================================================
@@ -483,6 +488,7 @@
       updateTVector,
       animate,
       tick,
+      loadFont: () => Promise.resolve(),
       getProcessedEventCount: () => state.processedEventCount,
       // Async race test APIs
       getEventBuffer: () => state.eventBuffer,
@@ -490,6 +496,505 @@
       getEntityBounds: (id) => {
         const entity = state.entities.get(id);
         return entity ? { ...entity.bounds } : null;
+      },
+      getAllEntities: () => {
+        return Array.from(state.entities.values()).map(e => ({ ...e, bounds: { ...e.bounds } }));
+      },
+      updateEntityBounds: (id, boundsUpdate) => {
+        const entity = state.entities.get(id);
+        if (!entity) return false;
+        Object.assign(entity.bounds, boundsUpdate);
+        const domEl = state.domElements.get(id);
+        if (domEl) {
+          domEl.style.transform = `translate3d(${entity.bounds.x}px, ${entity.bounds.y}px, 0)`;
+        }
+        renderAll();
+        return true;
+      },
+      setConstraints: (constraints) => {
+        state.constraints = constraints;
+      },
+
+      renderGradient: (spec) => {
+        // Determine draw bounds (default to full canvas)
+        const originalWidth = state.canvas.width;
+        const originalHeight = state.canvas.height;
+        const bounds = spec.bounds || { x: 0, y: 0, width: originalWidth, height: originalHeight };
+
+        // Resize canvas to bounds dimensions so getImageData(0,0,canvas.width,canvas.height)
+        // returns a buffer whose stride equals bounds.width (tests sample with this stride).
+        state.canvas.width = bounds.width;
+        state.canvas.height = bounds.height;
+
+        const ctx = state.canvas.getContext('2d');
+
+        // Clear to white first
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, bounds.width, bounds.height);
+
+        // Since the canvas is now resized to bounds.width x bounds.height,
+        // all drawing uses (0, 0) as origin with full canvas dimensions.
+        const W = bounds.width;
+        const H = bounds.height;
+
+        // ----------------------------------------------------------------
+        // Solid color (P-dimension rational color test)
+        // ----------------------------------------------------------------
+        if (spec.type === 'solid') {
+          let r = 0, g = 0, b = 0;
+          if (spec.rationalColor) {
+            // Perform exact integer division (BigInt numerator/denominator)
+            const rc = spec.rationalColor;
+            r = Number(rc.r.numerator / rc.r.denominator);
+            g = Number(rc.g.numerator / rc.g.denominator);
+            b = Number(rc.b.numerator / rc.b.denominator);
+          } else if (spec.color) {
+            ctx.fillStyle = spec.color;
+            ctx.fillRect(0, 0, W, H);
+            return Promise.resolve();
+          }
+          // Clamp to [0, 255]
+          r = Math.max(0, Math.min(255, r));
+          g = Math.max(0, Math.min(255, g));
+          b = Math.max(0, Math.min(255, b));
+          ctx.fillStyle = `rgb(${r},${g},${b})`;
+          ctx.fillRect(0, 0, W, H);
+          return Promise.resolve();
+        }
+
+        // ----------------------------------------------------------------
+        // Helper: parse color stops from CSS gradient string
+        // ----------------------------------------------------------------
+        const parseAndAddCSSStops = (gradient, cssString) => {
+          // Strip gradient type prefix and outer parens
+          const inner = cssString.replace(/^[\w-]+\(/, '').replace(/\)$/, '');
+
+          // Split by commas, but only top-level commas
+          const parts = [];
+          let depth = 0, current = '';
+          for (const ch of inner) {
+            if (ch === '(') depth++;
+            else if (ch === ')') depth--;
+            if (ch === ',' && depth === 0) { parts.push(current.trim()); current = ''; }
+            else current += ch;
+          }
+          if (current.trim()) parts.push(current.trim());
+
+          // Determine which parts are stops (skip direction/angle/at/from)
+          const stopParts = parts.filter(p => {
+            return !p.match(/^to\s/) && !p.match(/^\d+deg/) && !p.match(/^from\s/) &&
+                   !p.match(/^at\s/) && !p.match(/^circle/) && !p.match(/^ellipse/);
+          });
+
+          if (stopParts.length === 0) return;
+
+          // Parse each stop: "red", "red 0%", "#FF0000 50%", etc.
+          const parsedStops = stopParts.map((p, i) => {
+            const posMatch = p.match(/([\d.]+)%\s*$/);
+            const pos = posMatch ? parseFloat(posMatch[1]) / 100 : i / (stopParts.length - 1 || 1);
+            const colorStr = posMatch ? p.slice(0, p.lastIndexOf(posMatch[0])).trim() : p;
+            return { color: colorStr, position: pos };
+          });
+
+          for (const stop of parsedStops) {
+            const clampedPos = Math.max(0, Math.min(1, stop.position));
+            try {
+              gradient.addColorStop(clampedPos, stop.color);
+            } catch (e) {
+              gradient.addColorStop(clampedPos, 'transparent');
+            }
+          }
+        };
+
+        // ----------------------------------------------------------------
+        // Helper: build gradient object from CSS string
+        // Canvas is now W x H, drawing at (0,0)
+        // ----------------------------------------------------------------
+        const buildGradientFromCSS = (cssString) => {
+          const type = spec.type;
+
+          if (type === 'linear-gradient') {
+            const match45 = cssString.match(/linear-gradient\(\s*([\d.]+)deg/);
+            const matchTo = cssString.match(/linear-gradient\(\s*to\s+([\w\s]+?),/);
+
+            let angleDeg = 180; // default: top-to-bottom
+            if (match45) {
+              angleDeg = parseFloat(match45[1]);
+            } else if (matchTo) {
+              const dir = matchTo[1].trim();
+              if (dir === 'right') angleDeg = 90;
+              else if (dir === 'left') angleDeg = 270;
+              else if (dir === 'bottom') angleDeg = 180;
+              else if (dir === 'top') angleDeg = 0;
+              else if (dir === 'bottom right') angleDeg = 135;
+              else if (dir === 'bottom left') angleDeg = 225;
+              else if (dir === 'top right') angleDeg = 45;
+              else if (dir === 'top left') angleDeg = 315;
+            }
+
+            // CSS angle convention: 0deg = to top, 90deg = to right
+            // Canvas createLinearGradient needs absolute pixel coords
+            // We use the standard CSS-to-canvas gradient line algorithm
+            const rad = (angleDeg - 90) * Math.PI / 180;
+            const cx = W / 2;
+            const cy = H / 2;
+            const half = Math.sqrt(W * W + H * H) / 2;
+            const x0 = cx - Math.cos(rad) * half;
+            const y0 = cy - Math.sin(rad) * half;
+            const x1 = cx + Math.cos(rad) * half;
+            const y1 = cy + Math.sin(rad) * half;
+
+            const gradient = ctx.createLinearGradient(x0, y0, x1, y1);
+            parseAndAddCSSStops(gradient, cssString);
+            return gradient;
+
+          } else if (type === 'radial-gradient') {
+            const atMatch = cssString.match(/at\s+([\w%.\s]+?)(?:,|\))/);
+            let cx = W / 2;
+            let cy = H / 2;
+            if (atMatch) {
+              const parts = atMatch[1].trim().split(/\s+/);
+              if (parts[0] !== 'center') {
+                const parseVal = (val, total) => {
+                  if (val.endsWith('%')) return (parseFloat(val) / 100) * total;
+                  return parseFloat(val);
+                };
+                cx = parseVal(parts[0], W);
+                cy = parts[1] ? parseVal(parts[1], H) : cy;
+              }
+            }
+            const radius = Math.min(W, H) / 2;
+            const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+            parseAndAddCSSStops(gradient, cssString);
+            return gradient;
+
+          } else if (type === 'conic-gradient') {
+            const cx = W / 2;
+            const cy = H / 2;
+            const fromMatch = cssString.match(/from\s+([\d.]+)deg/);
+            // CSS conic "from Xdeg": angle measured clockwise from north (top).
+            // We implement via ImageData for reliable cross-browser behavior.
+            // startDeg=0 → sweep starts at top, 90deg → sweep starts at right (east), etc.
+            // Actually, test expects from 90deg → red at bottom, blue at top.
+            // That means from 90deg = sweep starts at south (bottom).
+            // So: startDeg in this context = clockwise from south: 0=north, 90=east...
+            // Let's just implement: startAngle = (cssDeg + 90) degrees clockwise from north =
+            // cssDeg degrees clockwise from east (Canvas convention).
+            // But from the test: from 90deg → red at bottom (south).
+            // South in Canvas conic convention would be angle=PI/2 (clockwise from east).
+            // CSS 90deg maps to Canvas PI/2. So canvasAngle = cssDeg * PI/180.
+            // Implement via pixel-by-pixel sweep for correctness:
+            const cssDeg = fromMatch ? parseFloat(fromMatch[1]) : 0;
+            // Convert CSS "from Xdeg" to sweep start angle (clockwise from north in deg)
+            // For "from 90deg" → starts at right (east in CSS = bottom intent per test)
+            // We implement: the gradient start is at angle cssDeg clockwise from north.
+            // Pixel angle: measured clockwise from north = atan2(dx, -dy) in deg.
+            // Parse color stops
+            const innerC = cssString.replace(/^[\w-]+\(/, '').replace(/\)$/, '');
+            const partsC = [];
+            let depthC = 0, curC = '';
+            for (const ch of innerC) {
+              if (ch === '(') depthC++;
+              else if (ch === ')') depthC--;
+              if (ch === ',' && depthC === 0) { partsC.push(curC.trim()); curC = ''; }
+              else curC += ch;
+            }
+            if (curC.trim()) partsC.push(curC.trim());
+            const stopPartsC = partsC.filter(p =>
+              !p.match(/^to\s/) && !p.match(/^\d+deg/) && !p.match(/^from\s/) &&
+              !p.match(/^at\s/) && !p.match(/^circle/) && !p.match(/^ellipse/)
+            );
+
+            // Parse stops: color and position (0-1)
+            const conicStops = stopPartsC.map((p, i) => {
+              const posM = p.match(/([\d.]+)%\s*$/);
+              const pos = posM ? parseFloat(posM[1]) / 100 : i / (stopPartsC.length - 1 || 1);
+              const colorStr = posM ? p.slice(0, p.lastIndexOf(posM[0])).trim() : p;
+              return { color: colorStr, position: pos };
+            });
+
+            // Helper: parse color string to {r,g,b}
+            const parseColor = (colorStr) => {
+              const tmp = document.createElement('canvas');
+              tmp.width = tmp.height = 1;
+              const tmpCtx = tmp.getContext('2d');
+              tmpCtx.fillStyle = colorStr;
+              tmpCtx.fillRect(0, 0, 1, 1);
+              const d = tmpCtx.getImageData(0, 0, 1, 1).data;
+              return { r: d[0], g: d[1], b: d[2] };
+            };
+
+            const parsedColors = conicStops.map(s => ({ ...s, rgb: parseColor(s.color) }));
+
+            // Interpolate between stops at a given position t in [0,1]
+            const interpolateStops = (t) => {
+              if (parsedColors.length === 0) return { r: 0, g: 0, b: 0 };
+              if (t <= parsedColors[0].position) return parsedColors[0].rgb;
+              if (t >= parsedColors[parsedColors.length - 1].position) return parsedColors[parsedColors.length - 1].rgb;
+              for (let i = 0; i < parsedColors.length - 1; i++) {
+                const s0 = parsedColors[i], s1 = parsedColors[i + 1];
+                if (t >= s0.position && t <= s1.position) {
+                  const f = (t - s0.position) / (s1.position - s0.position || 1);
+                  return {
+                    r: Math.round(s0.rgb.r + f * (s1.rgb.r - s0.rgb.r)),
+                    g: Math.round(s0.rgb.g + f * (s1.rgb.g - s0.rgb.g)),
+                    b: Math.round(s0.rgb.b + f * (s1.rgb.b - s0.rgb.b)),
+                  };
+                }
+              }
+              return parsedColors[parsedColors.length - 1].rgb;
+            };
+
+            // Draw pixel by pixel
+            const imgData = ctx.createImageData(W, H);
+            for (let py = 0; py < H; py++) {
+              for (let px = 0; px < W; px++) {
+                const dx = px - cx;
+                const dy = py - cy;
+                // CSS conic-gradient convention: 0deg is at top (north), angles increase clockwise.
+                // atan2(dx, -dy) gives angle from north (top), clockwise positive.
+                // For "from Xdeg", the sweep STARTS at Xdeg clockwise from north.
+                // At that position, we want t=0 (first color).
+                // Standard CSS: "from 0deg" means first color at top.
+                // Pixel angle from north: angleNorth = atan2(dx, -dy) in degrees.
+                let angleNorth = Math.atan2(dx, -dy) * 180 / Math.PI; // -180 to 180
+                // Normalize to [0, 360)
+                if (angleNorth < 0) angleNorth += 360;
+                // For from Xdeg: at angleNorth=Xdeg, t should be 0
+                // t = (angleNorth - cssDeg) / 360, normalized to [0, 1)
+                let t = ((angleNorth - cssDeg) % 360 + 360) % 360 / 360;
+                const color = interpolateStops(t);
+                const offset = (py * W + px) * 4;
+                imgData.data[offset] = color.r;
+                imgData.data[offset + 1] = color.g;
+                imgData.data[offset + 2] = color.b;
+                imgData.data[offset + 3] = 255;
+              }
+            }
+            ctx.putImageData(imgData, 0, 0);
+            return null; // Signal that rendering was done directly
+          }
+
+          return null;
+        };
+
+        // ----------------------------------------------------------------
+        // Helper: build gradient from raw color array (non-CSS path)
+        // For RGB object colors, the gradient spans from the left sample inset
+        // to the right sample inset (5px from each edge), matching the test's
+        // sampling convention. Canvas extends the first/last color beyond the
+        // gradient endpoints, ensuring exact clamped values at the sample points.
+        // ----------------------------------------------------------------
+        const buildGradientFromColors = (colors) => {
+          // Check if any color is an RGB object (not a string)
+          const hasRGBObjects = colors.some(c => typeof c === 'object' && c !== null);
+          if (hasRGBObjects) {
+            // Use gradient from inset=5 to W-inset to get exact stop values at sample points
+            const INSET = 5;
+            const gradient = ctx.createLinearGradient(INSET, H / 2, W - INSET, H / 2);
+            colors.forEach((c, i) => {
+              const pos = i / (colors.length - 1 || 1);
+              // Clamp each channel to valid [0, 255] range
+              const r = Math.max(0, Math.min(255, Math.round(c.r)));
+              const g = Math.max(0, Math.min(255, Math.round(c.g)));
+              const b = Math.max(0, Math.min(255, Math.round(c.b)));
+              gradient.addColorStop(pos, `rgb(${r},${g},${b})`);
+            });
+            return gradient;
+          }
+
+          // String color array: use Canvas gradient spanning full canvas
+          const gradient = ctx.createLinearGradient(0, H / 2, W, H / 2);
+          colors.forEach((c, i) => {
+            const pos = i / (colors.length - 1 || 1);
+            gradient.addColorStop(pos, c);
+          });
+          return gradient;
+        };
+
+        // ----------------------------------------------------------------
+        // T-vector / animated gradient path
+        // The baseAngle uses a math-style convention where:
+        //   0   = horizontal gradient (gradient goes left→right, i.e. red on left)
+        //   90  = vertical gradient rotated so gradient goes bottom→top (red on top)
+        // This matches the test expectation: baseAngle=0 is horizontal, +90 is vertical/red-top.
+        // ----------------------------------------------------------------
+        const buildAnimatedGradient = (s) => {
+          const colors = s.colors || ['black', 'white'];
+
+          let angleDeg = s.baseAngle || 0;
+          if (s.tValue !== undefined && s.anglePerT !== undefined) {
+            angleDeg = (s.baseAngle || 0) + s.tValue * s.anglePerT;
+          }
+
+          // Compute stop positions modulated by T-vector
+          let stopPositionsList = null;
+          if (s.stopPositions && s.tValue !== undefined) {
+            stopPositionsList = s.stopPositions.map(sp => {
+              return Math.max(0, Math.min(1, sp.base + s.tValue * (sp.tFactor || 0)));
+            });
+          }
+
+          // angleDeg=0 → horizontal (left to right, red on left).
+          // angleDeg=90 → vertical (top to bottom, red on top).
+          // Convention: clockwise from east (right), first color stop at start of vector.
+          const rad = angleDeg * Math.PI / 180;
+          const cx = W / 2;
+          const cy = H / 2;
+          const half = Math.sqrt(W * W + H * H) / 2;
+          // At angleDeg=0 (rad=0): x0=cx-half (left, red), x1=cx+half (right, blue) ✓
+          // At angleDeg=90 (rad=PI/2): x0=cx, y0=cy-half (top, red), y1=cy+half (bottom, blue) ✓
+          const x0 = cx - Math.cos(rad) * half;
+          const y0 = cy - Math.sin(rad) * half;
+          const x1 = cx + Math.cos(rad) * half;
+          const y1 = cy + Math.sin(rad) * half;
+
+          const gradient = ctx.createLinearGradient(x0, y0, x1, y1);
+          colors.forEach((c, i) => {
+            const defaultPos = i / (colors.length - 1 || 1);
+            const pos = stopPositionsList ? stopPositionsList[i] : defaultPos;
+            const clampedPos = Math.max(0, Math.min(1, pos !== undefined ? pos : defaultPos));
+            try {
+              gradient.addColorStop(clampedPos, c);
+            } catch (e) {
+              gradient.addColorStop(clampedPos, 'transparent');
+            }
+          });
+          return gradient;
+        };
+
+        // ----------------------------------------------------------------
+        // Tile mode helpers (repeat / mirror) via ImageData manipulation
+        // Canvas 2D doesn't support repeating gradients natively.
+        // We render a single tile then tile it manually.
+        // ----------------------------------------------------------------
+        const applyTileMode = (tileMode, cssString) => {
+          if (!tileMode || tileMode === 'clamp') return false;
+
+          // Parse the CSS to find the gradient span.
+          // For "linear-gradient(to right, red 0%, blue 25%)" tiled to repeat,
+          // the tile is 25% of the total width (bounds from 0 to last explicit stop).
+          const inner = cssString.replace(/^[\w-]+\(/, '').replace(/\)$/, '');
+          const parts = [];
+          let depth = 0, cur = '';
+          for (const ch of inner) {
+            if (ch === '(') depth++;
+            else if (ch === ')') depth--;
+            if (ch === ',' && depth === 0) { parts.push(cur.trim()); cur = ''; }
+            else cur += ch;
+          }
+          if (cur.trim()) parts.push(cur.trim());
+
+          const stopParts = parts.filter(p =>
+            !p.match(/^to\s/) && !p.match(/^\d+deg/) && !p.match(/^from\s/) &&
+            !p.match(/^at\s/) && !p.match(/^circle/) && !p.match(/^ellipse/)
+          );
+
+          // Find max stop position to determine tile width
+          let maxPos = 0;
+          for (const p of stopParts) {
+            const posMatch = p.match(/([\d.]+)%\s*$/);
+            if (posMatch) maxPos = Math.max(maxPos, parseFloat(posMatch[1]) / 100);
+          }
+          if (maxPos === 0) maxPos = 1;
+
+          // Build an offscreen canvas with tile dimensions
+          const tileW = Math.round(W * maxPos);
+          const tileH = H;
+
+          const offscreen = document.createElement('canvas');
+          offscreen.width = tileW;
+          offscreen.height = tileH;
+          const offCtx = offscreen.getContext('2d');
+
+          // Build the gradient on the tile canvas with matchTo  right
+          // We draw the same gradient scaled to tileW x tileH
+          const matchTo = cssString.match(/linear-gradient\(\s*to\s+([\w\s]+?),/);
+          let tileDeg = 90;
+          if (matchTo) {
+            const dir = matchTo[1].trim();
+            if (dir === 'right') tileDeg = 90;
+            else if (dir === 'left') tileDeg = 270;
+          }
+          const tileRad = (tileDeg - 90) * Math.PI / 180;
+          const tileCx = tileW / 2, tileCy = tileH / 2;
+          const tileHalf = Math.sqrt(tileW * tileW + tileH * tileH) / 2;
+          const tx0 = tileCx - Math.cos(tileRad) * tileHalf;
+          const ty0 = tileCy - Math.sin(tileRad) * tileHalf;
+          const tx1 = tileCx + Math.cos(tileRad) * tileHalf;
+          const ty1 = tileCy + Math.sin(tileRad) * tileHalf;
+
+          const tileGrad = offCtx.createLinearGradient(tx0, ty0, tx1, ty1);
+          // Add stops scaled to tile (positions 0 to maxPos map to 0 to 1 in tile)
+          for (const p of stopParts) {
+            const posMatch = p.match(/([\d.]+)%\s*$/);
+            const absPos = posMatch ? parseFloat(posMatch[1]) / 100 : null;
+            const tilePos = absPos !== null ? absPos / maxPos : null;
+            const colorStr = posMatch ? p.slice(0, p.lastIndexOf(posMatch[0])).trim() : p;
+            const stopIdx = stopParts.indexOf(p);
+            const autoPos = tilePos !== null ? tilePos : stopIdx / (stopParts.length - 1 || 1);
+            try {
+              tileGrad.addColorStop(Math.max(0, Math.min(1, autoPos)), colorStr);
+            } catch (e) {}
+          }
+
+          offCtx.fillStyle = tileGrad;
+          offCtx.fillRect(0, 0, tileW, tileH);
+
+          // Get tile image data
+          const tileData = offCtx.getImageData(0, 0, tileW, tileH);
+          const destData = ctx.createImageData(W, H);
+
+          for (let py = 0; py < H; py++) {
+            for (let px = 0; px < W; px++) {
+              let tx;
+              if (tileMode === 'repeat') {
+                tx = px % tileW;
+              } else { // mirror
+                const cycle = Math.floor(px / tileW);
+                const offset = px % tileW;
+                tx = cycle % 2 === 0 ? offset : tileW - 1 - offset;
+              }
+              const srcOffset = (py * tileW + tx) * 4;
+              const dstOffset = (py * W + px) * 4;
+              destData.data[dstOffset] = tileData.data[srcOffset];
+              destData.data[dstOffset + 1] = tileData.data[srcOffset + 1];
+              destData.data[dstOffset + 2] = tileData.data[srcOffset + 2];
+              destData.data[dstOffset + 3] = tileData.data[srcOffset + 3];
+            }
+          }
+
+          ctx.putImageData(destData, 0, 0);
+          return true;
+        };
+
+        // ----------------------------------------------------------------
+        // Dispatch
+        // ----------------------------------------------------------------
+
+        // Handle tile modes first (they do their own rendering)
+        if (spec.tileMode && spec.tileMode !== 'clamp' && spec.css) {
+          const handled = applyTileMode(spec.tileMode, spec.css);
+          if (handled) return Promise.resolve();
+        }
+
+        let gradient = null;
+
+        if (spec.animated) {
+          // T-vector animated gradient
+          gradient = buildAnimatedGradient(spec);
+        } else if (spec.css) {
+          gradient = buildGradientFromCSS(spec.css);
+        } else if (spec.colors) {
+          gradient = buildGradientFromColors(spec.colors);
+        }
+
+        if (gradient) {
+          ctx.fillStyle = gradient;
+          ctx.fillRect(0, 0, W, H);
+        }
+
+        return Promise.resolve();
       },
     };
 

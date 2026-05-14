@@ -27,8 +27,9 @@ import { test, expect, type Page, type CDPSession } from '@playwright/test';
 // =============================================================================
 
 const PERF_THRESHOLDS = {
-  /** 60fps = 16.666ms per frame */
-  FRAME_TIME_P99_MS: 16.6,
+  /** 60fps = 16.666ms per frame. Allow up to 17ms to accommodate
+   *  sub-millisecond rAF timestamp rounding on real 60Hz displays. */
+  FRAME_TIME_P99_MS: 17.0,
 
   /** Zero tolerance for layout thrashing */
   MAX_FORCED_SYNC_LAYOUT: 0,

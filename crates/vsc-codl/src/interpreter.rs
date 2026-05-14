@@ -19,8 +19,8 @@ use crate::parser::{parse_expr, parse_where_clause};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use vsc_core::types::{
-    Constraint, ConstraintPriority, ConstraintTerm, EntityId, Rational, RelationType,
-    VectorComponent,
+    Constraint, ConstraintPriority, ConstraintTerm, EntityId, FillRule, FillSpec, LineCap,
+    LineJoin, PathEntityEntry, PathSegment, Rational, RelationType, StrokeSpec, VectorComponent,
 };
 
 /// Runtime value in CODL evaluation.
@@ -99,6 +99,12 @@ pub struct CodlInterpreter {
     param_types: HashMap<String, CodlType>,
     /// Generated constraints.
     constraints: Vec<Constraint>,
+    /// Generated path entities (from PathEntity yields).
+    path_entities: Vec<PathEntityEntry>,
+    /// Fill specifications to apply (from FillSpec yields).
+    fill_specs: Vec<(EntityId, FillSpec)>,
+    /// Stroke specifications to apply (from StrokeSpec yields).
+    stroke_specs: Vec<(EntityId, StrokeSpec)>,
     /// Next constraint ID.
     next_id: u64,
     /// Source scope for generated constraints.
@@ -112,6 +118,9 @@ impl CodlInterpreter {
             scope: HashMap::new(),
             param_types: HashMap::new(),
             constraints: Vec::new(),
+            path_entities: Vec::new(),
+            fill_specs: Vec::new(),
+            stroke_specs: Vec::new(),
             next_id: 1,
             source_scope: None,
         }
@@ -131,16 +140,19 @@ impl CodlInterpreter {
 
     /// Execute a CODL command with JSON arguments.
     ///
-    /// Returns the generated constraints.
+    /// Returns a CodlOutput containing all generated constraints and entities.
     pub fn execute(
         &mut self,
         cmd: &CodlCommand,
         args: &JsonValue,
-    ) -> CodlResult<Vec<Constraint>> {
+    ) -> CodlResult<CodlOutput> {
         // Reset state
         self.scope.clear();
         self.param_types.clear();
         self.constraints.clear();
+        self.path_entities.clear();
+        self.fill_specs.clear();
+        self.stroke_specs.clear();
 
         // Bind parameters
         self.bind_parameters(&cmd.parameters, args)?;
@@ -150,7 +162,12 @@ impl CodlInterpreter {
             self.execute_operation(op)?;
         }
 
-        Ok(std::mem::take(&mut self.constraints))
+        Ok(CodlOutput {
+            constraints: std::mem::take(&mut self.constraints),
+            path_entities: std::mem::take(&mut self.path_entities),
+            fill_specs: std::mem::take(&mut self.fill_specs),
+            stroke_specs: std::mem::take(&mut self.stroke_specs),
+        })
     }
 
     /// Bind JSON arguments to CODL parameters.
@@ -410,11 +427,14 @@ impl CodlInterpreter {
         Ok(())
     }
 
-    /// Execute a yield to generate a constraint.
+    /// Execute a yield to generate a constraint or entity.
     fn execute_yield(&mut self, yield_spec: &CodlYield) -> CodlResult<()> {
         match yield_spec {
             CodlYield::Constraint(c) => self.yield_constraint(c),
             CodlYield::Origin(o) => self.yield_origin(o),
+            CodlYield::PathEntity(p) => self.yield_path_entity(p),
+            CodlYield::FillSpec(f) => self.yield_fill_spec(f),
+            CodlYield::StrokeSpec(s) => self.yield_stroke_spec(s),
         }
     }
 
@@ -462,6 +482,186 @@ impl CodlInterpreter {
         self.next_id += 1;
         self.constraints.push(constraint);
 
+        Ok(())
+    }
+
+    /// Generate a path entity (D-02).
+    ///
+    /// Each coordinate field in a `CodlPathSegment` is a String expression that
+    /// evaluates to an `EntityId` referencing a control point already registered
+    /// in the solver via `add-component` before this CODL command runs.
+    ///
+    /// Mapping of `CodlPathSegment` variants to `PathSegment` variants:
+    /// - `MoveTo { x, y }` → treated as start of the next `Line`/`Quad`/`Cubic`
+    ///   segment; CODL MoveTo carries the "from" EntityId for the first segment.
+    ///   For simplicity the CODL MoveTo is absorbed into the first subsequent
+    ///   segment as the `from` entity.  A lone MoveTo with no following segment
+    ///   is silently ignored (empty sub-path).
+    /// - `LineTo { x, y }` → `PathSegment::Line { from, to }` where `from` is
+    ///   carried from the previous segment's endpoint and `to` is `y`… wait,
+    ///   the CODL design says coordinates are EntityId expressions.  Each
+    ///   `LineTo { x, y }` supplies TWO entity IDs: the endpoint's x-entity and
+    ///   y-entity, but `PathSegment::Line` takes only `from` and `to` anchor IDs.
+    ///
+    /// Re-reading the CODL AST: `CodlPathSegment::LineTo { x: String, y: String }`.
+    /// The task description says "座標フィールドは String 型の式であり、これを
+    /// `evaluate_entity_id()` で評価して EntityId を取得し".  Because vsc-core
+    /// `PathSegment::Line { from, to }` uses a single EntityId per endpoint, and
+    /// CODL provides separate x/y expressions, we interpret them as follows:
+    ///   - `MoveTo { x, y }`: `x` is the EntityId of the anchor (the `from` for
+    ///     the next segment).  `y` is unused (or also the same entity).
+    ///   - `LineTo { x, y }`: `x` is the EntityId of the `to` anchor.
+    ///   - `QuadTo { cx, cy, x, y }`: `cx` = handle EntityId, `x` = to EntityId.
+    ///   - `CubicTo { c1x, c1y, c2x, c2y, x, y }`: `c1x` = handle1, `c2x` = handle2, `x` = to.
+    ///   - `Close`: no fields; sets the `closed` flag.
+    ///
+    /// This interpretation matches the design note: "制御点は既にソルバーに登録済み".
+    fn yield_path_entity(&mut self, p: &CodlPathEntityYield) -> CodlResult<()> {
+        let entity_id = self.evaluate_entity_id(&p.id)?;
+
+        let fill_rule = match p.fill_rule {
+            CodlFillRule::NonZero => FillRule::NonZero,
+            CodlFillRule::EvenOdd => FillRule::EvenOdd,
+        };
+
+        let mut segments: Vec<PathSegment> = Vec::new();
+        let mut current_from: Option<EntityId> = None;
+        let mut closed = p.closed;
+
+        for seg in &p.segments {
+            match seg {
+                CodlPathSegment::MoveTo { x, .. } => {
+                    // x expression gives the anchor EntityId for the start of the next segment
+                    let anchor = self.evaluate_entity_id(x)?;
+                    current_from = Some(anchor);
+                }
+                CodlPathSegment::LineTo { x, .. } => {
+                    let to = self.evaluate_entity_id(x)?;
+                    let from = current_from.ok_or_else(|| {
+                        CodlError::InterpretationError(
+                            "LineTo segment has no preceding MoveTo (no current_from)".to_string(),
+                        )
+                    })?;
+                    segments.push(PathSegment::Line { from, to });
+                    current_from = Some(to);
+                }
+                CodlPathSegment::QuadTo { cx, x, .. } => {
+                    let handle = self.evaluate_entity_id(cx)?;
+                    let to = self.evaluate_entity_id(x)?;
+                    let from = current_from.ok_or_else(|| {
+                        CodlError::InterpretationError(
+                            "QuadTo segment has no preceding MoveTo (no current_from)".to_string(),
+                        )
+                    })?;
+                    segments.push(PathSegment::Quad { from, handle, to });
+                    current_from = Some(to);
+                }
+                CodlPathSegment::CubicTo { c1x, c2x, x, .. } => {
+                    let handle1 = self.evaluate_entity_id(c1x)?;
+                    let handle2 = self.evaluate_entity_id(c2x)?;
+                    let to = self.evaluate_entity_id(x)?;
+                    let from = current_from.ok_or_else(|| {
+                        CodlError::InterpretationError(
+                            "CubicTo segment has no preceding MoveTo (no current_from)".to_string(),
+                        )
+                    })?;
+                    segments.push(PathSegment::Cubic { from, handle1, handle2, to });
+                    current_from = Some(to);
+                }
+                CodlPathSegment::Close => {
+                    closed = true;
+                }
+            }
+        }
+
+        let entry = PathEntityEntry {
+            id: entity_id,
+            segments,
+            closed,
+            fill_rule,
+            fill: None,
+            stroke: None,
+        };
+        self.path_entities.push(entry);
+        Ok(())
+    }
+
+    /// Apply a fill specification to an entity (D-02).
+    ///
+    /// Converts CODL r/g/b/a Rational expressions to a CSS `rgba(r,g,b,a)` string
+    /// and records a `(EntityId, FillSpec::Solid)` pair in `fill_specs`.
+    /// For gradient fills the gradient entity ID is resolved and a
+    /// `FillSpec::Gradient` entry is recorded instead.
+    fn yield_fill_spec(&mut self, f: &CodlFillSpecYield) -> CodlResult<()> {
+        let target = self.evaluate_entity_id(&f.target)?;
+
+        let fill_spec = match &f.fill {
+            CodlFillType::Solid { r, g, b, a } => {
+                let r_val = self.evaluate_rational(r)?;
+                let g_val = self.evaluate_rational(g)?;
+                let b_val = self.evaluate_rational(b)?;
+                let a_val = self.evaluate_rational(a)?;
+                // Convert Rational r/g/b (0-255) and a (0-1) to CSS rgba() string
+                let color = format!(
+                    "rgba({},{},{},{})",
+                    r_val.to_f64_for_rasterization().round() as i64,
+                    g_val.to_f64_for_rasterization().round() as i64,
+                    b_val.to_f64_for_rasterization().round() as i64,
+                    a_val.to_f64_for_rasterization(),
+                );
+                FillSpec::Solid { color }
+            }
+            CodlFillType::Gradient { gradient_id } => {
+                let gid = self.evaluate_entity_id(gradient_id)?;
+                FillSpec::Gradient { gradient_id: gid }
+            }
+        };
+
+        self.fill_specs.push((target, fill_spec));
+        Ok(())
+    }
+
+    /// Apply a stroke specification to an entity (D-02).
+    ///
+    /// Converts CODL r/g/b/a Rational expressions to a CSS `rgba(r,g,b,a)` string
+    /// and constructs a `StrokeSpec`, then records a `(EntityId, StrokeSpec)` pair
+    /// in `stroke_specs`.
+    fn yield_stroke_spec(&mut self, s: &CodlStrokeSpecYield) -> CodlResult<()> {
+        let target = self.evaluate_entity_id(&s.target)?;
+        let width = self.evaluate_rational(&s.width)?;
+
+        let r_val = self.evaluate_rational(&s.r)?;
+        let g_val = self.evaluate_rational(&s.g)?;
+        let b_val = self.evaluate_rational(&s.b)?;
+        let a_val = self.evaluate_rational(&s.a)?;
+        let color = format!(
+            "rgba({},{},{},{})",
+            r_val.to_f64_for_rasterization().round() as i64,
+            g_val.to_f64_for_rasterization().round() as i64,
+            b_val.to_f64_for_rasterization().round() as i64,
+            a_val.to_f64_for_rasterization(),
+        );
+
+        let line_cap = match s.line_cap {
+            CodlLineCap::Butt => LineCap::Butt,
+            CodlLineCap::Round => LineCap::Round,
+            CodlLineCap::Square => LineCap::Square,
+        };
+        let line_join = match s.line_join {
+            CodlLineJoin::Miter => LineJoin::Miter,
+            CodlLineJoin::Round => LineJoin::Round,
+            CodlLineJoin::Bevel => LineJoin::Bevel,
+        };
+
+        let stroke_spec = StrokeSpec {
+            color,
+            width,
+            line_cap,
+            line_join,
+            dash_array: None,
+        };
+
+        self.stroke_specs.push((target, stroke_spec));
         Ok(())
     }
 
@@ -708,20 +908,23 @@ impl Default for CodlInterpreter {
 /// Execute a CODL command with JSON arguments.
 ///
 /// Convenience function that creates an interpreter and runs the command.
+/// Returns the full CodlOutput including constraints and (future) path entities.
 pub fn execute_codl(
     cmd: &CodlCommand,
     args: &JsonValue,
-) -> CodlResult<Vec<Constraint>> {
+) -> CodlResult<CodlOutput> {
     let mut interpreter = CodlInterpreter::new();
     interpreter.execute(cmd, args)
 }
 
 /// Execute a CODL command with JSON arguments and custom start ID.
+///
+/// Returns the full CodlOutput including constraints and (future) path entities.
 pub fn execute_codl_with_id(
     cmd: &CodlCommand,
     args: &JsonValue,
     start_id: u64,
-) -> CodlResult<Vec<Constraint>> {
+) -> CodlResult<CodlOutput> {
     let mut interpreter = CodlInterpreter::new().with_start_id(start_id);
     interpreter.execute(cmd, args)
 }
@@ -760,7 +963,7 @@ operations:
             "value": "100/1"
         });
 
-        let constraints = execute_codl(&cmd, &args).unwrap();
+        let constraints = execute_codl(&cmd, &args).unwrap().constraints;
         assert_eq!(constraints.len(), 1);
         assert_eq!(constraints[0].target, EntityId(42));
         assert_eq!(constraints[0].component, VectorComponent::X);
@@ -806,7 +1009,7 @@ operations:
             "gap": 16
         });
 
-        let constraints = execute_codl(&cmd, &args).unwrap();
+        let constraints = execute_codl(&cmd, &args).unwrap().constraints;
 
         // Should generate 2 constraints (i=1 and i=2, skipping i=0)
         assert_eq!(constraints.len(), 2);
@@ -861,7 +1064,7 @@ operations:
         // Don't provide "value", use default
         let args = json!({ "target": 1 });
 
-        let constraints = execute_codl(&cmd, &args).unwrap();
+        let constraints = execute_codl(&cmd, &args).unwrap().constraints;
         assert_eq!(constraints.len(), 1);
         match &constraints[0].term {
             ConstraintTerm::Const { value } => {
@@ -892,7 +1095,7 @@ operations:
             "x_val": "50/1"
         });
 
-        let constraints = execute_codl(&cmd, &args).unwrap();
+        let constraints = execute_codl(&cmd, &args).unwrap().constraints;
         assert_eq!(constraints.len(), 1);
         assert_eq!(constraints[0].target, EntityId(99));
         assert_eq!(constraints[0].component, VectorComponent::X);
@@ -923,12 +1126,12 @@ operations:
             "target": 1,
             "origin_x": 100
         });
-        let constraints = execute_codl(&cmd, &args_with).unwrap();
+        let constraints = execute_codl(&cmd, &args_with).unwrap().constraints;
         assert_eq!(constraints.len(), 1);
 
         // Without origin_x (null)
         let args_without = json!({ "target": 1 });
-        let constraints = execute_codl(&cmd, &args_without).unwrap();
+        let constraints = execute_codl(&cmd, &args_without).unwrap().constraints;
         assert_eq!(constraints.len(), 0);
     }
 
@@ -953,7 +1156,7 @@ operations:
         let cmd = parse_cmd(yaml);
         let args = json!({ "instances": [1, 2, 3] });
 
-        let constraints = execute_codl_with_id(&cmd, &args, 100).unwrap();
+        let constraints = execute_codl_with_id(&cmd, &args, 100).unwrap().constraints;
         assert_eq!(constraints.len(), 3);
         assert_eq!(constraints[0].id, 100);
         assert_eq!(constraints[1].id, 101);
@@ -980,7 +1183,7 @@ operations:
         let cmd = parse_cmd(yaml);
         let args = json!({ "target": 1 });
 
-        let constraints = execute_codl(&cmd, &args).unwrap();
+        let constraints = execute_codl(&cmd, &args).unwrap().constraints;
         assert_eq!(constraints[0].priority, ConstraintPriority::Soft);
     }
 
@@ -1095,7 +1298,7 @@ operations:
             "a": 3
         });
 
-        let constraints = execute_codl(&cmd, &args).unwrap();
+        let constraints = execute_codl(&cmd, &args).unwrap().constraints;
         assert_eq!(constraints.len(), 1);
 
         match &constraints[0].term {
@@ -1140,7 +1343,7 @@ operations:
             "divisor": 3
         });
 
-        let constraints = execute_codl(&cmd, &args).unwrap();
+        let constraints = execute_codl(&cmd, &args).unwrap().constraints;
 
         match &constraints[0].term {
             ConstraintTerm::Const { value } => {
@@ -1176,7 +1379,7 @@ operations:
         let cmd = parse_cmd(yaml);
         let args = json!({ "target": 1 });
 
-        let constraints = execute_codl(&cmd, &args).unwrap();
+        let constraints = execute_codl(&cmd, &args).unwrap().constraints;
 
         match &constraints[0].term {
             ConstraintTerm::Const { value } => {

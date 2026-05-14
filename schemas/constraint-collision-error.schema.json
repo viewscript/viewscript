@@ -100,9 +100,25 @@
         "intent": { "type": "string" }
       }
     },
+    "Rational": {
+      "type": "object",
+      "description": "Exact rational number represented as numerator/denominator",
+      "required": ["numer", "denom"],
+      "properties": {
+        "numer": {
+          "type": "integer",
+          "description": "Numerator"
+        },
+        "denom": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Denominator (must be positive)"
+        }
+      }
+    },
     "MathematicalDistance": {
       "type": "object",
-      "required": ["deletions", "constant_modifications", "constant_delta_l1", "relation_changes", "composite_score"],
+      "required": ["deletions", "constant_modifications", "relative_error", "reference_scale", "relation_changes", "composite_score"],
       "properties": {
         "deletions": {
           "type": "integer",
@@ -114,10 +130,13 @@
           "minimum": 0,
           "description": "Number of constraint constants that must be changed"
         },
-        "constant_delta_l1": {
-          "type": "number",
-          "minimum": 0,
-          "description": "Total absolute change in constant values (L1 norm)"
+        "relative_error": {
+          "$ref": "#/$defs/Rational",
+          "description": "Relative error magnitude as exact rational (replaces constant_delta_l1)"
+        },
+        "reference_scale": {
+          "$ref": "#/$defs/Rational",
+          "description": "Reference scale used to normalise the relative error"
         },
         "relation_changes": {
           "type": "integer",
@@ -125,8 +144,8 @@
           "description": "Number of relation types that must be changed"
         },
         "composite_score": {
-          "type": "number",
-          "description": "Weighted composite: deletions*1000 + relation_changes*100 + constant_modifications*10 + min(constant_delta_l1, 9.999)"
+          "$ref": "#/$defs/Rational",
+          "description": "Weighted composite score as exact rational: deletions*1000 + relation_changes*100 + constant_modifications*10 + relative_error"
         }
       }
     },
