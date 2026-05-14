@@ -11,6 +11,23 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const FALLBACK_VERSION = '0.1.0';
+
+/**
+ * Resolve the latest version of a package from npm registry.
+ * Falls back to a default version if the fetch fails (e.g., offline).
+ */
+async function resolveLatestVersion(pkg: string): Promise<string> {
+  try {
+    const res = await fetch(`https://registry.npmjs.org/${pkg}/latest`);
+    if (!res.ok) return FALLBACK_VERSION;
+    const data = (await res.json()) as { version?: string };
+    return data.version ?? FALLBACK_VERSION;
+  } catch {
+    return FALLBACK_VERSION;
+  }
+}
+
 export interface ScaffoldOptions {
   projectName: string;
   targetDir: string;
@@ -23,6 +40,12 @@ export interface ScaffoldOptions {
  */
 export async function scaffold(options: ScaffoldOptions): Promise<void> {
   const { projectName, targetDir, language, includeFfiSample } = options;
+
+  // Resolve latest package versions from npm (parallel fetch)
+  const [wasmVersion, pluginVersion] = await Promise.all([
+    resolveLatestVersion('@viewscript/wasm'),
+    resolveLatestVersion('@viewscript/vite-plugin'),
+  ]);
 
   // Ensure target directory exists
   fs.mkdirSync(targetDir, { recursive: true });
@@ -38,8 +61,8 @@ export async function scaffold(options: ScaffoldOptions): Promise<void> {
   // Copy language-specific files
   copyDir(langDir, targetDir);
 
-  // Generate package.json
-  const packageJson = generatePackageJson(projectName, language);
+  // Generate package.json with resolved versions
+  const packageJson = generatePackageJson(projectName, language, wasmVersion, pluginVersion);
   fs.writeFileSync(
     path.join(targetDir, 'package.json'),
     JSON.stringify(packageJson, null, 2) + '\n'
@@ -102,7 +125,9 @@ function copyDir(src: string, dest: string): void {
  */
 function generatePackageJson(
   projectName: string,
-  language: 'ts' | 'js'
+  language: 'ts' | 'js',
+  wasmVersion: string,
+  pluginVersion: string
 ): Record<string, unknown> {
   const base = {
     name: projectName,
@@ -115,10 +140,10 @@ function generatePackageJson(
       preview: 'vite preview',
     },
     dependencies: {
-      '@viewscript/wasm': '^0.1.0',
+      '@viewscript/wasm': `^${wasmVersion}`,
     },
     devDependencies: {
-      '@viewscript/vite-plugin': '^0.1.0',
+      '@viewscript/vite-plugin': `^${pluginVersion}`,
       vite: '^5.4.0',
     },
   };
