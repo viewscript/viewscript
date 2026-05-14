@@ -595,6 +595,12 @@ flowchart TB
         RUSTYBUZZ["rustybuzz"]
     end
 
+    %% ===== External: プロパティテスト (optional) =====
+    subgraph proptest_ext["プロパティテスト"]
+        PROPTEST["proptest"]
+        PROPTEST_DRV["proptest-derive"]
+    end
+
     %% ===== External: その他 =====
     CLAP["clap"]
     REGEX["regex"]
@@ -630,6 +636,8 @@ flowchart TB
     CORE -->|"Error derive"| THISERROR
     CORE -.->|"フォント解析"| TTF
     CORE -.->|"HarfBuzz整形"| RUSTYBUZZ
+    CORE -.->|"任意入力テスト"| PROPTEST
+    CORE -.->|"Arbitrary derive"| PROPTEST_DRV
 
     %% ========== vsc-codl 外部依存 ==========
     CODL -->|"Serialize"| SERDE
@@ -709,6 +717,9 @@ flowchart TB
     classDef wasm fill:#d9f99d,stroke:#84cc16,color:#000
     classDef wasi fill:#e9d5ff,stroke:#a855f7,color:#000
     classDef lint fill:#ccfbf1,stroke:#14b8a6,color:#000
+    classDef text fill:#fed7aa,stroke:#ea580c,color:#000
+    classDef proptest fill:#fae8ff,stroke:#c026d3,color:#000
+    classDef misc fill:#f3f4f6,stroke:#6b7280,color:#000
 
     class CORE core
     class CODL,CLI,LAUNCHER,WASM,GPU,FFI,LINTER,STYLE rust
@@ -719,5 +730,9 @@ flowchart TB
     class WASM_BIND,WASM_FUT,JS_SYS,WEB_SYS,PANIC_HOOK wasm
     class WASMTIME,WASMTIME_WASI,ZSTD,REQWEST,DIRS wasi
     class SYN,QUOTE,PROC_MACRO2,WALKDIR,COLORED lint
+    class TTF,RUSTYBUZZ text
+    class PROPTEST,PROPTEST_DRV proptest
+    class CLAP,REGEX,THISERROR,LOG misc
+    class CANVASKIT,PLAYWRIGHT,VITEST,TS ts
     class CANVASKIT,PLAYWRIGHT,VITEST,TS ts
 ```
