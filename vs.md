@@ -517,9 +517,11 @@ Phase 18以降の拡張において、以下の新規公理をシステムに統
 
 ## 15. 依存関係
 
+### 15.1 ワークスペース内部依存
+
 ```mermaid
-flowchart TB
-    subgraph Rust["Rust Crates"]
+flowchart LR
+    subgraph workspace["Rust Workspace"]
         CORE["vsc-core"]
         CODL["vsc-codl"]
         CLI["vsc-cli"]
@@ -528,39 +530,312 @@ flowchart TB
         GPU["vsc-gpu"]
         FFI["vsc-ffi-c"]
         LINTER["vsc-linter"]
+        STYLE["vs-style-chrome"]
     end
 
-    subgraph TypeScript["npm Packages"]
+    CORE -->|"Rational, EntityId, Constraint"| CODL
+    CORE -->|"Rational, EntityId, Scene"| CLI
+    CORE -->|"Rational, EntityId"| WASM
+    CORE -->|"Rational, EntityId, PathEntity"| GPU
+    CORE -->|"Rational, Constraint, FFI型"| FFI
+    CORE -->|"Constraint, ConstraintPriority"| STYLE
+    CODL -->|"CodlInterpreter, validation"| CLI
+    GPU -->|"GpuRenderer (optional)"| WASM
+```
+
+### 15.2 vsc-core 外部依存
+
+```mermaid
+flowchart LR
+    CORE["vsc-core"]
+
+    subgraph math["有理数演算"]
+        NUM_RAT["num-rational"]
+        NUM_BIG["num-bigint"]
+        NUM_TRT["num-traits"]
+    end
+
+    subgraph serial["シリアライズ"]
+        SERDE["serde"]
+        SERDE_JSON["serde_json"]
+        SCHEMARS["schemars"]
+        BASE64["base64"]
+    end
+
+    subgraph text["テキスト整形 (optional)"]
+        TTF["ttf-parser"]
+        RUSTYBUZZ["rustybuzz"]
+    end
+
+    subgraph test["プロパティテスト (optional)"]
+        PROPTEST["proptest"]
+        PROPTEST_DRV["proptest-derive"]
+    end
+
+    THISERROR["thiserror"]
+
+    CORE -->|"Ratio&lt;BigInt&gt;"| NUM_RAT
+    CORE -->|"BigInt"| NUM_BIG
+    CORE -->|"ToPrimitive, Zero"| NUM_TRT
+    CORE -->|"Serialize, Deserialize"| SERDE
+    CORE -->|"JSON変換"| SERDE_JSON
+    CORE -->|"JsonSchema derive"| SCHEMARS
+    CORE -->|"QValue::Bytes encode"| BASE64
+    CORE -->|"フォント解析"| TTF
+    CORE -->|"HarfBuzz互換整形"| RUSTYBUZZ
+    CORE -->|"任意入力テスト"| PROPTEST
+    CORE -->|"derive(Arbitrary)"| PROPTEST_DRV
+    CORE -->|"Error derive"| THISERROR
+```
+
+### 15.3 vsc-codl 外部依存
+
+```mermaid
+flowchart LR
+    CODL["vsc-codl"]
+
+    SERDE["serde"]
+    SERDE_JSON["serde_json"]
+    SERDE_YAML["serde_yaml"]
+    REGEX["regex"]
+    SCHEMARS["schemars"]
+    THISERROR["thiserror"]
+
+    CODL -->|"Serialize, Deserialize"| SERDE
+    CODL -->|"JSON変換"| SERDE_JSON
+    CODL -->|"YAML解析"| SERDE_YAML
+    CODL -->|"変数参照パターン"| REGEX
+    CODL -->|"CODL JSONスキーマ"| SCHEMARS
+    CODL -->|"CodlError derive"| THISERROR
+```
+
+### 15.4 vsc-cli 外部依存
+
+```mermaid
+flowchart LR
+    CLI["vsc-cli"]
+
+    CLAP["clap"]
+    SERDE["serde"]
+    SERDE_JSON["serde_json"]
+    SERDE_YAML["serde_yaml"]
+    THISERROR["thiserror"]
+
+    CLI -->|"CLI引数パーサー"| CLAP
+    CLI -->|"Serialize, Deserialize"| SERDE
+    CLI -->|"JSON出力"| SERDE_JSON
+    CLI -->|".vscmd.yaml 解析"| SERDE_YAML
+    CLI -->|"CliError derive"| THISERROR
+```
+
+### 15.5 vsc-gpu 外部依存
+
+```mermaid
+flowchart LR
+    GPU["vsc-gpu"]
+
+    WGPU["wgpu"]
+    LYON["lyon"]
+    BYTEMUCK["bytemuck"]
+    LOG["log"]
+    SERDE["serde"]
+    SERDE_JSON["serde_json"]
+    THISERROR["thiserror"]
+
+    GPU -->|"WebGPU/Vulkan描画"| WGPU
+    GPU -->|"パステセレーション"| LYON
+    GPU -->|"頂点バッファ変換"| BYTEMUCK
+    GPU -->|"デバッグログ"| LOG
+    GPU -->|"Serialize"| SERDE
+    GPU -->|"JSON変換"| SERDE_JSON
+    GPU -->|"GpuError derive"| THISERROR
+```
+
+### 15.6 vsc-wasm 外部依存
+
+```mermaid
+flowchart LR
+    WASM["vsc-wasm"]
+
+    subgraph gpu_feat["gpu feature (optional)"]
+        WGPU["wgpu"]
+        WASM_BIND["wasm-bindgen"]
+        WASM_FUT["wasm-bindgen-futures"]
+        JS_SYS["js-sys"]
+        WEB_SYS["web-sys"]
+        PANIC_HOOK["console_error_panic_hook"]
+    end
+
+    SERDE["serde"]
+    SERDE_JSON["serde_json"]
+
+    WASM -->|"Serialize"| SERDE
+    WASM -->|"JSON変換"| SERDE_JSON
+    WASM -->|"WebGPU"| WGPU
+    WASM -->|"#[wasm_bindgen]"| WASM_BIND
+    WASM -->|"async JS呼び出し"| WASM_FUT
+    WASM -->|"JsValue変換"| JS_SYS
+    WASM -->|"DOM/WebGPU API"| WEB_SYS
+    WASM -->|"panic時console.error"| PANIC_HOOK
+```
+
+### 15.7 vsc-launcher 外部依存
+
+```mermaid
+flowchart LR
+    LAUNCHER["vsc-launcher"]
+
+    WASMTIME["wasmtime"]
+    WASMTIME_WASI["wasmtime-wasi"]
+    ZSTD["zstd"]
+    REQWEST["reqwest"]
+    DIRS["dirs"]
+
+    LAUNCHER -->|"WASIp1実行エンジン"| WASMTIME
+    LAUNCHER -->|"WASI preview1 API"| WASMTIME_WASI
+    LAUNCHER -->|"vsc-core.wasm.zst 解凍"| ZSTD
+    LAUNCHER -->|"バージョン確認/DL"| REQWEST
+    LAUNCHER -->|"~/.viewscript 特定"| DIRS
+```
+
+### 15.8 vsc-linter 外部依存
+
+```mermaid
+flowchart LR
+    LINTER["vsc-linter"]
+
+    SYN["syn"]
+    QUOTE["quote"]
+    PROC_MACRO2["proc-macro2"]
+    WALKDIR["walkdir"]
+    CLAP["clap"]
+    COLORED["colored"]
+    SERDE["serde"]
+    SERDE_JSON["serde_json"]
+
+    LINTER -->|"Rust AST解析"| SYN
+    LINTER -->|"コード生成"| QUOTE
+    LINTER -->|"トークン処理"| PROC_MACRO2
+    LINTER -->|"ディレクトリ走査"| WALKDIR
+    LINTER -->|"CLI引数"| CLAP
+    LINTER -->|"色付き出力"| COLORED
+    LINTER -->|"Serialize"| SERDE
+    LINTER -->|"JSON出力"| SERDE_JSON
+```
+
+### 15.9 vsc-ffi-c 外部依存
+
+```mermaid
+flowchart LR
+    FFI["vsc-ffi-c"]
+    SERDE_JSON["serde_json"]
+
+    FFI -->|"JSON文字列⇔C char*"| SERDE_JSON
+```
+
+### 15.10 vs-style-chrome 外部依存
+
+```mermaid
+flowchart LR
+    STYLE["vs-style-chrome"]
+    %% vsc-core のみ（外部依存なし）
+```
+
+### 15.11 TypeScript パッケージ依存
+
+```mermaid
+flowchart LR
+    subgraph npm["npm Packages"]
         RENDERER["@viewscript/renderer"]
         WASM_PKG["@viewscript/wasm"]
         DEFAULTS["@viewscript/browser-defaults"]
     end
 
-    subgraph External["External"]
-        WASMTIME["wasmtime"]
-        WGPU["wgpu"]
-        CANVASKIT["CanvasKit"]
+    subgraph ext["External"]
+        CANVASKIT["canvaskit-wasm"]
+        PLAYWRIGHT["@playwright/test"]
+        VITEST["vitest"]
+        TS["typescript"]
     end
 
+    WASM_PKG -->|"wasm-pack build"| RENDERER
+    RENDERER -->|"WebGL/Skia描画"| CANVASKIT
+    RENDERER -->|"E2Eテスト"| PLAYWRIGHT
+    RENDERER -->|"単体テスト"| VITEST
+    RENDERER -->|"型検査"| TS
+    DEFAULTS -->|"レンダリング"| RENDERER
+    DEFAULTS -->|"型検査"| TS
+```
+
+### 15.12 全体依存グラフ
+
+```mermaid
+flowchart TB
+    subgraph rust["Rust Crates"]
+        direction TB
+        CORE["vsc-core<br/>(有理数・制約)"]
+        CODL["vsc-codl<br/>(YAML DSL)"]
+        CLI["vsc-cli<br/>(CLI)"]
+        LAUNCHER["vsc-launcher<br/>(WASI実行)"]
+        WASM["vsc-wasm<br/>(WebAssembly)"]
+        GPU["vsc-gpu<br/>(wgpu描画)"]
+        FFI["vsc-ffi-c<br/>(C ABI)"]
+        LINTER["vsc-linter<br/>(静的解析)"]
+        STYLE["vs-style-chrome<br/>(スタイル)"]
+    end
+
+    subgraph ts["TypeScript"]
+        RENDERER["@viewscript/renderer"]
+        WASM_PKG["@viewscript/wasm"]
+        DEFAULTS["@viewscript/browser-defaults"]
+    end
+
+    subgraph ext_rust["Rust External"]
+        NUM["num-rational<br/>num-bigint"]
+        WGPU["wgpu"]
+        LYON["lyon"]
+        WASMTIME["wasmtime<br/>wasmtime-wasi"]
+        SYN["syn/quote"]
+    end
+
+    subgraph ext_ts["TS External"]
+        CANVASKIT["canvaskit-wasm"]
+    end
+
+    %% Internal deps
     CORE --> CODL
     CORE --> CLI
     CORE --> WASM
     CORE --> GPU
     CORE --> FFI
+    CORE --> STYLE
     CODL --> CLI
-    WASM --> WASM_PKG
-    LAUNCHER --> WASMTIME
-    LAUNCHER -.->|"embeds"| CLI
-    GPU --> WGPU
-    WASM_PKG --> RENDERER
-    RENDERER --> CANVASKIT
-    DEFAULTS --> RENDERER
+    GPU -.->|"gpu feature"| WASM
 
+    %% External Rust deps
+    NUM --> CORE
+    WGPU --> GPU
+    WGPU -.-> WASM
+    LYON --> GPU
+    WASMTIME --> LAUNCHER
+    SYN --> LINTER
+
+    %% TS deps
+    WASM -->|"wasm-pack"| WASM_PKG
+    WASM_PKG --> RENDERER
+    CANVASKIT --> RENDERER
+    RENDERER --> DEFAULTS
+
+    %% Launcher embeds CLI
+    CLI -.->|"WASI binary"| LAUNCHER
+
+    classDef core fill:#fbbf24,stroke:#d97706,color:#000
     classDef rust fill:#dea584,stroke:#c46243,color:#000
     classDef ts fill:#3178c6,stroke:#235a97,color:#fff
     classDef ext fill:#6b7280,stroke:#4b5563,color:#fff
 
-    class CORE,CODL,CLI,LAUNCHER,WASM,GPU,FFI,LINTER rust
+    class CORE core
+    class CODL,CLI,LAUNCHER,WASM,GPU,FFI,LINTER,STYLE rust
     class RENDERER,WASM_PKG,DEFAULTS ts
-    class WASMTIME,WGPU,CANVASKIT ext
+    class NUM,WGPU,LYON,WASMTIME,SYN,CANVASKIT ext
 ```
