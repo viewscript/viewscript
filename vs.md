@@ -519,220 +519,378 @@ Phase 18以降の拡張において、以下の新規公理をシステムに統
 
 ```mermaid
 flowchart TB
-    %% ===== Rust Workspace Crates =====
-    subgraph workspace["Rust Workspace"]
-        CORE["vsc-core"]
-        CODL["vsc-codl"]
-        CLI["vsc-cli"]
-        LAUNCHER["vsc-launcher"]
-        WASM["vsc-wasm"]
-        GPU["vsc-gpu"]
-        FFI["vsc-ffi-c"]
-        LINTER["vsc-linter"]
-        STYLE["vs-style-chrome"]
+    %% ========================================
+    %% vsc-core: 型定義・制約ソルバー・代数演算
+    %% ========================================
+    subgraph vsc_core["vsc-core"]
+        direction TB
+        CORE_LIB["lib.rs"]
+        CORE_TYPES["types.rs"]
+        CORE_SOLVER["solver.rs"]
+        CORE_SCENE["scene.rs"]
+        CORE_BUILDINFO["buildinfo.rs"]
+        CORE_SCHEMA["schema.rs"]
+        CORE_CONFIG["config.rs"]
+        CORE_COLLISION["collision.rs"]
+        CORE_FFI["ffi.rs"]
+        CORE_TARGET["target.rs"]
+        CORE_VALIDATOR["validator.rs"]
+        CORE_TEXT["text.rs"]
+        CORE_OPTIMIZER["optimizer.rs"]
+        CORE_PROPTEST["proptest_checks.rs"]
+        CORE_REGPROMO["regression_promoter.rs"]
+        CORE_COMPONENT["component.rs"]
+        CORE_TELEMETRY["telemetry.rs"]
+
+        subgraph core_algebra["algebra/"]
+            ALG_MOD["mod.rs"]
+            ALG_MONO["monomial.rs"]
+            ALG_POLY["polynomial.rs"]
+            ALG_GROEB["groebner.rs"]
+        end
+
+        subgraph core_analyzer["analyzer/"]
+            ANA_MOD["mod.rs"]
+            ANA_JAC["jacobian.rs"]
+            ANA_RIG["rigidity.rs"]
+            ANA_SING["singularity.rs"]
+        end
     end
 
-    %% ===== TypeScript Packages =====
-    subgraph npm["npm Packages"]
-        RENDERER["@viewscript/renderer"]
-        WASM_PKG["@viewscript/wasm"]
-        DEFAULTS["@viewscript/browser-defaults"]
+    %% vsc-core 内部依存
+    CORE_LIB --> CORE_TYPES
+    CORE_LIB --> CORE_SOLVER
+    CORE_LIB --> CORE_SCENE
+    CORE_LIB --> ALG_MOD
+    CORE_LIB --> ANA_MOD
+
+    CORE_SOLVER -->|"ConstraintPriority, EntityId, Rational"| CORE_TYPES
+    CORE_SOLVER -->|"ConstraintTerm, VsBuildInfo"| CORE_BUILDINFO
+
+    CORE_SCENE -->|"VsBuildInfo"| CORE_BUILDINFO
+    CORE_SCENE -->|"VarId"| CORE_SOLVER
+    CORE_SCENE -->|"EntityId, Rational, PathCommand"| CORE_TYPES
+
+    CORE_BUILDINFO -->|"DerivedQVariable, QVariable"| CORE_FFI
+    CORE_BUILDINFO -->|"*"| CORE_TYPES
+
+    CORE_SCHEMA -->|"VsBuildInfo"| CORE_BUILDINFO
+    CORE_SCHEMA -->|"Constraint"| CORE_TYPES
+
+    CORE_CONFIG -->|"ResolutionStrategyWeights"| CORE_COLLISION
+    CORE_CONFIG -->|"TelemetryConfig"| CORE_TELEMETRY
+
+    CORE_COLLISION -->|"*"| CORE_TYPES
+
+    CORE_FFI -->|"SceneBounds, SceneNode"| CORE_SCENE
+    CORE_FFI -->|"VarId"| CORE_SOLVER
+    CORE_FFI -->|"EntityId, Rational"| CORE_TYPES
+
+    CORE_TARGET -->|"SceneNode"| CORE_SCENE
+
+    CORE_VALIDATOR -->|"Constraint, ConstraintTerm, Entity"| CORE_TYPES
+
+    CORE_TEXT -->|"EntityId, PathCommand, Rational"| CORE_TYPES
+
+    CORE_OPTIMIZER -->|"*"| CORE_TYPES
+    CORE_PROPTEST -->|"*"| CORE_TYPES
+    CORE_REGPROMO -->|"*"| CORE_TYPES
+    CORE_COMPONENT -->|"*"| CORE_TYPES
+
+    ANA_SING -->|"Constraint, ConstraintTerm, EntityId"| CORE_TYPES
+    ANA_JAC -->|"Rational"| CORE_TYPES
+
+    ALG_POLY -->|"Monomial, MonomialOrder"| ALG_MONO
+    ALG_POLY -->|"Rational"| CORE_TYPES
+    ALG_GROEB -->|"Monomial, MonomialOrder"| ALG_MONO
+    ALG_GROEB -->|"Polynomial"| ALG_POLY
+    ALG_GROEB -->|"Rational"| CORE_TYPES
+
+    %% ========================================
+    %% vsc-codl: CODL DSLパーサー・解釈器
+    %% ========================================
+    subgraph vsc_codl["vsc-codl"]
+        direction TB
+        CODL_LIB["lib.rs"]
+        CODL_AST["ast.rs"]
+        CODL_ERR["error.rs"]
+        CODL_PARSER["parser.rs"]
+        CODL_INTERP["interpreter.rs"]
+        CODL_VALID["validator.rs"]
+        CODL_SCHEMA["schema.rs"]
     end
 
-    %% ===== External: 有理数演算 =====
-    subgraph math["有理数演算"]
+    CODL_PARSER -->|"BinaryOp, CodlExpr"| CODL_AST
+    CODL_PARSER -->|"CodlError, CodlResult"| CODL_ERR
+
+    CODL_INTERP -->|"*"| CODL_AST
+    CODL_INTERP -->|"CodlError, CodlResult"| CODL_ERR
+    CODL_INTERP -->|"parse_expr, parse_where"| CODL_PARSER
+
+    CODL_VALID -->|"*"| CODL_AST
+    CODL_VALID -->|"*"| CODL_ERR
+    CODL_VALID -->|"extract_variables, parse_expr"| CODL_PARSER
+
+    CODL_SCHEMA -->|"CodlCommand"| CODL_AST
+
+    %% ========================================
+    %% vsc-cli: コマンドラインインターフェース
+    %% ========================================
+    subgraph vsc_cli["vsc-cli"]
+        direction TB
+        CLI_MAIN["main.rs"]
+        CLI_CMD["commands/mod.rs"]
+        CLI_EMBED["embedded_wasm.rs"]
+    end
+
+    CLI_MAIN --> CLI_CMD
+    CLI_MAIN --> CLI_EMBED
+
+    %% ========================================
+    %% vsc-gpu: GPU描画コマンド生成
+    %% ========================================
+    subgraph vsc_gpu["vsc-gpu"]
+        direction TB
+        GPU_LIB["lib.rs"]
+        GPU_BATCH["batcher.rs"]
+        GPU_PIPE["pipeline.rs"]
+        GPU_RENDER["renderer.rs"]
+        GPU_SCENE["scene_converter.rs"]
+        GPU_TESS["tessellation.rs"]
+        GPU_TRANS["transform.rs"]
+        GPU_OPAC["opacity.rs"]
+        GPU_STENC["stencil.rs"]
+        GPU_WEB["web_target.rs"]
+
+        subgraph gpu_shaders["shaders/"]
+            SHAD_MOD["mod.rs"]
+        end
+
+        subgraph gpu_loop_blinn["loop_blinn/"]
+            LB_MOD["mod.rs"]
+            LB_CONV["convexity.rs"]
+            LB_CUBIC["cubic.rs"]
+            LB_TESS["tessellator.rs"]
+            LB_VERT["vertex.rs"]
+        end
+
+        subgraph gpu_sdf_stroke["sdf_stroke/"]
+            SDF_MOD["mod.rs"]
+            SDF_TESS["tessellator.rs"]
+            SDF_VERT["vertex.rs"]
+            SDF_CTESS["cubic_tessellator.rs"]
+            SDF_CVERT["cubic_vertex.rs"]
+        end
+
+        subgraph gpu_rasterizer["rasterizer/"]
+            RAS_MOD["mod.rs"]
+            RAS_ROUND["rounding.rs"]
+            RAS_DIST["distribution.rs"]
+            RAS_UF["union_find.rs"]
+        end
+    end
+
+    GPU_BATCH -->|"LoopBlinnVertex"| LB_MOD
+    GPU_BATCH -->|"OpacityStack"| GPU_OPAC
+    GPU_BATCH -->|"PipelineManager"| GPU_PIPE
+    GPU_BATCH -->|"SdfStrokeVertex"| SDF_MOD
+    GPU_BATCH -->|"hex_to_rgba"| SHAD_MOD
+    GPU_BATCH -->|"StencilStack"| GPU_STENC
+    GPU_BATCH -->|"tessellate_path"| GPU_TESS
+    GPU_BATCH -->|"TransformStack"| GPU_TRANS
+
+    GPU_PIPE -->|"LoopBlinnVertex"| LB_MOD
+    GPU_PIPE -->|"SdfStrokeVertex"| SDF_MOD
+    GPU_PIPE -->|"shader sources"| SHAD_MOD
+    GPU_PIPE -->|"GpuVertex"| GPU_TESS
+
+    GPU_RENDER -->|"DrawBatcher"| GPU_BATCH
+    GPU_RENDER -->|"OpacityStack"| GPU_OPAC
+    GPU_RENDER -->|"PipelineManager"| GPU_PIPE
+    GPU_RENDER -->|"shader sources"| SHAD_MOD
+    GPU_RENDER -->|"StencilStack"| GPU_STENC
+    GPU_RENDER -->|"tessellate_path"| GPU_TESS
+    GPU_RENDER -->|"TransformStack"| GPU_TRANS
+
+    GPU_SCENE -->|"round_with_topology"| RAS_MOD
+    GPU_SCENE -->|"hex_to_rgba"| SHAD_MOD
+
+    GPU_WEB -->|"GpuRenderer"| GPU_RENDER
+    GPU_WEB -->|"SceneConverter"| GPU_SCENE
+
+    LB_TESS -->|"compute_curve_sign"| LB_CONV
+    LB_TESS -->|"classify_cubic"| LB_CUBIC
+    LB_TESS -->|"LoopBlinnVertex"| LB_VERT
+
+    SDF_TESS -->|"SdfStrokeVertex"| SDF_VERT
+    SDF_CTESS -->|"CubicSdfStrokeVertex"| SDF_CVERT
+
+    RAS_ROUND -->|"UnionFind"| RAS_UF
+    RAS_DIST -->|"Axis"| RAS_UF
+
+    %% ========================================
+    %% vsc-wasm: WebAssemblyバインディング
+    %% ========================================
+    subgraph vsc_wasm["vsc-wasm"]
+        direction TB
+        WASM_LIB["lib.rs"]
+        WASM_GPU["gpu.rs"]
+    end
+
+    WASM_LIB --> WASM_GPU
+
+    %% ========================================
+    %% vsc-launcher: ネイティブランチャー
+    %% ========================================
+    subgraph vsc_launcher["vsc-launcher"]
+        direction TB
+        LAUNCH_MAIN["main.rs"]
+    end
+
+    %% ========================================
+    %% vsc-linter: 静的解析ツール
+    %% ========================================
+    subgraph vsc_linter["vsc-linter"]
+        direction TB
+        LINT_LIB["lib.rs"]
+        LINT_MAIN["main.rs"]
+
+        subgraph lint_checks["checks/"]
+            CHK_MOD["mod.rs"]
+            CHK_FLOAT["float_contamination.rs"]
+            CHK_CYCLE["cycle_detection.rs"]
+            CHK_GLOB["global_state.rs"]
+            CHK_LOCUS["locus_prohibition.rs"]
+            CHK_NONLIN["nonlinear_constraint.rs"]
+        end
+    end
+
+    LINT_LIB --> CHK_MOD
+    CHK_FLOAT -->|"LintCheck, Severity"| LINT_LIB
+    CHK_CYCLE -->|"LintCheck, Severity"| LINT_LIB
+    CHK_GLOB -->|"LintCheck, Severity"| LINT_LIB
+    CHK_LOCUS -->|"LintCheck, Severity"| LINT_LIB
+    CHK_NONLIN -->|"LintCheck, Severity"| LINT_LIB
+
+    %% ========================================
+    %% vsc-ffi-c: C言語バインディング
+    %% ========================================
+    subgraph vsc_ffi_c["vsc-ffi-c"]
+        direction TB
+        FFIC_LIB["lib.rs"]
+    end
+
+    %% ========================================
+    %% vs-style-chrome: スタイルテーマ
+    %% ========================================
+    subgraph vs_style_chrome["vs-style-chrome"]
+        direction TB
+        STYLE_LIB["lib.rs"]
+    end
+
+    %% ========================================
+    %% クレート間依存
+    %% ========================================
+    CORE_TYPES -->|"Rational, EntityId, Constraint"| CODL_INTERP
+    CORE_TYPES -->|"Rational, Scene"| CLI_CMD
+    CORE_TYPES -->|"Rational, EntityId"| WASM_LIB
+    CORE_TYPES -->|"Rational, PathEntity"| GPU_LIB
+    CORE_TYPES -->|"Rational, FFI型"| FFIC_LIB
+    CORE_TYPES -->|"ConstraintPriority"| STYLE_LIB
+
+    CODL_INTERP -->|"CodlInterpreter"| CLI_CMD
+
+    GPU_LIB -.->|"GpuRenderer"| WASM_GPU
+
+    CLI_MAIN -.->|"WASI binary"| LAUNCH_MAIN
+
+    %% ========================================
+    %% 外部依存 (主要なもののみ)
+    %% ========================================
+    subgraph ext_math["num-*"]
         NUM_RAT["num-rational"]
         NUM_BIG["num-bigint"]
-        NUM_TRT["num-traits"]
     end
 
-    %% ===== External: シリアライズ =====
-    subgraph serial["シリアライズ"]
+    subgraph ext_serde["serde ecosystem"]
         SERDE["serde"]
         SERDE_JSON["serde_json"]
-        SERDE_YAML["serde_yaml"]
-        SCHEMARS["schemars"]
-        BASE64["base64"]
     end
 
-    %% ===== External: GPU描画 =====
-    subgraph gpu_ext["GPU描画"]
+    subgraph ext_gpu["GPU"]
         WGPU["wgpu"]
         LYON["lyon"]
-        BYTEMUCK["bytemuck"]
     end
 
-    %% ===== External: WASM/JS連携 =====
-    subgraph wasm_ext["WASM/JS連携"]
-        WASM_BIND["wasm-bindgen"]
-        WASM_FUT["wasm-bindgen-futures"]
-        JS_SYS["js-sys"]
-        WEB_SYS["web-sys"]
-        PANIC_HOOK["console_error_panic_hook"]
-    end
-
-    %% ===== External: WASI実行 =====
-    subgraph wasi_ext["WASI実行"]
+    subgraph ext_wasi["WASI Runtime"]
         WASMTIME["wasmtime"]
-        WASMTIME_WASI["wasmtime-wasi"]
-        ZSTD["zstd"]
-        REQWEST["reqwest"]
-        DIRS["dirs"]
     end
 
-    %% ===== External: 静的解析 =====
-    subgraph lint_ext["静的解析"]
+    subgraph ext_lint["AST解析"]
         SYN["syn"]
-        QUOTE["quote"]
-        PROC_MACRO2["proc-macro2"]
-        WALKDIR["walkdir"]
-        COLORED["colored"]
     end
 
-    %% ===== External: テキスト整形 (optional) =====
-    subgraph text_ext["テキスト整形"]
-        TTF["ttf-parser"]
-        RUSTYBUZZ["rustybuzz"]
+    CORE_TYPES -->|"Ratio&lt;BigInt&gt;"| NUM_RAT
+    CORE_TYPES -->|"BigInt"| NUM_BIG
+    CORE_TYPES -->|"Serialize"| SERDE
+    GPU_LIB -->|"WebGPU"| WGPU
+    GPU_TESS -->|"tessellation"| LYON
+    LAUNCH_MAIN -->|"WASIp1"| WASMTIME
+    LINT_LIB -->|"AST visitor"| SYN
+
+    %% ========================================
+    %% TypeScript パッケージ
+    %% ========================================
+    subgraph ts_renderer["@viewscript/renderer"]
+        TS_INDEX["index.ts"]
+        TS_TOPO["topology-rounding.ts"]
+        TS_EVENT["event-backpressure.ts"]
+        TS_CANVAS["canvas-mapper.ts"]
+        TS_GRAD["gradient-mapper.ts"]
+        TS_LOOP["render-loop.ts"]
+        TS_WASM_MGR["wasm-resource-manager.ts"]
+        TS_WGPU["wgpu-renderer-adapter.ts"]
+        TS_SEMANTIC["semantic-translator.ts"]
     end
 
-    %% ===== External: プロパティテスト (optional) =====
-    subgraph proptest_ext["プロパティテスト"]
-        PROPTEST["proptest"]
-        PROPTEST_DRV["proptest-derive"]
+    subgraph ts_defaults["@viewscript/browser-defaults"]
+        TS_DEF_INDEX["index.ts"]
+        TS_ROUNDED["RoundedRect.vs"]
+        TS_TEXT["Text.vs"]
     end
 
-    %% ===== External: その他 =====
-    CLAP["clap"]
-    REGEX["regex"]
-    THISERROR["thiserror"]
-    LOG["log"]
-
-    %% ===== External: TypeScript =====
-    subgraph ts_ext["TypeScript External"]
+    subgraph ts_ext["External"]
         CANVASKIT["canvaskit-wasm"]
-        PLAYWRIGHT["@playwright/test"]
-        VITEST["vitest"]
-        TS["typescript"]
     end
 
-    %% ========== ワークスペース内部依存 ==========
-    CORE -->|"Rational, Constraint"| CODL
-    CORE -->|"Rational, Scene"| CLI
-    CORE -->|"Rational, EntityId"| WASM
-    CORE -->|"Rational, PathEntity"| GPU
-    CORE -->|"Rational, FFI型"| FFI
-    CORE -->|"ConstraintPriority"| STYLE
-    CODL -->|"CodlInterpreter"| CLI
-    GPU -.->|"GpuRenderer"| WASM
+    WASM_LIB -->|"wasm-pack"| TS_INDEX
+    TS_CANVAS -->|"WebGL/Skia"| CANVASKIT
+    TS_DEF_INDEX --> TS_INDEX
 
-    %% ========== vsc-core 外部依存 ==========
-    CORE -->|"Ratio&lt;BigInt&gt;"| NUM_RAT
-    CORE -->|"BigInt"| NUM_BIG
-    CORE -->|"ToPrimitive"| NUM_TRT
-    CORE -->|"Serialize"| SERDE
-    CORE -->|"JSON変換"| SERDE_JSON
-    CORE -->|"JsonSchema"| SCHEMARS
-    CORE -->|"QValue::Bytes"| BASE64
-    CORE -->|"Error derive"| THISERROR
-    CORE -.->|"フォント解析"| TTF
-    CORE -.->|"HarfBuzz整形"| RUSTYBUZZ
-    CORE -.->|"任意入力テスト"| PROPTEST
-    CORE -.->|"Arbitrary derive"| PROPTEST_DRV
+    %% ========================================
+    %% スタイル定義
+    %% ========================================
+    classDef core fill:#fef3c7,stroke:#d97706
+    classDef codl fill:#dbeafe,stroke:#2563eb
+    classDef cli fill:#dcfce7,stroke:#16a34a
+    classDef gpu fill:#fce7f3,stroke:#db2777
+    classDef wasm fill:#e0e7ff,stroke:#4f46e5
+    classDef launcher fill:#f3e8ff,stroke:#9333ea
+    classDef linter fill:#ccfbf1,stroke:#14b8a6
+    classDef ffi fill:#fee2e2,stroke:#dc2626
+    classDef style fill:#fef9c3,stroke:#ca8a04
+    classDef ts fill:#cffafe,stroke:#0891b2
+    classDef ext fill:#f3f4f6,stroke:#6b7280
 
-    %% ========== vsc-codl 外部依存 ==========
-    CODL -->|"Serialize"| SERDE
-    CODL -->|"JSON変換"| SERDE_JSON
-    CODL -->|"YAML解析"| SERDE_YAML
-    CODL -->|"変数参照"| REGEX
-    CODL -->|"JSONスキーマ"| SCHEMARS
-    CODL -->|"CodlError"| THISERROR
-
-    %% ========== vsc-cli 外部依存 ==========
-    CLI -->|"引数パーサー"| CLAP
-    CLI -->|"Serialize"| SERDE
-    CLI -->|"JSON出力"| SERDE_JSON
-    CLI -->|".vscmd.yaml"| SERDE_YAML
-    CLI -->|"CliError"| THISERROR
-
-    %% ========== vsc-gpu 外部依存 ==========
-    GPU -->|"WebGPU/Vulkan"| WGPU
-    GPU -->|"テセレーション"| LYON
-    GPU -->|"頂点バッファ"| BYTEMUCK
-    GPU -->|"デバッグログ"| LOG
-    GPU -->|"Serialize"| SERDE
-    GPU -->|"JSON変換"| SERDE_JSON
-    GPU -->|"GpuError"| THISERROR
-
-    %% ========== vsc-wasm 外部依存 ==========
-    WASM -->|"Serialize"| SERDE
-    WASM -->|"JSON変換"| SERDE_JSON
-    WASM -.->|"WebGPU"| WGPU
-    WASM -.->|"#[wasm_bindgen]"| WASM_BIND
-    WASM -.->|"async JS"| WASM_FUT
-    WASM -.->|"JsValue"| JS_SYS
-    WASM -.->|"DOM API"| WEB_SYS
-    WASM -.->|"panic hook"| PANIC_HOOK
-
-    %% ========== vsc-launcher 外部依存 ==========
-    LAUNCHER -->|"WASIp1実行"| WASMTIME
-    LAUNCHER -->|"preview1 API"| WASMTIME_WASI
-    LAUNCHER -->|"zstd解凍"| ZSTD
-    LAUNCHER -->|"HTTP通信"| REQWEST
-    LAUNCHER -->|"home dir"| DIRS
-
-    %% ========== vsc-linter 外部依存 ==========
-    LINTER -->|"AST解析"| SYN
-    LINTER -->|"コード生成"| QUOTE
-    LINTER -->|"トークン処理"| PROC_MACRO2
-    LINTER -->|"ディレクトリ走査"| WALKDIR
-    LINTER -->|"CLI引数"| CLAP
-    LINTER -->|"色付き出力"| COLORED
-    LINTER -->|"Serialize"| SERDE
-    LINTER -->|"JSON出力"| SERDE_JSON
-
-    %% ========== vsc-ffi-c 外部依存 ==========
-    FFI -->|"JSON⇔char*"| SERDE_JSON
-
-    %% ========== TypeScript依存 ==========
-    WASM -->|"wasm-pack"| WASM_PKG
-    WASM_PKG -->|"WASM連携"| RENDERER
-    RENDERER -->|"WebGL/Skia"| CANVASKIT
-    RENDERER -->|"E2Eテスト"| PLAYWRIGHT
-    RENDERER -->|"単体テスト"| VITEST
-    RENDERER -->|"型検査"| TS
-    DEFAULTS -->|"レンダリング"| RENDERER
-    DEFAULTS -->|"型検査"| TS
-
-    %% ========== 特殊関係 ==========
-    CLI -.->|"WASI binary埋込"| LAUNCHER
-
-    %% ========== スタイル定義 ==========
-    classDef core fill:#fbbf24,stroke:#d97706,color:#000
-    classDef rust fill:#dea584,stroke:#c46243,color:#000
-    classDef ts fill:#3178c6,stroke:#235a97,color:#fff
-    classDef ext fill:#e5e7eb,stroke:#9ca3af,color:#000
-    classDef math fill:#fde68a,stroke:#f59e0b,color:#000
-    classDef serial fill:#bfdbfe,stroke:#3b82f6,color:#000
-    classDef gpu fill:#fecaca,stroke:#ef4444,color:#000
-    classDef wasm fill:#d9f99d,stroke:#84cc16,color:#000
-    classDef wasi fill:#e9d5ff,stroke:#a855f7,color:#000
-    classDef lint fill:#ccfbf1,stroke:#14b8a6,color:#000
-    classDef text fill:#fed7aa,stroke:#ea580c,color:#000
-    classDef proptest fill:#fae8ff,stroke:#c026d3,color:#000
-    classDef misc fill:#f3f4f6,stroke:#6b7280,color:#000
-
-    class CORE core
-    class CODL,CLI,LAUNCHER,WASM,GPU,FFI,LINTER,STYLE rust
-    class RENDERER,WASM_PKG,DEFAULTS ts
-    class NUM_RAT,NUM_BIG,NUM_TRT math
-    class SERDE,SERDE_JSON,SERDE_YAML,SCHEMARS,BASE64 serial
-    class WGPU,LYON,BYTEMUCK gpu
-    class WASM_BIND,WASM_FUT,JS_SYS,WEB_SYS,PANIC_HOOK wasm
-    class WASMTIME,WASMTIME_WASI,ZSTD,REQWEST,DIRS wasi
-    class SYN,QUOTE,PROC_MACRO2,WALKDIR,COLORED lint
-    class TTF,RUSTYBUZZ text
-    class PROPTEST,PROPTEST_DRV proptest
-    class CLAP,REGEX,THISERROR,LOG misc
-    class CANVASKIT,PLAYWRIGHT,VITEST,TS ts
-    class CANVASKIT,PLAYWRIGHT,VITEST,TS ts
+    class CORE_LIB,CORE_TYPES,CORE_SOLVER,CORE_SCENE,CORE_BUILDINFO,CORE_SCHEMA,CORE_CONFIG,CORE_COLLISION,CORE_FFI,CORE_TARGET,CORE_VALIDATOR,CORE_TEXT,CORE_OPTIMIZER,CORE_PROPTEST,CORE_REGPROMO,CORE_COMPONENT,CORE_TELEMETRY,ALG_MOD,ALG_MONO,ALG_POLY,ALG_GROEB,ANA_MOD,ANA_JAC,ANA_RIG,ANA_SING core
+    class CODL_LIB,CODL_AST,CODL_ERR,CODL_PARSER,CODL_INTERP,CODL_VALID,CODL_SCHEMA codl
+    class CLI_MAIN,CLI_CMD,CLI_EMBED cli
+    class GPU_LIB,GPU_BATCH,GPU_PIPE,GPU_RENDER,GPU_SCENE,GPU_TESS,GPU_TRANS,GPU_OPAC,GPU_STENC,GPU_WEB,SHAD_MOD,LB_MOD,LB_CONV,LB_CUBIC,LB_TESS,LB_VERT,SDF_MOD,SDF_TESS,SDF_VERT,SDF_CTESS,SDF_CVERT,RAS_MOD,RAS_ROUND,RAS_DIST,RAS_UF gpu
+    class WASM_LIB,WASM_GPU wasm
+    class LAUNCH_MAIN launcher
+    class LINT_LIB,LINT_MAIN,CHK_MOD,CHK_FLOAT,CHK_CYCLE,CHK_GLOB,CHK_LOCUS,CHK_NONLIN linter
+    class FFIC_LIB ffi
+    class STYLE_LIB style
+    class TS_INDEX,TS_TOPO,TS_EVENT,TS_CANVAS,TS_GRAD,TS_LOOP,TS_WASM_MGR,TS_WGPU,TS_SEMANTIC,TS_DEF_INDEX,TS_ROUNDED,TS_TEXT ts
+    class NUM_RAT,NUM_BIG,SERDE,SERDE_JSON,WGPU,LYON,WASMTIME,SYN,CANVASKIT ext
 ```
