@@ -54,13 +54,14 @@ async function main() {
   const engine = await WasmViewScriptEngine.create(canvas, dpr);
   console.log('ViewScript engine initialized:', canvas.width, 'x', canvas.height);
 
-  // Add demo component (matches main.vs HelloBox definition)
-  // TODO: Replace with .vs parser when available
+  // --- Scene Setup ---
+  // NOTE: This will be auto-generated from main.vs by @viewscript/vite-plugin
+  // in a future release. For now, components are added manually.
   engine.add_component('RoundedRect', JSON.stringify({
-    x: 50,
-    y: 50,
+    x: 100,
+    y: 100,
     width: 300,
-    height: 150,
+    height: 180,
     radius: 24,
     fill: '#4a90d9',
   }));
