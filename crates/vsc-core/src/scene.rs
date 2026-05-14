@@ -28,8 +28,7 @@ use crate::{
     types::{
         ConditionId, ConditionKind, CoordRef, CrossingDirection, Edge, EntityId, FillRule,
         FillSpec, LineCap, LineJoin, PathCommand, PathEntityEntry, PostSolveCondition, Rational,
-        StrokeSpec,
-        TopoConstraint, UvTransform, VectorComponent,
+        StrokeSpec, TopoConstraint, UvTransform, VectorComponent,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -820,10 +819,7 @@ impl BoundingBox {
 ///
 /// Returns a list of EntityIds whose X/Y coordinates should be used
 /// to compute the bounding box.
-fn collect_entity_control_points(
-    entity_id: EntityId,
-    build_info: &VsBuildInfo,
-) -> Vec<EntityId> {
+fn collect_entity_control_points(entity_id: EntityId, build_info: &VsBuildInfo) -> Vec<EntityId> {
     // Check if it's a path entity
     if let Some(path) = build_info.path_entities.iter().find(|p| p.id == entity_id) {
         return path.referenced_control_points();
@@ -831,11 +827,20 @@ fn collect_entity_control_points(
 
     // Check if it's a text entity
     if let Some(text) = build_info.text_entities.iter().find(|t| t.id == entity_id) {
-        return vec![text.corner_tl, text.corner_tr, text.corner_bl, text.corner_br];
+        return vec![
+            text.corner_tl,
+            text.corner_tr,
+            text.corner_bl,
+            text.corner_br,
+        ];
     }
 
     // Check if it's a control point itself (single point collision)
-    if build_info.control_points.iter().any(|cp| cp.id == entity_id) {
+    if build_info
+        .control_points
+        .iter()
+        .any(|cp| cp.id == entity_id)
+    {
         return vec![entity_id];
     }
 
@@ -1660,7 +1665,11 @@ mod tests {
         let (triggered, currently_satisfied) =
             evaluate_conditions(&conditions, &values, &build_info, &prev_satisfied);
 
-        assert_eq!(triggered, vec![100], "Condition should trigger on false→true");
+        assert_eq!(
+            triggered,
+            vec![100],
+            "Condition should trigger on false→true"
+        );
         assert!(
             currently_satisfied.contains(&100),
             "Condition should be in currently_satisfied"
@@ -1701,8 +1710,12 @@ mod tests {
         // Frame 1: false→true (initial trigger)
         let values_overlap = make_solutions(&[(1, 50, 50), (2, 50, 50)]);
         let prev_satisfied_f1 = HashSet::new();
-        let (triggered_f1, satisfied_f1) =
-            evaluate_conditions(&conditions, &values_overlap, &build_info, &prev_satisfied_f1);
+        let (triggered_f1, satisfied_f1) = evaluate_conditions(
+            &conditions,
+            &values_overlap,
+            &build_info,
+            &prev_satisfied_f1,
+        );
         assert_eq!(triggered_f1, vec![100], "Frame 1: should trigger");
 
         // Frame 2: true→false (no trigger, condition no longer met)

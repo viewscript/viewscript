@@ -35,7 +35,9 @@
 //! When any variable in a bilinear term becomes resolved (DoF = 0),
 //! the term degrades to a linear term and can be promoted to the Active Queue.
 
-use crate::{ConditionId, ConstraintPriority, EntityId, PostSolveCondition, Rational, VectorComponent};
+use crate::{
+    ConditionId, ConstraintPriority, EntityId, PostSolveCondition, Rational, VectorComponent,
+};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 // =============================================================================
