@@ -878,7 +878,7 @@ flowchart TB
     classDef launcher fill:#f3e8ff,stroke:#9333ea
     classDef linter fill:#ccfbf1,stroke:#14b8a6
     classDef ffi fill:#fee2e2,stroke:#dc2626
-    classDef style fill:#fef9c3,stroke:#ca8a04
+    classDef styletheme fill:#fef9c3,stroke:#ca8a04
     classDef ts fill:#cffafe,stroke:#0891b2
     classDef ext fill:#f3f4f6,stroke:#6b7280
 
@@ -890,7 +890,7 @@ flowchart TB
     class LAUNCH_MAIN launcher
     class LINT_LIB,LINT_MAIN,CHK_MOD,CHK_FLOAT,CHK_CYCLE,CHK_GLOB,CHK_LOCUS,CHK_NONLIN linter
     class FFIC_LIB ffi
-    class STYLE_LIB style
+    class STYLE_LIB styletheme
     class TS_INDEX,TS_TOPO,TS_EVENT,TS_CANVAS,TS_GRAD,TS_LOOP,TS_WASM_MGR,TS_WGPU,TS_SEMANTIC,TS_DEF_INDEX,TS_ROUNDED,TS_TEXT ts
     class NUM_RAT,NUM_BIG,SERDE,SERDE_JSON,WGPU,LYON,WASMTIME,SYN,CANVASKIT ext
 ```
