@@ -110,6 +110,21 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Prepare @viewscript/gpu-runtime
+        run: |
+          cd packages/gpu-runtime
+          pnpm install --no-frozen-lockfile
+          VERSION="${{ needs.check-and-release.outputs.new_version }}"
+          cat package.json | jq --arg v "$VERSION" '.version = $v' > tmp.json
+          mv tmp.json package.json
+          pnpm build
+
+      - name: Publish @viewscript/gpu-runtime
+        run: npm publish --access public
+        working-directory: packages/gpu-runtime
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       - name: Prepare @viewscript/vite-plugin
         run: |
           cd packages/vite-plugin
@@ -360,6 +375,7 @@ jobs:
             ## npm Packages
 
             - `@viewscript/wasm@${{ needs.check-and-release.outputs.new_version }}`
+            - `@viewscript/gpu-runtime@${{ needs.check-and-release.outputs.new_version }}`
             - `@viewscript/vite-plugin@${{ needs.check-and-release.outputs.new_version }}`
             - `@viewscript/renderer@${{ needs.check-and-release.outputs.new_version }}`
             - `@viewscript/browser-defaults@${{ needs.check-and-release.outputs.new_version }}`
