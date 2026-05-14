@@ -8,6 +8,10 @@ license.workspace = true
 name = "vsc"
 path = "src/main.rs"
 
+[features]
+default = []
+embedded-wasm = []  # Include pre-built WASM artifacts for standalone distribution
+
 [dependencies]
 vsc-core = { path = "../vsc-core" }
 vsc-codl = { path = "../vsc-codl" }

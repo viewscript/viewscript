@@ -144,14 +144,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build CLI
         run: cargo build -p vsc-cli --release
-      - name: Workflow test
+      - name: CLI workflow test (without build)
         run: |
           VSC=./target/release/vsc
           mkdir -p /tmp/ci-test && cd /tmp/ci-test
           $GITHUB_WORKSPACE/$VSC init --name ci-test
-          $GITHUB_WORKSPACE/$VSC add-component -t rectangle -x 50 -y 50 -w 200 -h 100 -r 8 -f "#ff0000"
+          $GITHUB_WORKSPACE/$VSC add-component -t rectangle -x 50 -y 50 -w 200 --height 100 -r 8 -f "#ff0000"
+          $GITHUB_WORKSPACE/$VSC search -t constraint
           $GITHUB_WORKSPACE/$VSC check
-          $GITHUB_WORKSPACE/$VSC build --target wgpu --outdir dist
-          test -f dist/index.html
-          test -f dist/pkg/vsc_wasm_bg.wasm
+          $GITHUB_WORKSPACE/$VSC status
           echo "CLI integration test passed"

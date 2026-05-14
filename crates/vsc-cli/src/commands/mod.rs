@@ -1049,13 +1049,16 @@ pub fn optimize(dry_run: bool) -> CommandResult {
 /// ## Stages
 /// 1. Validate target (wgpu, vs-web)
 /// 2. Read VsBuildInfo
-/// 3. Run wasm-pack build
+/// 3. Extract embedded WASM or run wasm-pack
 /// 4. Generate initialization code from VsBuildInfo
 /// 5. Generate HTML wrapper
 /// 6. Copy artifacts to output directory
+///
+/// ## Embedded WASM
+///
+/// If compiled with the `embedded-wasm` feature, pre-built WASM artifacts
+/// are extracted directly. Otherwise, wasm-pack must be installed.
 pub fn build(target: &str, outdir: &str) -> CommandResult {
-    use crate::embedded_wasm;
-
     // Stage 0: Target validation
     if target != "wgpu" && target != "vs-web" {
         return Err(ConstraintCollisionError {
@@ -1094,45 +1097,56 @@ pub fn build(target: &str, outdir: &str) -> CommandResult {
     // Stage 5: Write index.html
     fs::write(dist.join("index.html"), &html).map_err(|e| io_error_to_collision(&e))?;
 
-    // Stage 6: Extract embedded WASM artifacts
-    // These are compiled into the CLI binary at build time
+    // Stage 6: Extract WASM artifacts (embedded or via wasm-pack)
+    #[cfg(feature = "embedded-wasm")]
+    {
+        use crate::embedded_wasm;
+        build_with_embedded_wasm(&dist, embedded_wasm::WASM_BINARY, embedded_wasm::WASM_JS,
+            embedded_wasm::WASM_DTS, embedded_wasm::WASM_BG_DTS, embedded_wasm::PACKAGE_JSON, target, outdir)
+    }
+
+    #[cfg(not(feature = "embedded-wasm"))]
+    {
+        build_with_wasm_pack(&dist, target, outdir)
+    }
+}
+
+#[cfg(feature = "embedded-wasm")]
+fn build_with_embedded_wasm(
+    dist: &PathBuf,
+    wasm_binary: &[u8],
+    wasm_js: &str,
+    wasm_dts: &str,
+    wasm_bg_dts: &str,
+    package_json: &str,
+    target: &str,
+    outdir: &str,
+) -> CommandResult {
     let mut extracted_files = vec!["index.html".to_string()];
 
     // Write WASM binary
-    fs::write(
-        dist.join("pkg").join("vsc_wasm_bg.wasm"),
-        embedded_wasm::WASM_BINARY,
-    )
-    .map_err(|e| io_error_to_collision(&e))?;
+    fs::write(dist.join("pkg").join("vsc_wasm_bg.wasm"), wasm_binary)
+        .map_err(|e| io_error_to_collision(&e))?;
     extracted_files.push("pkg/vsc_wasm_bg.wasm".to_string());
 
     // Write JavaScript glue
-    fs::write(dist.join("pkg").join("vsc_wasm.js"), embedded_wasm::WASM_JS)
+    fs::write(dist.join("pkg").join("vsc_wasm.js"), wasm_js)
         .map_err(|e| io_error_to_collision(&e))?;
     extracted_files.push("pkg/vsc_wasm.js".to_string());
 
     // Write TypeScript definitions
-    fs::write(
-        dist.join("pkg").join("vsc_wasm.d.ts"),
-        embedded_wasm::WASM_DTS,
-    )
-    .map_err(|e| io_error_to_collision(&e))?;
+    fs::write(dist.join("pkg").join("vsc_wasm.d.ts"), wasm_dts)
+        .map_err(|e| io_error_to_collision(&e))?;
     extracted_files.push("pkg/vsc_wasm.d.ts".to_string());
 
     // Write WASM background TypeScript definitions
-    fs::write(
-        dist.join("pkg").join("vsc_wasm_bg.wasm.d.ts"),
-        embedded_wasm::WASM_BG_DTS,
-    )
-    .map_err(|e| io_error_to_collision(&e))?;
+    fs::write(dist.join("pkg").join("vsc_wasm_bg.wasm.d.ts"), wasm_bg_dts)
+        .map_err(|e| io_error_to_collision(&e))?;
     extracted_files.push("pkg/vsc_wasm_bg.wasm.d.ts".to_string());
 
     // Write package.json
-    fs::write(
-        dist.join("pkg").join("package.json"),
-        embedded_wasm::PACKAGE_JSON,
-    )
-    .map_err(|e| io_error_to_collision(&e))?;
+    fs::write(dist.join("pkg").join("package.json"), package_json)
+        .map_err(|e| io_error_to_collision(&e))?;
     extracted_files.push("pkg/package.json".to_string());
 
     Ok(serde_json::json!({
@@ -1140,8 +1154,87 @@ pub fn build(target: &str, outdir: &str) -> CommandResult {
         "target": target,
         "output": outdir,
         "source": "embedded",
-        "wasm_size_bytes": embedded_wasm::WASM_BINARY.len(),
+        "wasm_size_bytes": wasm_binary.len(),
         "files": extracted_files
+    }))
+}
+
+#[cfg(not(feature = "embedded-wasm"))]
+fn build_with_wasm_pack(dist: &PathBuf, target: &str, outdir: &str) -> CommandResult {
+    // Find wasm crate and run wasm-pack
+    let wasm_crate = find_wasm_crate_dir().map_err(|e| ConstraintCollisionError {
+        error_type: CollisionErrorType::Overdetermined,
+        message: e,
+        incoming_constraint: dummy_snapshot(),
+        conflicting_constraints: vec![],
+        repair_suggestions: vec![],
+        analysis: CollisionAnalysis {
+            cycle_path: None,
+            constraints_analyzed: 0,
+            analysis_time_us: 0,
+            hideable_in_viewport: false,
+            hiding_viewport: None,
+        },
+    })?;
+
+    // Run wasm-pack build
+    let output = Command::new("wasm-pack")
+        .args(["build", "--target", "web"])
+        .current_dir(&wasm_crate)
+        .output()
+        .map_err(|e| ConstraintCollisionError {
+            error_type: CollisionErrorType::Overdetermined,
+            message: format!("Failed to run wasm-pack: {}. Is wasm-pack installed?", e),
+            incoming_constraint: dummy_snapshot(),
+            conflicting_constraints: vec![],
+            repair_suggestions: vec![],
+            analysis: CollisionAnalysis {
+                cycle_path: None,
+                constraints_analyzed: 0,
+                analysis_time_us: 0,
+                hideable_in_viewport: false,
+                hiding_viewport: None,
+            },
+        })?;
+
+    if !output.status.success() {
+        return Err(ConstraintCollisionError {
+            error_type: CollisionErrorType::Overdetermined,
+            message: format!(
+                "wasm-pack build failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ),
+            incoming_constraint: dummy_snapshot(),
+            conflicting_constraints: vec![],
+            repair_suggestions: vec![],
+            analysis: CollisionAnalysis {
+                cycle_path: None,
+                constraints_analyzed: 0,
+                analysis_time_us: 0,
+                hideable_in_viewport: false,
+                hiding_viewport: None,
+            },
+        });
+    }
+
+    // Copy generated files from pkg/ to dist/pkg/
+    let pkg_dir = wasm_crate.join("pkg");
+    let mut copied_files = vec!["index.html".to_string()];
+
+    for entry in fs::read_dir(&pkg_dir).map_err(|e| io_error_to_collision(&e))? {
+        let entry = entry.map_err(|e| io_error_to_collision(&e))?;
+        let file_name = entry.file_name();
+        let dest = dist.join("pkg").join(&file_name);
+        fs::copy(entry.path(), &dest).map_err(|e| io_error_to_collision(&e))?;
+        copied_files.push(format!("pkg/{}", file_name.to_string_lossy()));
+    }
+
+    Ok(serde_json::json!({
+        "status": "success",
+        "target": target,
+        "output": outdir,
+        "source": "wasm-pack",
+        "files": copied_files
     }))
 }
 
