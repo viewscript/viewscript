@@ -1429,24 +1429,70 @@ pub fn validate_constraint_against_buildinfo(
 ) -> Result<(), SolverError> {
     let mut solver = ConstraintSolver::new();
 
-    // Add all existing Const equality constraints to the solver
+    // Add all existing equality constraints to the solver
     for op in &buildinfo.operations {
         if op.op_type != OperationType::Add {
             continue;
         }
 
-        if let ConstraintTerm::Const { value } = &op.constraint.term {
-            if op.constraint.relation == crate::RelationType::Eq {
-                let var_id = VarId::new(op.constraint.target, op.constraint.component);
-                // Convert constraint to solver format: 1*var + (-value) = 0
-                let linear = LinearConstraint::eq(
-                    op.constraint.id,
-                    vec![(var_id, Rational::from_int(1))],
-                    -value.clone(),
-                );
-                solver.add_linear(linear, op.constraint.priority)?;
-            }
+        if op.constraint.relation != crate::RelationType::Eq {
+            continue;
         }
+
+        let target_var = VarId::new(op.constraint.target, op.constraint.component);
+
+        // Convert constraint to solver format: target = term → target - term = 0
+        let linear = match &op.constraint.term {
+            ConstraintTerm::Const { value } => {
+                // target = value → 1*target + (-value) = 0
+                LinearConstraint::eq(
+                    op.constraint.id,
+                    vec![(target_var, Rational::from_int(1))],
+                    -value.clone(),
+                )
+            }
+            ConstraintTerm::Ref { entity_id, component } => {
+                // target = ref → 1*target - 1*ref = 0
+                let ref_var = VarId::new(*entity_id, *component);
+                LinearConstraint::eq(
+                    op.constraint.id,
+                    vec![
+                        (target_var, Rational::from_int(1)),
+                        (ref_var, Rational::from_int(-1)),
+                    ],
+                    Rational::zero(),
+                )
+            }
+            ConstraintTerm::Linear {
+                coefficient,
+                entity_id,
+                component,
+                offset,
+            } => {
+                // target = coeff*ref + offset → 1*target - coeff*ref - offset = 0
+                let ref_var = VarId::new(*entity_id, *component);
+                LinearConstraint::eq(
+                    op.constraint.id,
+                    vec![
+                        (target_var, Rational::from_int(1)),
+                        (ref_var, -coefficient.clone()),
+                    ],
+                    -offset.clone(),
+                )
+            }
+            ConstraintTerm::LinearCombination { terms, offset } => {
+                // target = Σ(coeff_i*ref_i) + offset → 1*target - Σ(coeff_i*ref_i) - offset = 0
+                let mut all_terms: Vec<(VarId, Rational)> =
+                    vec![(target_var, Rational::from_int(1))];
+                for factor in terms {
+                    let ref_var = VarId::new(factor.entity_id, factor.component);
+                    all_terms.push((ref_var, -factor.coefficient.clone()));
+                }
+                LinearConstraint::eq(op.constraint.id, all_terms, -offset.clone())
+            }
+        };
+
+        solver.add_linear(linear, op.constraint.priority)?;
     }
 
     // Try to add the new constraint

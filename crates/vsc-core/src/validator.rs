@@ -306,6 +306,18 @@ impl Validator {
                     });
                 }
             }
+            ConstraintTerm::LinearCombination { terms, .. } => {
+                for factor in terms {
+                    if let Some(Entity::Path(_)) = self.entities.get(&factor.entity_id) {
+                        errors.push(ValidationError::NonLinearConstraintRejected {
+                            constraint_id: constraint.id,
+                            reason: "Cannot use Path entity in linear combination term".to_string(),
+                            suggestion: "Use ControlPoint entity references instead".to_string(),
+                        });
+                        break;
+                    }
+                }
+            }
             ConstraintTerm::Const { .. } => {
                 // Constants are always valid
             }

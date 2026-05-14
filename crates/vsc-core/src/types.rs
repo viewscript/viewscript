@@ -179,6 +179,26 @@ impl Rational {
     pub fn is_zero(&self) -> bool {
         self.0.is_zero()
     }
+
+    /// Get the numerator as BigInt reference.
+    pub fn numer(&self) -> &BigInt {
+        self.0.numer()
+    }
+
+    /// Get the denominator as BigInt reference.
+    pub fn denom(&self) -> &BigInt {
+        self.0.denom()
+    }
+
+    /// Check if this rational is an integer (denominator == 1).
+    pub fn is_integer(&self) -> bool {
+        *self.0.denom() == BigInt::from(1)
+    }
+
+    /// Check if this rational is negative.
+    pub fn is_negative(&self) -> bool {
+        self.0.numer().sign() == num_bigint::Sign::Minus
+    }
 }
 
 impl PartialOrd for Rational {
@@ -622,6 +642,19 @@ pub enum RelationType {
     Ge,
 }
 
+/// A single factor in a multi-variable linear combination.
+///
+/// Represents: coefficient * entity.component
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct LinearFactor {
+    /// The multiplicative coefficient.
+    pub coefficient: Rational,
+    /// The entity whose component provides the value.
+    pub entity_id: EntityId,
+    /// Which component of the entity.
+    pub component: VectorComponent,
+}
+
 /// A term in a constraint expression.
 ///
 /// All numeric values are exact rationals (no floating-point contamination).
@@ -635,12 +668,30 @@ pub enum ConstraintTerm {
         entity_id: EntityId,
         component: VectorComponent,
     },
-    /// Linear combination: coefficient * ref + offset
+    /// Single-variable linear: coefficient * ref + offset
     /// Result = coefficient * reference_value + offset
     Linear {
         coefficient: Rational,
         entity_id: EntityId,
         component: VectorComponent,
+        offset: Rational,
+    },
+    /// Multi-variable linear combination: Σ(coefficient_i * entity_i.component_i) + offset
+    ///
+    /// Enables expressions like: `bg.x + bg.width / 2` which compiles to:
+    /// ```text
+    /// LinearCombination {
+    ///     terms: vec![
+    ///         LinearFactor { coefficient: 1, entity_id: bg, component: X },
+    ///         LinearFactor { coefficient: 1/2, entity_id: bg, component: Width },
+    ///     ],
+    ///     offset: 0,
+    /// }
+    /// ```
+    ///
+    /// Directly convertible to `LinearConstraint` for FM elimination.
+    LinearCombination {
+        terms: Vec<LinearFactor>,
         offset: Rational,
     },
 }

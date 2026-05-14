@@ -62,16 +62,28 @@ fn arb_relation() -> impl Strategy<Value = RelationType> {
     ]
 }
 
+/// Strategy for generating LinearFactors for multi-variable combinations.
+fn arb_linear_factor() -> impl Strategy<Value = LinearFactor> {
+    (-10i64..10i64, arb_entity_id(), arb_component()).prop_map(|(coef, eid, comp)| LinearFactor {
+        coefficient: Rational::new(coef, 1),
+        entity_id: eid,
+        component: comp,
+    })
+}
+
 /// Strategy for generating ConstraintTerms.
 fn arb_term() -> impl Strategy<Value = ConstraintTerm> {
     prop_oneof![
+        // Const
         (-1000000i64..1000000i64).prop_map(|v| ConstraintTerm::Const {
             value: Rational::new(v, 1),
         }),
+        // Ref
         (arb_entity_id(), arb_component()).prop_map(|(eid, comp)| ConstraintTerm::Ref {
             entity_id: eid,
             component: comp,
         }),
+        // Linear (single variable)
         (
             -10i64..10i64,
             arb_entity_id(),
@@ -82,6 +94,15 @@ fn arb_term() -> impl Strategy<Value = ConstraintTerm> {
                 coefficient: Rational::new(coef, 1),
                 entity_id: eid,
                 component: comp,
+                offset: Rational::new(off, 1),
+            }),
+        // LinearCombination (multi-variable, including empty which is equivalent to Const)
+        (
+            proptest::collection::vec(arb_linear_factor(), 0..4),
+            -1000i64..1000i64
+        )
+            .prop_map(|(terms, off)| ConstraintTerm::LinearCombination {
+                terms,
                 offset: Rational::new(off, 1),
             }),
     ]

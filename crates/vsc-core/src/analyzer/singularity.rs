@@ -158,6 +158,11 @@ pub fn build_jacobian_matrix(constraints: &[Constraint]) -> JacobianMatrix {
             } => {
                 var_set.insert(JacVar::new(*entity_id, *component));
             }
+            ConstraintTerm::LinearCombination { terms, .. } => {
+                for factor in terms {
+                    var_set.insert(JacVar::new(factor.entity_id, factor.component));
+                }
+            }
             ConstraintTerm::Const { .. } => {
                 // No additional variable.
             }
@@ -207,6 +212,16 @@ pub fn build_jacobian_matrix(constraints: &[Constraint]) -> JacobianMatrix {
                     &mut data[row][ref_col],
                     Rational::zero() - coefficient.clone(),
                 );
+            }
+            ConstraintTerm::LinearCombination { terms, .. } => {
+                // f = target − Σ(coeff_i·ref_i + offset)  →  ∂f/∂(ref_i) = −coeff_i
+                for factor in terms {
+                    let ref_col = var_index[&JacVar::new(factor.entity_id, factor.component)];
+                    accumulate(
+                        &mut data[row][ref_col],
+                        Rational::zero() - factor.coefficient.clone(),
+                    );
+                }
             }
         }
     }

@@ -117,6 +117,17 @@ pub enum ComponentValue {
     },
 }
 
+/// A single factor in a component's multi-variable linear combination (uses local IDs).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComponentLinearFactor {
+    /// The multiplicative coefficient.
+    pub coefficient: Rational,
+    /// Local ID of the entity.
+    pub local_id: u64,
+    /// Which component of the entity.
+    pub component: VectorComponent,
+}
+
 /// A term in a component constraint (may reference local IDs).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -128,11 +139,16 @@ pub enum ComponentTerm {
         local_id: u64,
         component: VectorComponent,
     },
-    /// Linear combination with local entity reference.
+    /// Single-variable linear combination with local entity reference.
     Linear {
         coefficient: Rational,
         local_id: u64,
         component: VectorComponent,
+        offset: Rational,
+    },
+    /// Multi-variable linear combination: Σ(coefficient_i * local_entity_i.component_i) + offset
+    LinearCombination {
+        terms: Vec<ComponentLinearFactor>,
         offset: Rational,
     },
     /// Reference to a parameter.
@@ -417,6 +433,20 @@ impl NamespaceResolver {
                 component: *component,
                 offset: offset.clone(),
             },
+            ComponentTerm::LinearCombination { terms, offset } => {
+                use crate::LinearFactor;
+                ConstraintTerm::LinearCombination {
+                    terms: terms
+                        .iter()
+                        .map(|f| LinearFactor {
+                            coefficient: f.coefficient.clone(),
+                            entity_id: id_mapping[&f.local_id],
+                            component: f.component,
+                        })
+                        .collect(),
+                    offset: offset.clone(),
+                }
+            }
             ComponentTerm::Param { name } => ConstraintTerm::Const {
                 value: params.get(name).cloned().unwrap_or_else(Rational::zero),
             },

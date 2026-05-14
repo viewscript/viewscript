@@ -110,6 +110,24 @@ impl CliCommandGenerator {
                     offset
                 )
             }
+            ConstraintTerm::LinearCombination { terms, offset } => {
+                let terms_json: Vec<String> = terms
+                    .iter()
+                    .map(|f| {
+                        format!(
+                            r#"{{"coefficient":{},"entity_id":{},"component":"{}"}}"#,
+                            f.coefficient,
+                            f.entity_id.0,
+                            component_to_str(&f.component)
+                        )
+                    })
+                    .collect();
+                format!(
+                    r#"{{"type":"linear_combination","terms":[{}],"offset":{}}}"#,
+                    terms_json.join(","),
+                    offset
+                )
+            }
         };
 
         CliCommand {

@@ -439,6 +439,18 @@ impl Optimizer {
                             visited,
                         );
                     }
+                    ConstraintTerm::LinearCombination { terms, .. } => {
+                        // Recurse into all referenced entities
+                        for factor in terms {
+                            self.find_t_dependencies_recursive(
+                                ir,
+                                factor.entity_id,
+                                factor.component,
+                                dependencies,
+                                visited,
+                            );
+                        }
+                    }
                     ConstraintTerm::Const { .. } => {
                         // Constants have no dependencies
                     }
