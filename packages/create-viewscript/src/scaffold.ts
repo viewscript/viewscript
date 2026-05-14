@@ -42,8 +42,8 @@ export async function scaffold(options: ScaffoldOptions): Promise<void> {
   const { projectName, targetDir, language, includeFfiSample } = options;
 
   // Resolve latest package versions from npm (parallel fetch)
-  const [wasmVersion, pluginVersion] = await Promise.all([
-    resolveLatestVersion('@viewscript/wasm'),
+  const [gpuRuntimeVersion, pluginVersion] = await Promise.all([
+    resolveLatestVersion('@viewscript/gpu-runtime'),
     resolveLatestVersion('@viewscript/vite-plugin'),
   ]);
 
@@ -62,7 +62,7 @@ export async function scaffold(options: ScaffoldOptions): Promise<void> {
   copyDir(langDir, targetDir);
 
   // Generate package.json with resolved versions
-  const packageJson = generatePackageJson(projectName, language, wasmVersion, pluginVersion);
+  const packageJson = generatePackageJson(projectName, language, gpuRuntimeVersion, pluginVersion);
   fs.writeFileSync(
     path.join(targetDir, 'package.json'),
     JSON.stringify(packageJson, null, 2) + '\n'
@@ -126,7 +126,7 @@ function copyDir(src: string, dest: string): void {
 function generatePackageJson(
   projectName: string,
   language: 'ts' | 'js',
-  wasmVersion: string,
+  gpuRuntimeVersion: string,
   pluginVersion: string
 ): Record<string, unknown> {
   const base = {
@@ -140,7 +140,7 @@ function generatePackageJson(
       preview: 'vite preview',
     },
     dependencies: {
-      '@viewscript/wasm': `^${wasmVersion}`,
+      '@viewscript/gpu-runtime': `^${gpuRuntimeVersion}`,
     },
     devDependencies: {
       '@viewscript/vite-plugin': `^${pluginVersion}`,
