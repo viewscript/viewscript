@@ -240,4 +240,4 @@ fn run_wasi(wasm_path: &Path, args: &[String]) -> ExitCode {
         }
     }
 }
-// Release 202605140717
+// ViewScript CLI v0.1.0
