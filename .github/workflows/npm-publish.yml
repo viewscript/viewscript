@@ -5,6 +5,8 @@ on:
     # 12時間ごと（UTC 0:00 と 12:00）
     - cron: '0 0,12 * * *'
   workflow_dispatch:  # 手動トリガーも可能
+  push:
+    branches: [main]  # TEMP: debugging publish-cli
 
 jobs:
   check-and-release:

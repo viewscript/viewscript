@@ -1,6 +1,6 @@
 //! ViewScript WASM Core
 //!
-//! WASI-P1 compatible WebAssembly module that provides the core
+//! WASI-P1 compatible WebAssembly module providing the core
 //! constraint engine functionality.
 //!
 //! ## Feature Flags
