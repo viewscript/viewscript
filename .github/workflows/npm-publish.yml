@@ -138,6 +138,21 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Prepare create-viewscript
+        run: |
+          cd packages/create-viewscript
+          pnpm install --no-frozen-lockfile
+          VERSION="${{ needs.check-and-release.outputs.new_version }}"
+          cat package.json | jq --arg v "$VERSION" '.version = $v' > tmp.json
+          mv tmp.json package.json
+          pnpm build
+
+      - name: Publish create-viewscript
+        run: npm publish --access public
+        working-directory: packages/create-viewscript
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
   build-wasi:
     name: Build WASI Binary
     runs-on: ubuntu-latest
@@ -322,6 +337,7 @@ jobs:
             - `@viewscript/wasm@${{ needs.check-and-release.outputs.new_version }}`
             - `@viewscript/renderer@${{ needs.check-and-release.outputs.new_version }}`
             - `@viewscript/browser-defaults@${{ needs.check-and-release.outputs.new_version }}`
+            - `create-viewscript@${{ needs.check-and-release.outputs.new_version }}`
           files: |
             artifacts/vsc-linux-x86_64/vsc-linux-x86_64
             artifacts/vsc-macos-x86_64/vsc-macos-x86_64

@@ -26,8 +26,10 @@ use crate::{
     buildinfo::VsBuildInfo,
     solver::VarId,
     types::{
-        CoordRef, Edge, EntityId, FillRule, FillSpec, LineCap, LineJoin, PathCommand,
-        PathEntityEntry, Rational, StrokeSpec, TopoConstraint, UvTransform, VectorComponent,
+        ConditionId, ConditionKind, CoordRef, CrossingDirection, Edge, EntityId, FillRule,
+        FillSpec, LineCap, LineJoin, PathCommand, PathEntityEntry, PostSolveCondition, Rational,
+        StrokeSpec,
+        TopoConstraint, UvTransform, VectorComponent,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -749,6 +751,235 @@ pub fn derive_value_equality_constraints(
 }
 
 // =============================================================================
+// Post-Solve Condition Evaluation (FFI Trigger Support)
+// =============================================================================
+
+/// Axis-aligned bounding box for geometric condition evaluation.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BoundingBox {
+    pub min_x: Rational,
+    pub min_y: Rational,
+    pub max_x: Rational,
+    pub max_y: Rational,
+}
+
+impl BoundingBox {
+    /// Create a new bounding box from min/max coordinates.
+    pub fn new(min_x: Rational, min_y: Rational, max_x: Rational, max_y: Rational) -> Self {
+        Self {
+            min_x,
+            min_y,
+            max_x,
+            max_y,
+        }
+    }
+
+    /// Create a bounding box from a collection of points, computing min/max.
+    pub fn from_points(points: impl IntoIterator<Item = (Rational, Rational)>) -> Option<Self> {
+        let mut iter = points.into_iter();
+        let (first_x, first_y) = iter.next()?;
+
+        let mut min_x = first_x.clone();
+        let mut max_x = first_x;
+        let mut min_y = first_y.clone();
+        let mut max_y = first_y;
+
+        for (x, y) in iter {
+            if x < min_x {
+                min_x = x.clone();
+            }
+            if x > max_x {
+                max_x = x;
+            }
+            if y < min_y {
+                min_y = y.clone();
+            }
+            if y > max_y {
+                max_y = y;
+            }
+        }
+
+        Some(Self {
+            min_x,
+            min_y,
+            max_x,
+            max_y,
+        })
+    }
+
+    /// Check if this bounding box overlaps with another.
+    pub fn overlaps(&self, other: &BoundingBox) -> bool {
+        self.min_x <= other.max_x
+            && self.max_x >= other.min_x
+            && self.min_y <= other.max_y
+            && self.max_y >= other.min_y
+    }
+}
+
+/// Collect control point EntityIds for an entity based on its type.
+///
+/// Returns a list of EntityIds whose X/Y coordinates should be used
+/// to compute the bounding box.
+fn collect_entity_control_points(
+    entity_id: EntityId,
+    build_info: &VsBuildInfo,
+) -> Vec<EntityId> {
+    // Check if it's a path entity
+    if let Some(path) = build_info.path_entities.iter().find(|p| p.id == entity_id) {
+        return path.referenced_control_points();
+    }
+
+    // Check if it's a text entity
+    if let Some(text) = build_info.text_entities.iter().find(|t| t.id == entity_id) {
+        return vec![text.corner_tl, text.corner_tr, text.corner_bl, text.corner_br];
+    }
+
+    // Check if it's a control point itself (single point collision)
+    if build_info.control_points.iter().any(|cp| cp.id == entity_id) {
+        return vec![entity_id];
+    }
+
+    // Fallback: treat entity_id as a single point
+    vec![entity_id]
+}
+
+/// Compute the bounding box for an entity from solved variable values.
+///
+/// Uses `VsBuildInfo` to determine entity structure (path, text, etc.)
+/// and collects all control points to compute the AABB.
+///
+/// Returns `None` if any required coordinate is missing from the solution.
+pub fn compute_entity_bounds(
+    entity_id: EntityId,
+    values: &HashMap<VarId, Rational>,
+    build_info: &VsBuildInfo,
+) -> Option<BoundingBox> {
+    let control_point_ids = collect_entity_control_points(entity_id, build_info);
+
+    let points: Vec<(Rational, Rational)> = control_point_ids
+        .iter()
+        .filter_map(|&cp_id| {
+            let x = values.get(&VarId::new(cp_id, VectorComponent::X))?;
+            let y = values.get(&VarId::new(cp_id, VectorComponent::Y))?;
+            Some((x.clone(), y.clone()))
+        })
+        .collect();
+
+    BoundingBox::from_points(points)
+}
+
+/// Evaluate a single condition against the current solver state.
+fn evaluate_condition(
+    condition: &PostSolveCondition,
+    values: &HashMap<VarId, Rational>,
+    build_info: &VsBuildInfo,
+) -> bool {
+    match &condition.kind {
+        ConditionKind::BoundsOverlap { entity_a, entity_b } => {
+            let bounds_a = match compute_entity_bounds(*entity_a, values, build_info) {
+                Some(b) => b,
+                None => return false,
+            };
+            let bounds_b = match compute_entity_bounds(*entity_b, values, build_info) {
+                Some(b) => b,
+                None => return false,
+            };
+            bounds_a.overlaps(&bounds_b)
+        }
+
+        ConditionKind::PropertiesEqual {
+            entity_a,
+            component_a,
+            entity_b,
+            component_b,
+        } => {
+            let var_a = VarId::new(*entity_a, *component_a);
+            let var_b = VarId::new(*entity_b, *component_b);
+
+            match (values.get(&var_a), values.get(&var_b)) {
+                (Some(val_a), Some(val_b)) => val_a == val_b,
+                _ => false,
+            }
+        }
+
+        ConditionKind::PropertyLessThan {
+            entity_a,
+            component_a,
+            entity_b,
+            component_b,
+        } => {
+            let var_a = VarId::new(*entity_a, *component_a);
+            let var_b = VarId::new(*entity_b, *component_b);
+
+            match (values.get(&var_a), values.get(&var_b)) {
+                (Some(val_a), Some(val_b)) => val_a < val_b,
+                _ => false,
+            }
+        }
+
+        ConditionKind::ThresholdCrossing {
+            entity,
+            component,
+            threshold,
+            direction,
+        } => {
+            let var = VarId::new(*entity, *component);
+
+            match values.get(&var) {
+                Some(value) => match direction {
+                    CrossingDirection::Rising => value > threshold,
+                    CrossingDirection::Falling => value < threshold,
+                },
+                None => false,
+            }
+        }
+    }
+}
+
+/// Evaluate post-solve conditions and return newly triggered conditions.
+///
+/// This function implements rising-edge detection:
+/// - Only returns conditions that transitioned from false→true this frame
+/// - Conditions that were already true in `prev_satisfied` are NOT returned
+///
+/// # Arguments
+///
+/// * `conditions` - All registered post-solve conditions
+/// * `values` - Current frame's solver output (resolved VarId→Rational)
+/// * `build_info` - Build info containing entity structure information
+/// * `prev_satisfied` - Set of ConditionIds that were satisfied in the previous frame
+///
+/// # Returns
+///
+/// A tuple of:
+/// * `Vec<ConditionId>` - Conditions that triggered this frame (false→true transitions)
+/// * `HashSet<ConditionId>` - All conditions satisfied this frame (for next frame's prev_satisfied)
+pub fn evaluate_conditions(
+    conditions: &[PostSolveCondition],
+    values: &HashMap<VarId, Rational>,
+    build_info: &VsBuildInfo,
+    prev_satisfied: &HashSet<ConditionId>,
+) -> (Vec<ConditionId>, HashSet<ConditionId>) {
+    let mut triggered = Vec::new();
+    let mut currently_satisfied = HashSet::new();
+
+    for condition in conditions {
+        let is_satisfied = evaluate_condition(condition, values, build_info);
+
+        if is_satisfied {
+            currently_satisfied.insert(condition.id);
+
+            // Rising edge: was false, now true
+            if !prev_satisfied.contains(&condition.id) {
+                triggered.push(condition.id);
+            }
+        }
+    }
+
+    (triggered, currently_satisfied)
+}
+
+// =============================================================================
 // Tests
 // =============================================================================
 
@@ -1398,5 +1629,172 @@ mod tests {
             "Expected no constraints for all-distinct values, got {:?}",
             constraints
         );
+    }
+
+    // =========================================================================
+    // T1: evaluate_conditions Edge Detection Tests
+    // =========================================================================
+
+    /// Helper to create a condition for bounds overlap between two entities.
+    fn make_overlap_condition(id: u64, entity_a: u64, entity_b: u64) -> PostSolveCondition {
+        PostSolveCondition {
+            id,
+            kind: ConditionKind::BoundsOverlap {
+                entity_a: EntityId(entity_a),
+                entity_b: EntityId(entity_b),
+            },
+        }
+    }
+
+    /// T1.1: Condition transitions false→true: triggered ✓
+    #[test]
+    fn test_evaluate_conditions_false_to_true_triggers() {
+        let build_info = VsBuildInfo::default();
+
+        // Two overlapping points at (50, 50)
+        let values = make_solutions(&[(1, 50, 50), (2, 50, 50)]);
+
+        let conditions = vec![make_overlap_condition(100, 1, 2)];
+        let prev_satisfied = HashSet::new(); // Previously not satisfied
+
+        let (triggered, currently_satisfied) =
+            evaluate_conditions(&conditions, &values, &build_info, &prev_satisfied);
+
+        assert_eq!(triggered, vec![100], "Condition should trigger on false→true");
+        assert!(
+            currently_satisfied.contains(&100),
+            "Condition should be in currently_satisfied"
+        );
+    }
+
+    /// T1.2: Condition remains true→true: NOT triggered
+    #[test]
+    fn test_evaluate_conditions_true_to_true_no_trigger() {
+        let build_info = VsBuildInfo::default();
+
+        // Two overlapping points at (50, 50)
+        let values = make_solutions(&[(1, 50, 50), (2, 50, 50)]);
+
+        let conditions = vec![make_overlap_condition(100, 1, 2)];
+        let mut prev_satisfied = HashSet::new();
+        prev_satisfied.insert(100); // Was already satisfied
+
+        let (triggered, currently_satisfied) =
+            evaluate_conditions(&conditions, &values, &build_info, &prev_satisfied);
+
+        assert!(
+            triggered.is_empty(),
+            "Condition should NOT trigger on true→true (no edge)"
+        );
+        assert!(
+            currently_satisfied.contains(&100),
+            "Condition should still be in currently_satisfied"
+        );
+    }
+
+    /// T1.3: Condition transitions true→false→true: triggered on second rising edge
+    #[test]
+    fn test_evaluate_conditions_true_false_true_triggers() {
+        let build_info = VsBuildInfo::default();
+        let conditions = vec![make_overlap_condition(100, 1, 2)];
+
+        // Frame 1: false→true (initial trigger)
+        let values_overlap = make_solutions(&[(1, 50, 50), (2, 50, 50)]);
+        let prev_satisfied_f1 = HashSet::new();
+        let (triggered_f1, satisfied_f1) =
+            evaluate_conditions(&conditions, &values_overlap, &build_info, &prev_satisfied_f1);
+        assert_eq!(triggered_f1, vec![100], "Frame 1: should trigger");
+
+        // Frame 2: true→false (no trigger, condition no longer met)
+        let values_no_overlap = make_solutions(&[(1, 0, 0), (2, 100, 100)]);
+        let (triggered_f2, satisfied_f2) =
+            evaluate_conditions(&conditions, &values_no_overlap, &build_info, &satisfied_f1);
+        assert!(triggered_f2.is_empty(), "Frame 2: should not trigger");
+        assert!(
+            !satisfied_f2.contains(&100),
+            "Frame 2: condition should not be satisfied"
+        );
+
+        // Frame 3: false→true (re-trigger)
+        let (triggered_f3, satisfied_f3) =
+            evaluate_conditions(&conditions, &values_overlap, &build_info, &satisfied_f2);
+        assert_eq!(triggered_f3, vec![100], "Frame 3: should trigger again");
+        assert!(
+            satisfied_f3.contains(&100),
+            "Frame 3: condition should be satisfied"
+        );
+    }
+
+    /// T1.4: Unregistered conditions are ignored
+    #[test]
+    fn test_evaluate_conditions_empty_conditions() {
+        let build_info = VsBuildInfo::default();
+        let values = make_solutions(&[(1, 50, 50), (2, 50, 50)]);
+        let conditions: Vec<PostSolveCondition> = vec![]; // No conditions registered
+
+        let mut prev_satisfied = HashSet::new();
+        prev_satisfied.insert(999); // Stale condition ID
+
+        let (triggered, currently_satisfied) =
+            evaluate_conditions(&conditions, &values, &build_info, &prev_satisfied);
+
+        assert!(triggered.is_empty(), "No conditions to trigger");
+        assert!(
+            currently_satisfied.is_empty(),
+            "No conditions should be satisfied"
+        );
+    }
+
+    /// T1.5: Missing entity coordinates result in false (no panic)
+    #[test]
+    fn test_evaluate_conditions_missing_coordinates_no_panic() {
+        let build_info = VsBuildInfo::default();
+
+        // Only entity 1 has coordinates, entity 2 is missing
+        let values = make_solutions(&[(1, 50, 50)]);
+
+        let conditions = vec![make_overlap_condition(100, 1, 2)];
+        let prev_satisfied = HashSet::new();
+
+        // Should NOT panic, should return false for the condition
+        let (triggered, currently_satisfied) =
+            evaluate_conditions(&conditions, &values, &build_info, &prev_satisfied);
+
+        assert!(
+            triggered.is_empty(),
+            "Condition with missing coords should not trigger"
+        );
+        assert!(
+            !currently_satisfied.contains(&100),
+            "Condition with missing coords should not be satisfied"
+        );
+    }
+
+    /// T1.6: Multiple conditions with mixed states
+    #[test]
+    fn test_evaluate_conditions_multiple_mixed() {
+        let build_info = VsBuildInfo::default();
+
+        // Entity layout:
+        // - Entities 1,2 overlap at (50,50)
+        // - Entities 3,4 do NOT overlap (3 at origin, 4 at 100,100)
+        let values = make_solutions(&[(1, 50, 50), (2, 50, 50), (3, 0, 0), (4, 100, 100)]);
+
+        let conditions = vec![
+            make_overlap_condition(100, 1, 2), // Will be satisfied
+            make_overlap_condition(101, 3, 4), // Will NOT be satisfied
+        ];
+
+        // Condition 101 was previously satisfied (simulating it went true→false)
+        let mut prev_satisfied = HashSet::new();
+        prev_satisfied.insert(101);
+
+        let (triggered, currently_satisfied) =
+            evaluate_conditions(&conditions, &values, &build_info, &prev_satisfied);
+
+        // Only condition 100 should trigger (false→true)
+        assert_eq!(triggered, vec![100], "Only new overlap should trigger");
+        assert!(currently_satisfied.contains(&100));
+        assert!(!currently_satisfied.contains(&101));
     }
 }

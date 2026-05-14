@@ -472,6 +472,76 @@ pub const EPSILON_F64: f64 = 1e-10;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub struct EntityId(pub u64);
 
+// =============================================================================
+// Post-Solve Condition Types (FFI Trigger Support)
+// =============================================================================
+
+/// Unique identifier for post-solve conditions.
+pub type ConditionId = u64;
+
+/// A condition evaluated after constraint solving, using resolved coordinates.
+///
+/// Post-solve conditions enable declarative FFI triggers:
+/// - Registered before solving (condition definition)
+/// - Evaluated after solving (using resolved EntityId coordinates)
+/// - Rising-edge detection determines which conditions fire FFI calls
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct PostSolveCondition {
+    pub id: ConditionId,
+    pub kind: ConditionKind,
+}
+
+/// The kind of condition to evaluate post-solve.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ConditionKind {
+    /// True when the axis-aligned bounding boxes of two entities overlap.
+    BoundsOverlap {
+        entity_a: EntityId,
+        entity_b: EntityId,
+    },
+
+    /// True when two entity properties have equal values (exact rational equality).
+    PropertiesEqual {
+        entity_a: EntityId,
+        component_a: VectorComponent,
+        entity_b: EntityId,
+        component_b: VectorComponent,
+    },
+
+    /// True when entity_a.component_a < entity_b.component_b.
+    ///
+    /// For GreaterThan, swap the arguments.
+    PropertyLessThan {
+        entity_a: EntityId,
+        component_a: VectorComponent,
+        entity_b: EntityId,
+        component_b: VectorComponent,
+    },
+
+    /// True when a property crosses a threshold in the specified direction.
+    ///
+    /// Combined with rising-edge detection:
+    /// - `Rising`: triggers when value goes from <= threshold to > threshold
+    /// - `Falling`: triggers when value goes from >= threshold to < threshold
+    ThresholdCrossing {
+        entity: EntityId,
+        component: VectorComponent,
+        threshold: Rational,
+        direction: CrossingDirection,
+    },
+}
+
+/// Direction of threshold crossing for ThresholdCrossing conditions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CrossingDirection {
+    /// Condition is true when value > threshold (crossed from below)
+    Rising,
+    /// Condition is true when value < threshold (crossed from above)
+    Falling,
+}
+
 /// A vector in P-dimension space: X, Y, Z spatial + T temporal.
 ///
 /// All components are exact rationals (no floating-point contamination).

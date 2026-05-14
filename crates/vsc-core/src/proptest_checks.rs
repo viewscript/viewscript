@@ -28,12 +28,17 @@ fn arb_entity_id() -> impl Strategy<Value = EntityId> {
 /// Strategy for generating PVectors with bounded rational values.
 fn arb_pvector() -> impl Strategy<Value = PVector> {
     (
-        -1e6f64..1e6f64,
-        -1e6f64..1e6f64,
-        -1e3f64..1e3f64, // Z is typically smaller (layering)
-        0.0f64..1e6f64,  // T is non-negative (time)
+        -1000000i64..1000000i64,
+        -1000000i64..1000000i64,
+        -1000i64..1000i64, // Z is typically smaller (layering)
+        0i64..1000000i64,  // T is non-negative (time)
     )
-        .prop_map(|(x, y, z, t)| PVector { x, y, z, t })
+        .prop_map(|(x, y, z, t)| PVector {
+            x: Rational::new(x, 1),
+            y: Rational::new(y, 1),
+            z: Rational::new(z, 1),
+            t: Rational::new(t, 1),
+        })
 }
 
 /// Strategy for generating VectorComponents.
@@ -60,22 +65,24 @@ fn arb_relation() -> impl Strategy<Value = RelationType> {
 /// Strategy for generating ConstraintTerms.
 fn arb_term() -> impl Strategy<Value = ConstraintTerm> {
     prop_oneof![
-        (-1e6f64..1e6f64).prop_map(|v| ConstraintTerm::Const { value: v }),
+        (-1000000i64..1000000i64).prop_map(|v| ConstraintTerm::Const {
+            value: Rational::new(v, 1),
+        }),
         (arb_entity_id(), arb_component()).prop_map(|(eid, comp)| ConstraintTerm::Ref {
             entity_id: eid,
             component: comp,
         }),
         (
-            -10.0f64..10.0f64,
+            -10i64..10i64,
             arb_entity_id(),
             arb_component(),
-            -1e3f64..1e3f64
+            -1000i64..1000i64
         )
             .prop_map(|(coef, eid, comp, off)| ConstraintTerm::Linear {
-                coefficient: coef,
+                coefficient: Rational::new(coef, 1),
                 entity_id: eid,
                 component: comp,
-                offset: off,
+                offset: Rational::new(off, 1),
             }),
     ]
 }
@@ -95,6 +102,8 @@ fn arb_constraint() -> impl Strategy<Value = Constraint> {
             component,
             relation,
             term,
+            priority: ConstraintPriority::Hard,
+            source_scope: None,
         })
 }
 
@@ -169,6 +178,8 @@ proptest! {
                 entity_id: id_b,
                 component: VectorComponent::X,
             },
+            priority: ConstraintPriority::Hard,
+            source_scope: None,
         };
         let c2 = Constraint {
             id: 2,
@@ -179,6 +190,8 @@ proptest! {
                 entity_id: id_a,
                 component: VectorComponent::X,
             },
+            priority: ConstraintPriority::Hard,
+            source_scope: None,
         };
 
         let graph = ConstraintGraph {
@@ -205,6 +218,8 @@ proptest! {
                 entity_id: id,
                 component: comp,
             },
+            priority: ConstraintPriority::Hard,
+            source_scope: None,
         };
 
         let graph = ConstraintGraph {
@@ -237,6 +252,8 @@ proptest! {
                 entity_id: id,
                 component: VectorComponent::X,
             },
+            priority: ConstraintPriority::Hard,
+            source_scope: None,
         };
 
         let mut extended_constraints = graph.constraints.clone();
@@ -357,6 +374,8 @@ mod tests {
                         entity_id: EntityId(2),
                         component: VectorComponent::X,
                     },
+                    priority: ConstraintPriority::Hard,
+                    source_scope: None,
                 },
                 Constraint {
                     id: 2,
@@ -367,6 +386,8 @@ mod tests {
                         entity_id: EntityId(1),
                         component: VectorComponent::X,
                     },
+                    priority: ConstraintPriority::Hard,
+                    source_scope: None,
                 },
             ],
         };

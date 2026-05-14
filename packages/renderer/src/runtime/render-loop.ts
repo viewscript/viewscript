@@ -42,6 +42,8 @@ import type {
   PVectorBounds,
   ChunkId,
 } from '../ast/types';
+import type { FfiDispatcher, PendingFfiCall } from './ffi-dispatcher.js';
+import type { WasmSolverBridge } from './wasm-solver-bridge.js';
 
 // =============================================================================
 // Types
@@ -152,6 +154,26 @@ export class AtomicRenderLoop {
    */
   private eventBuffer: EventBufferInterface | null = null;
 
+  /**
+   * FFI dispatcher for Phase 8 function evaluation.
+   *
+   * Injected via setFfiDispatcher() to support JS function calls after frame commit.
+   */
+  private ffiDispatcher: FfiDispatcher | null = null;
+
+  /**
+   * Latest tick result from WASM solver (for Phase 8 FFI dispatch).
+   */
+  private latestTickResult: { pending_ffi_calls: PendingFfiCall[] } | null = null;
+
+  /**
+   * Concrete solver bridge for FFI result injection (Phase 0.5).
+   *
+   * This is the concrete type of constraintSolver, used only for
+   * injectFfiResults(). The ConstraintSolver interface remains FFI-agnostic.
+   */
+  private solverBridge: WasmSolverBridge | null = null;
+
   constructor(
     config: Partial<RenderLoopConfig>,
     constraintSolver: ConstraintSolver,
@@ -221,6 +243,27 @@ export class AtomicRenderLoop {
     this.eventBuffer = buffer;
   }
 
+  /**
+   * Set the FFI dispatcher for Phase 8 function evaluation.
+   *
+   * The FFI dispatcher evaluates JS functions after frame commit and buffers
+   * results for the next frame's QSnapshot merge.
+   */
+  setFfiDispatcher(dispatcher: FfiDispatcher): void {
+    this.ffiDispatcher = dispatcher;
+  }
+
+  /**
+   * Set the concrete solver bridge for FFI result injection.
+   *
+   * The solver bridge is the concrete implementation of ConstraintSolver
+   * that supports injectFfiResults(). This must be the same instance
+   * as the constraintSolver passed to the constructor.
+   */
+  setSolverBridge(bridge: WasmSolverBridge): void {
+    this.solverBridge = bridge;
+  }
+
   // ===========================================================================
   // Frame Execution (Atomic Commit)
   // ===========================================================================
@@ -254,6 +297,22 @@ export class AtomicRenderLoop {
     }
 
     // -------------------------------------------------------------------------
+    // Phase 0.5: Merge FFI Results from Previous Frame
+    // -------------------------------------------------------------------------
+    // FFI function results from Phase 8 of the previous frame are drained
+    // here and injected into the solver bridge. The bridge will include these
+    // values in the QSnapshot when evaluate() is called in Phase 2.
+    //
+    // This maintains the 1-frame latency required by Axiom 2 (Ouroboros Binding):
+    // FFI results flow Q→T→P, never directly into P-dimension.
+    if (this.ffiDispatcher && this.solverBridge) {
+      const ffiResults = this.ffiDispatcher.drainResults();
+      if (ffiResults.length > 0) {
+        this.solverBridge.injectFfiResults(ffiResults);
+      }
+    }
+
+    // -------------------------------------------------------------------------
     // Phase 1: Flush Pending Mutations (Backpressure-Limited)
     // -------------------------------------------------------------------------
     const mutations = this.flushMutations();
@@ -261,7 +320,11 @@ export class AtomicRenderLoop {
     // -------------------------------------------------------------------------
     // Phase 2: Evaluate Constraint Graph
     // -------------------------------------------------------------------------
-    const pVectorBounds = this.constraintSolver.evaluate(mutations);
+    const solverResult = this.constraintSolver.evaluate(mutations);
+    const pVectorBounds = solverResult.bounds;
+
+    // Store pending FFI calls for Phase 8 (after commit)
+    this.latestTickResult = { pending_ffi_calls: solverResult.pendingFfiCalls };
 
     // -------------------------------------------------------------------------
     // Phase 3: Topology-Preserving Rounding (with Error Distribution)
@@ -287,6 +350,19 @@ export class AtomicRenderLoop {
     // Phase 7: Atomic Commit
     // -------------------------------------------------------------------------
     this.commitFrame(drawCommands, domMutations);
+
+    // -------------------------------------------------------------------------
+    // Phase 8: FFI Dispatch (Post-Commit)
+    // -------------------------------------------------------------------------
+    // FFI functions are evaluated AFTER frame commit to keep the rendering
+    // critical path (Phase 2-7) free of unpredictable latency. Results are
+    // buffered for consumption in the next frame's Phase 0.5.
+    //
+    // This utilizes the idle time between commitFrame() and the next rAF.
+    if (this.ffiDispatcher && this.latestTickResult) {
+      this.ffiDispatcher.dispatch(this.latestTickResult.pending_ffi_calls);
+      this.latestTickResult = null;
+    }
 
     // -------------------------------------------------------------------------
     // Swap Buffers
@@ -470,8 +546,20 @@ function boundsEqual(a: RasterBounds, b: RasterBounds): boolean {
  *
  * This ensures the constraint graph is the single source of truth.
  */
+/**
+ * Result of constraint solver evaluation.
+ *
+ * Contains both P-dimension bounds and pending FFI calls from WASM tick().
+ */
+interface SolverEvaluationResult {
+  /** P-dimension bounds for all entities */
+  bounds: Map<EntityId, PVectorBounds>;
+  /** Pending FFI calls from trigger evaluation (may be empty) */
+  pendingFfiCalls: PendingFfiCall[];
+}
+
 interface ConstraintSolver {
-  evaluate(mutations: TStateMutation[]): Map<EntityId, PVectorBounds>;
+  evaluate(mutations: TStateMutation[]): SolverEvaluationResult;
 }
 
 interface TopologyRounder {

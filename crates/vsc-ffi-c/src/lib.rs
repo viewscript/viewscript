@@ -116,13 +116,13 @@ impl VscEngine {
 
         for iteration in 0..=MAX_DERIVED_ITERATIONS {
             // Solve constraints
-            let solutions = self
+            let solve_result = self
                 .solver
                 .solve()
                 .map_err(|e| TickError::Solver(format!("{:?}", e)))?;
 
             // Build scene
-            let scene_nodes = SceneBuilder::new(&solutions, &self.build_info)
+            let scene_nodes = SceneBuilder::new(&solve_result.values, &self.build_info)
                 .build_scene()
                 .map_err(|e| TickError::SceneBuild(e.to_string()))?;
 

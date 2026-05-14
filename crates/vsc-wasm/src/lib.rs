@@ -15,7 +15,13 @@ pub use vsc_core::*;
 // =============================================================================
 
 #[cfg(feature = "gpu")]
+pub mod ffi_bridge;
+
+#[cfg(feature = "gpu")]
 pub mod gpu;
+
+#[cfg(feature = "gpu")]
+pub use ffi_bridge::{FfiManifest, PendingFfiCall, TickResult};
 
 #[cfg(feature = "gpu")]
 pub use gpu::WasmGpuRenderer;

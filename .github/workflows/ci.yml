@@ -154,3 +154,52 @@ jobs:
           $GITHUB_WORKSPACE/$VSC check
           $GITHUB_WORKSPACE/$VSC status
           echo "CLI integration test passed"
+
+  create-viewscript-test:
+    name: create-viewscript E2E
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Install tools
+        run: |
+          npm install -g pnpm
+          curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Install workspace dependencies
+        run: pnpm install
+      - name: Build WASM
+        run: wasm-pack build crates/vsc-wasm --target web
+      - name: Build vite-plugin
+        run: pnpm --filter @viewscript/vite-plugin build
+      - name: Build create-viewscript
+        run: pnpm --filter create-viewscript build
+      - name: Scaffold and verify TS+FFI
+        run: |
+          node packages/create-viewscript/dist/index.js \
+            --name test-ts --lang ts --ffi
+          cd test-ts
+          node -e "
+            const pkg = require('./package.json');
+            pkg.dependencies['@viewscript/wasm'] = 'file:../crates/vsc-wasm/pkg';
+            pkg.devDependencies['@viewscript/vite-plugin'] = 'file:../packages/vite-plugin';
+            require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2));
+          "
+          npm install && npm run build
+      - name: Scaffold and verify JS
+        run: |
+          node packages/create-viewscript/dist/index.js \
+            --name test-js --lang js --no-ffi
+          cd test-js
+          node -e "
+            const pkg = require('./package.json');
+            pkg.dependencies['@viewscript/wasm'] = 'file:../crates/vsc-wasm/pkg';
+            pkg.devDependencies['@viewscript/vite-plugin'] = 'file:../packages/vite-plugin';
+            require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2));
+          "
+          npm install && npm run build

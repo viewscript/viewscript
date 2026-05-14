@@ -35,8 +35,34 @@
 //! When any variable in a bilinear term becomes resolved (DoF = 0),
 //! the term degrades to a linear term and can be promoted to the Active Queue.
 
-use crate::{ConstraintPriority, EntityId, Rational, VectorComponent};
+use crate::{ConditionId, ConstraintPriority, EntityId, PostSolveCondition, Rational, VectorComponent};
 use std::collections::{HashMap, HashSet, VecDeque};
+
+// =============================================================================
+// Solve Result
+// =============================================================================
+
+/// Result of constraint solving, containing resolved values and condition state.
+///
+/// Post-solve conditions are stored but NOT evaluated here.
+/// Condition evaluation (rising-edge detection) is performed by `scene::evaluate_conditions`.
+#[derive(Debug, Clone)]
+pub struct SolveResult {
+    /// Resolved variable values from constraint solving.
+    pub values: HashMap<VarId, Rational>,
+    /// Conditions that transitioned false→true this frame (populated by scene.rs).
+    pub triggered_conditions: Vec<ConditionId>,
+}
+
+impl SolveResult {
+    /// Create a new SolveResult with values and no triggered conditions.
+    pub fn new(values: HashMap<VarId, Rational>) -> Self {
+        Self {
+            values,
+            triggered_conditions: Vec::new(),
+        }
+    }
+}
 
 // =============================================================================
 // Variable State
@@ -593,6 +619,8 @@ pub struct ConstraintSolver {
     next_id: u64,
     /// Constraint priorities for shadowing resolution.
     constraint_priorities: HashMap<u64, ConstraintPriority>,
+    /// Post-solve conditions (evaluated by scene.rs, not solver).
+    conditions: Vec<PostSolveCondition>,
 }
 
 impl Default for ConstraintSolver {
@@ -612,6 +640,7 @@ impl ConstraintSolver {
             resolution_log: Vec::new(),
             next_id: 1,
             constraint_priorities: HashMap::new(),
+            conditions: Vec::new(),
         }
     }
 
@@ -629,6 +658,19 @@ impl ConstraintSolver {
             Some(VariableState::Resolved { value }) => Some(value.clone()),
             _ => None,
         }
+    }
+
+    /// Register a post-solve condition for FFI trigger evaluation.
+    ///
+    /// Conditions are NOT evaluated by the solver. They are stored here
+    /// and evaluated by `scene::evaluate_conditions` after solving completes.
+    pub fn register_condition(&mut self, condition: PostSolveCondition) {
+        self.conditions.push(condition);
+    }
+
+    /// Get all registered post-solve conditions.
+    pub fn conditions(&self) -> &[PostSolveCondition] {
+        &self.conditions
     }
 
     /// Add a linear constraint to the active queue.
@@ -799,7 +841,7 @@ impl ConstraintSolver {
     /// if quadratic_queue.is_not_empty():
     ///     return Err(QuadraticResidual)
     /// ```
-    pub fn solve(&mut self) -> Result<HashMap<VarId, Rational>, SolverError> {
+    pub fn solve(&mut self) -> Result<SolveResult, SolverError> {
         loop {
             // Phase 1: Process all linear constraints
             self.process_active_queue()?;
@@ -837,8 +879,8 @@ impl ConstraintSolver {
     ///
     /// This is called when L0 (FM elimination) and L1 (lazy substitution) cannot
     /// further reduce the system.
-    fn solve_with_groebner(&mut self) -> Result<HashMap<VarId, Rational>, SolverError> {
-        use crate::algebra::{solve_polynomial_system, SolveResult};
+    fn solve_with_groebner(&mut self) -> Result<SolveResult, SolverError> {
+        use crate::algebra::{solve_polynomial_system, SolveResult as AlgebraSolveResult};
 
         // Convert constraints to polynomials
         let mut polynomials = Vec::new();
@@ -863,15 +905,15 @@ impl ConstraintSolver {
         let result = solve_polynomial_system(&polynomials);
 
         match result {
-            SolveResult::NoSolution => Err(SolverError::Infeasible {
+            AlgebraSolveResult::NoSolution => Err(SolverError::Infeasible {
                 constraint_id: 0,
                 message: "L2 Gröbner solver found no solution".to_string(),
             }),
-            SolveResult::InfiniteSolutions => {
+            AlgebraSolveResult::InfiniteSolutions => {
                 // System is underdetermined - extract what we have
                 self.extract_solution()
             }
-            SolveResult::FiniteSolutions(solutions) => {
+            AlgebraSolveResult::FiniteSolutions(solutions) => {
                 if solutions.is_empty() {
                     return Err(SolverError::Infeasible {
                         constraint_id: 0,
@@ -916,7 +958,7 @@ impl ConstraintSolver {
 
                 self.extract_solution()
             }
-            SolveResult::Undetermined { reason } => Err(SolverError::Infeasible {
+            AlgebraSolveResult::Undetermined { reason } => Err(SolverError::Infeasible {
                 constraint_id: 0,
                 message: format!("L2 Gröbner solver undetermined: {}", reason),
             }),
@@ -1338,16 +1380,16 @@ impl ConstraintSolver {
     }
 
     /// Extract the final solution (resolved variables only).
-    fn extract_solution(&self) -> Result<HashMap<VarId, Rational>, SolverError> {
-        let mut solution = HashMap::new();
+    fn extract_solution(&self) -> Result<SolveResult, SolverError> {
+        let mut values = HashMap::new();
 
         for (var, state) in &self.variables {
             if let Some(value) = state.resolved_value() {
-                solution.insert(*var, value.clone());
+                values.insert(*var, value.clone());
             }
         }
 
-        Ok(solution)
+        Ok(SolveResult::new(values))
     }
 }
 
@@ -1525,8 +1567,8 @@ mod tests {
         assert!(result.is_ok(), "Solver should succeed: {:?}", result);
 
         let solution = result.unwrap();
-        assert_eq!(solution.get(&p_x).unwrap(), &Rational::from_int(100));
-        assert_eq!(solution.get(&p_y).unwrap(), &Rational::from_int(200));
+        assert_eq!(solution.values.get(&p_x).unwrap(), &Rational::from_int(100));
+        assert_eq!(solution.values.get(&p_y).unwrap(), &Rational::from_int(200));
 
         // Verify promotion occurred
         let promoted = solver
@@ -1661,7 +1703,7 @@ mod tests {
         let solution = result.unwrap();
 
         // H2.y should be resolved to 0
-        let h2_y_value = solution.get(&h2_y);
+        let h2_y_value = solution.values.get(&h2_y);
         assert!(h2_y_value.is_some(), "H2.y should be resolved");
         assert_eq!(h2_y_value.unwrap(), &Rational::zero());
 
@@ -1973,19 +2015,19 @@ mod tests {
         // Verify all points are resolved
         let solution = result.unwrap();
         assert_eq!(
-            solution.get(&var(3, VectorComponent::X)),
+            solution.values.get(&var(3, VectorComponent::X)),
             Some(&Rational::from_int(10))
         );
         assert_eq!(
-            solution.get(&var(3, VectorComponent::Y)),
+            solution.values.get(&var(3, VectorComponent::Y)),
             Some(&Rational::zero())
         );
         assert_eq!(
-            solution.get(&var(4, VectorComponent::X)),
+            solution.values.get(&var(4, VectorComponent::X)),
             Some(&Rational::zero())
         );
         assert_eq!(
-            solution.get(&var(4, VectorComponent::Y)),
+            solution.values.get(&var(4, VectorComponent::Y)),
             Some(&Rational::from_int(10))
         );
     }
@@ -2074,11 +2116,11 @@ mod tests {
 
         let solution = result.unwrap();
         assert_eq!(
-            solution.get(&var(1, VectorComponent::Value)),
+            solution.values.get(&var(1, VectorComponent::Value)),
             Some(&Rational::from_int(100))
         );
         assert_eq!(
-            solution.get(&var(2, VectorComponent::Value)),
+            solution.values.get(&var(2, VectorComponent::Value)),
             Some(&Rational::from_int(50))
         );
     }
@@ -2196,7 +2238,7 @@ mod tests {
         // Solve and verify the Hard constraint value wins
         let solution = solver.solve().unwrap();
         assert_eq!(
-            solution.get(&x_var),
+            solution.values.get(&x_var),
             Some(&Rational::from_int(200)),
             "Hard constraint value (200) should win over Soft (100)"
         );
