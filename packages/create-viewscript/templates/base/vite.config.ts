@@ -9,4 +9,7 @@ export default defineConfig({
       entityMap: {},
     }),
   ],
+  optimizeDeps: {
+    exclude: ['@viewscript/wasm'],
+  },
 });
