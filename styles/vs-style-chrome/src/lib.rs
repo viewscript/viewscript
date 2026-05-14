@@ -518,6 +518,21 @@ fn constraint_to_linear(constraint: &Constraint) -> Option<LinearConstraint> {
                 relation: LinearRelation::Eq,
             })
         }
+        ConstraintTerm::LinearCombination { terms, offset } => {
+            // target = sum(coef_i * ref_i) + offset
+            // Rewrite as: target - sum(coef_i * ref_i) - offset = 0
+            let mut linear_terms = vec![(var, Rational::one())];
+            for factor in terms {
+                let ref_var = VarId::new(factor.entity_id, factor.component);
+                linear_terms.push((ref_var, neg_one.clone() * factor.coefficient.clone()));
+            }
+            Some(LinearConstraint {
+                id: constraint.id,
+                terms: linear_terms,
+                constant: neg_one * offset.clone(),
+                relation: LinearRelation::Eq,
+            })
+        }
     }
 }
 
