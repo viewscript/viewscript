@@ -222,36 +222,297 @@ Phase 18以降の拡張において、以下の新規公理をシステムに統
 
 ```
 .
-├── .github/workflows/
-│   ├── ci.yml                    # メインCI（テスト・リント）
-│   └── npm-publish.yml           # リリースパイプライン
-├── Cargo.toml                    # ワークスペース定義
+├── .github/
+│   └── workflows/
+│       ├── ci.yml
+│       ├── llm-drift-check.yml
+│       └── npm-publish.yml
+├── .gitignore
+├── .vs-dev/
+│   └── index.html
+├── Cargo.lock
+├── Cargo.toml
 ├── crates/
-│   ├── vsc-core/                 # コア型・ソルバー
+│   ├── vsc-cli/
+│   │   ├── Cargo.toml
+│   │   ├── src/
+│   │   │   ├── commands/
+│   │   │   │   └── mod.rs
+│   │   │   ├── embedded_wasm.rs
+│   │   │   └── main.rs
+│   │   └── tests/
+│   │       ├── fixtures/
+│   │       │   ├── path_with_fill.vscmd.yaml
+│   │       │   └── stack_vertical.vscmd.yaml
+│   │       ├── integration_harness.rs
+│   │       ├── run_command_path_entity.rs
+│   │       ├── search_command.rs
+│   │       ├── self_healing_agent.rs
+│   │       └── target_management.rs
+│   ├── vsc-codl/
+│   │   ├── Cargo.toml
 │   │   └── src/
-│   │       ├── algebra/          # Gröbner基底・多項式
-│   │       ├── analyzer/         # 剛性・ヤコビアン解析
-│   │       ├── solver.rs         # 制約ソルバー
-│   │       └── types.rs          # Rational, EntityId等
-│   ├── vsc-codl/                 # CODL DSLパーサー
-│   ├── vsc-cli/                  # CLIコマンド実装
-│   ├── vsc-launcher/             # ネイティブランチャー
-│   │   ├── embedded/             # 埋め込みWASIバイナリ
+│   │       ├── ast.rs
+│   │       ├── error.rs
+│   │       ├── interpreter.rs
+│   │       ├── lib.rs
+│   │       ├── parser.rs
+│   │       ├── schema.rs
+│   │       └── validator.rs
+│   ├── vsc-core/
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── algebra/
+│   │       │   ├── groebner.rs
+│   │       │   ├── mod.rs
+│   │       │   ├── monomial.rs
+│   │       │   └── polynomial.rs
+│   │       ├── analyzer/
+│   │       │   ├── jacobian.rs
+│   │       │   ├── mod.rs
+│   │       │   ├── rigidity.rs
+│   │       │   └── singularity.rs
+│   │       ├── buildinfo.rs
+│   │       ├── collision.rs
+│   │       ├── component.rs
+│   │       ├── config.rs
+│   │       ├── ffi.rs
+│   │       ├── lib.rs
+│   │       ├── optimizer.rs
+│   │       ├── proptest_checks.rs
+│   │       ├── regression_promoter.rs
+│   │       ├── scene.rs
+│   │       ├── schema.rs
+│   │       ├── solver.rs
+│   │       ├── target.rs
+│   │       ├── telemetry.rs
+│   │       ├── text.rs
+│   │       ├── types.rs
+│   │       └── validator.rs
+│   ├── vsc-ffi-c/
+│   │   ├── Cargo.toml
+│   │   ├── cbindgen.toml
+│   │   └── src/
+│   │       └── lib.rs
+│   ├── vsc-gpu/
+│   │   ├── benches/
+│   │   │   ├── loop_blinn_bench.rs
+│   │   │   └── sdf_stroke_bench.rs
+│   │   ├── CANVAS2D_COVERAGE.md
+│   │   ├── Cargo.toml
+│   │   ├── docs/
+│   │   │   └── BENCHMARK_BASELINE.md
+│   │   ├── FFI_ANALYSIS.md
+│   │   └── src/
+│   │       ├── batcher.rs
+│   │       ├── lib.rs
+│   │       ├── loop_blinn/
+│   │       │   ├── convexity.rs
+│   │       │   ├── cubic.rs
+│   │       │   ├── mod.rs
+│   │       │   ├── tessellator.rs
+│   │       │   └── vertex.rs
+│   │       ├── opacity.rs
+│   │       ├── pipeline.rs
+│   │       ├── rasterizer/
+│   │       │   ├── distribution.rs
+│   │       │   ├── mod.rs
+│   │       │   ├── rounding.rs
+│   │       │   └── union_find.rs
+│   │       ├── renderer.rs
+│   │       ├── scene_converter.rs
+│   │       ├── sdf_stroke/
+│   │       │   ├── cubic_tessellator.rs
+│   │       │   ├── cubic_vertex.rs
+│   │       │   ├── mod.rs
+│   │       │   ├── tessellator.rs
+│   │       │   └── vertex.rs
+│   │       ├── shaders/
+│   │       │   └── mod.rs
+│   │       ├── stencil.rs
+│   │       ├── tessellation.rs
+│   │       ├── transform.rs
+│   │       └── web_target.rs
+│   ├── vsc-launcher/
+│   │   ├── Cargo.toml
+│   │   ├── embedded/
 │   │   │   └── vsc-core.wasm.zst
-│   │   └── src/main.rs           # wasmtime実行・自動更新
-│   ├── vsc-wasm/                 # WebAssemblyバインディング
-│   ├── vsc-gpu/                  # GPU描画コマンド生成
-│   ├── vsc-ffi-c/                # C言語バインディング
-│   └── vsc-linter/               # 静的解析ツール
+│   │   └── src/
+│   │       └── main.rs
+│   ├── vsc-linter/
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── checks/
+│   │       │   ├── cycle_detection.rs
+│   │       │   ├── float_contamination.rs
+│   │       │   ├── global_state.rs
+│   │       │   ├── locus_prohibition.rs
+│   │       │   ├── mod.rs
+│   │       │   └── nonlinear_constraint.rs
+│   │       ├── lib.rs
+│   │       └── main.rs
+│   └── vsc-wasm/
+│       ├── Cargo.toml
+│       ├── DUAL_RENDERER_CHECK.md
+│       ├── src/
+│       │   ├── gpu.rs
+│       │   └── lib.rs
+│       ├── test-engine.html
+│       └── test-webgpu.html
+├── dist/
+│   └── index.html
 ├── docs/
-│   └── install.sh                # curlインストーラー
+│   ├── ARCH_CONSTRAINTS.md
+│   ├── BENCHMARK_BASELINE.md
+│   ├── commands/
+│   │   ├── add-component.md
+│   │   ├── add-constraint.md
+│   │   ├── add-entity.md
+│   │   ├── add-layout.md
+│   │   ├── add-object.md
+│   │   ├── api-search.md
+│   │   ├── apply-layout.md
+│   │   ├── build.md
+│   │   ├── check.md
+│   │   ├── check-when.md
+│   │   ├── check-where.md
+│   │   ├── dev.md
+│   │   ├── export-schema.md
+│   │   ├── generate-schema.md
+│   │   ├── help.md
+│   │   ├── init.md
+│   │   ├── optimize.md
+│   │   ├── patch-constraint.md
+│   │   ├── remove-constraint.md
+│   │   ├── run-command.md
+│   │   ├── search.md
+│   │   ├── status.md
+│   │   ├── style.md
+│   │   ├── target.md
+│   │   └── update-metrics.md
+│   ├── concepts/
+│   │   ├── box-model.md
+│   │   ├── codl.md
+│   │   ├── component.md
+│   │   ├── constraint-solver.md
+│   │   ├── ffi.md
+│   │   ├── p-dimension.md
+│   │   ├── q-dimension.md
+│   │   ├── render-target.md
+│   │   ├── scene-graph.md
+│   │   └── t-dimension.md
+│   ├── cosmic-text-investigation.md
+│   ├── index.md
+│   ├── install.sh
+│   ├── openapi.yaml
+│   └── reference/
+│       ├── constraint.md
+│       ├── entity-id.md
+│       ├── fill-spec.md
+│       ├── path-command.md
+│       ├── path-segment.md
+│       ├── q-value.md
+│       ├── q-variable.md
+│       ├── rational.md
+│       └── stroke-spec.md
+├── lean4/
+│   └── ViewScript/
+│       └── PathTypes.lean
+├── package.json
 ├── packages/
-│   ├── browser-defaults/         # デフォルトコンポーネント
-│   └── renderer/                 # TypeScriptレンダラー
+│   ├── browser-defaults/
+│   │   ├── package.json
+│   │   ├── src/
+│   │   │   ├── components/
+│   │   │   │   ├── index.vs
+│   │   │   │   ├── RoundedRect.vs
+│   │   │   │   └── Text.vs
+│   │   │   └── index.ts
+│   │   └── tsconfig.json
+│   ├── dev-server/
+│   │   └── src/
+│   │       └── hmr-controller.ts
+│   └── renderer/
+│       ├── package.json
+│       ├── package-lock.json
+│       ├── playwright.config.ts
+│       ├── playwright-report/
+│       │   ├── data/
+│       │   │   ├── 0bafe4e0863f0e244bba68a838f73241f8f2efaa.md
+│       │   │   └── 9281aca8abfb06c6cecb35d5ddd13d61f8c752d8.md
+│       │   └── index.html
+│       ├── src/
+│       │   ├── ast/
+│       │   │   └── types.ts
+│       │   ├── compiler/
+│       │   │   └── chunk-splitter.ts
+│       │   ├── index.ts
+│       │   ├── rasterizer/
+│       │   │   ├── __tests__/
+│       │   │   │   └── error-distribution.test.ts
+│       │   │   ├── canvas-mapper.ts
+│       │   │   ├── error-distribution.ts
+│       │   │   ├── gradient-mapper.ts
+│       │   │   └── topology-rounding.ts
+│       │   ├── runtime/
+│       │   │   ├── __tests__/
+│       │   │   │   └── event-backpressure.test.ts
+│       │   │   ├── event-backpressure.ts
+│       │   │   ├── render-loop.ts
+│       │   │   ├── wasm-resource-manager.ts
+│       │   │   └── wgpu-renderer-adapter.ts
+│       │   └── semantic/
+│       │       ├── __tests__/
+│       │       │   └── semantic-translator.test.ts
+│       │       └── semantic-translator.ts
+│       ├── test-results/
+│       │   └── .last-run.json
+│       ├── tests/
+│       │   └── e2e/
+│       │       ├── async-race.spec.ts
+│       │       ├── bilayer-sync.spec.ts
+│       │       ├── fullstack.spec.ts
+│       │       ├── g1-continuity.spec.ts
+│       │       ├── gradient-animation.spec.ts
+│       │       ├── memory-stability.spec.ts
+│       │       ├── path-topology.spec.ts
+│       │       ├── performance-profile.spec.ts
+│       │       ├── screenshot.spec.ts
+│       │       ├── test-harness.html
+│       │       ├── text-layout.spec.ts
+│       │       ├── visual-demo.html
+│       │       └── visual-regression.spec.ts
+│       ├── tsconfig.json
+│       └── vitest.config.ts
+├── pnpm-workspace.yaml
+├── rfc/
+│   └── lean/
+│       ├── lakefile.toml
+│       ├── ViewScriptRFC.lean
+│       └── ViewScriptRFC/
+│           └── PDimension.lean
+├── schemas/
+│   ├── constraint-collision-error.schema.json
+│   └── path-entity.schema.json
 ├── styles/
-│   └── vs-style-chrome/          # Chromeスタイルテーマ
-├── rfc/lean/                     # LEAN 4形式検証
-└── vs.md                         # 本ドキュメント
+│   └── vs-style-chrome/
+│       ├── Cargo.toml
+│       └── src/
+│           └── lib.rs
+├── tests/
+│   ├── llm-drift/
+│   │   ├── baselines/
+│   │   │   ├── card-grid.json
+│   │   │   ├── modal-dialog.json
+│   │   │   └── nav-bar.json
+│   │   ├── drift-calculator.ts
+│   │   ├── executor.ts
+│   │   └── run-drift-check.ts
+│   └── wasi-e2e/
+│       ├── deterministic_runner.sh
+│       ├── package.json
+│       └── run_wasi_tests.sh
+└── vs.md
 ```
 
 ## 15. 依存関係
