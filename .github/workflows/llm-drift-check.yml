@@ -58,7 +58,7 @@ jobs:
         working-directory: tests/llm-drift
 
       - name: Setup Rust (for vsc CLI)
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-wasip1
 
