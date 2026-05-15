@@ -151,17 +151,14 @@ function generatePackageJson(
     },
   };
 
-  if (language === 'ts') {
-    return {
-      ...base,
-      devDependencies: {
-        ...base.devDependencies,
-        typescript: '^5.4.0',
-      },
-    };
-  }
-
-  return base;
+  // typescript is required by @viewscript/vite-plugin for .vs parsing
+  return {
+    ...base,
+    devDependencies: {
+      ...base.devDependencies,
+      typescript: '^5.4.0',
+    },
+  };
 }
 
 /**
