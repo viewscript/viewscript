@@ -41,7 +41,7 @@ import type {
   RasterBounds,
   PVectorBounds,
   ChunkId,
-} from '../ast/types';
+} from '../ast/types.js';
 import type { FfiDispatcher, PendingFfiCall } from './ffi-dispatcher.js';
 import type { WasmSolverBridge } from './wasm-solver-bridge.js';
 

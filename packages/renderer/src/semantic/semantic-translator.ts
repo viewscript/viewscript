@@ -35,7 +35,7 @@
  * ```
  */
 
-import type { EntityId, Rational } from '../ast/types';
+import type { EntityId, Rational } from '../ast/types.js';
 
 // =============================================================================
 // Types for Raw Solver Output

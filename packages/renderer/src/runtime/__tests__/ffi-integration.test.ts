@@ -127,6 +127,10 @@ function createBindManifestContext(bindings: {
       line: i + 2,
     })),
     triggers: [],
+    componentDecls: [],
+    components: [],
+    scene: null,
+    consts: [],
     errors: [],
   };
 
@@ -168,6 +172,10 @@ function createTriggerManifestContext(triggers: {
       functionArgs: t.functionArgs,
       line: i + 2,
     })),
+    componentDecls: [],
+    components: [],
+    scene: null,
+    consts: [],
     errors: [],
   };
 

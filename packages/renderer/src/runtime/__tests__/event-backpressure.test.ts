@@ -14,7 +14,7 @@ import {
   EventPriority,
   type QDimensionEvent,
   type TStateKey,
-} from '../event-backpressure';
+} from '../event-backpressure.js';
 
 describe('EventBuffer', () => {
   let buffer: EventBuffer;
@@ -187,8 +187,8 @@ describe('EventBuffer', () => {
 
       expect(flushed).toHaveLength(2);
       // Both events should be present
-      expect(flushed.some(e => e.entityId === 1)).toBe(true);
-      expect(flushed.some(e => e.entityId === 2)).toBe(true);
+      expect(flushed.some((e: QDimensionEvent) => e.entityId === 1)).toBe(true);
+      expect(flushed.some((e: QDimensionEvent) => e.entityId === 2)).toBe(true);
     });
   });
 

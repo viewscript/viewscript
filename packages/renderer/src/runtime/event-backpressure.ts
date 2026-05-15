@@ -24,7 +24,7 @@
  * 4. Priority queues for critical events (click > mousemove)
  */
 
-import type { EntityId } from '../ast/types';
+import type { EntityId } from '../ast/types.js';
 
 // =============================================================================
 // Types

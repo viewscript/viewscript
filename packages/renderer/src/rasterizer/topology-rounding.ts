@@ -62,7 +62,7 @@
  * ```
  */
 
-import type { EntityId, Rational, RasterBounds, PVectorBounds } from '../ast/types';
+import type { EntityId, Rational, RasterBounds, PVectorBounds } from '../ast/types.js';
 
 // =============================================================================
 // Types

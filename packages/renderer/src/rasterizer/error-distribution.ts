@@ -35,7 +35,7 @@
  * LRM distributes exactly (T - Σ⌊rᵢ⌋) extra pixels to achieve Σ = T.
  */
 
-import type { EntityId, Rational } from '../ast/types';
+import type { EntityId, Rational } from '../ast/types.js';
 
 // =============================================================================
 // Types

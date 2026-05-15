@@ -37,7 +37,7 @@
  * ```
  */
 
-import type { Rational, RasterBounds } from '../ast/types';
+import type { Rational, RasterBounds } from '../ast/types.js';
 
 // =============================================================================
 // Types

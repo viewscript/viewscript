@@ -9,7 +9,7 @@ import {
   createEmptyRegistry,
   type EntityMetadata,
   type RawSolution,
-} from '../semantic-translator';
+} from '../semantic-translator.js';
 
 describe('SemanticTranslator', () => {
   describe('parseVarId', () => {
@@ -162,7 +162,7 @@ describe('SemanticTranslator', () => {
       const result = translator.translateSolution(rawSolution, 0);
 
       expect(result.relationships.length).toBeGreaterThan(0);
-      const alignment = result.relationships.find(r => r.type === 'alignment');
+      const alignment = result.relationships.find((r: { type: string }) => r.type === 'alignment');
       expect(alignment).toBeDefined();
       expect(alignment?.description).toContain('horizontally aligned');
     });

@@ -45,7 +45,7 @@ import type {
   RenderableEntity,
   Rational,
   PVectorBounds,
-} from '../ast/types';
+} from '../ast/types.js';
 
 // =============================================================================
 // Input Types (from IR)

@@ -11,7 +11,7 @@ import {
   applyErrorDistribution,
   type SiblingGroup,
   type ContainmentConstraint,
-} from '../error-distribution';
+} from '../error-distribution.js';
 
 describe('Largest Remainder Method', () => {
   /**
@@ -44,17 +44,17 @@ describe('Largest Remainder Method', () => {
     expect(result.isExact).toBe(true);
 
     // Assert: Each child gets 33 or 34 pixels
-    const pixels = result.dimensions.map(d => d.pixels);
-    expect(pixels.every(p => p === 33 || p === 34)).toBe(true);
+    const pixels = result.dimensions.map((d: { pixels: number }) => d.pixels);
+    expect(pixels.every((p: number) => p === 33 || p === 34)).toBe(true);
 
     // Assert: Exactly one child gets the extra pixel
-    const count34 = pixels.filter(p => p === 34).length;
-    const count33 = pixels.filter(p => p === 33).length;
+    const count34 = pixels.filter((p: number) => p === 34).length;
+    const count33 = pixels.filter((p: number) => p === 33).length;
     expect(count34).toBe(1);
     expect(count33).toBe(2);
 
     // Assert: Sum is exactly 100 (33 + 33 + 34 = 100)
-    expect(pixels.reduce((a, b) => a + b, 0)).toBe(100);
+    expect(pixels.reduce((a: number, b: number) => a + b, 0)).toBe(100);
 
     // Assert: Distribution is [34, 33, 33] (leftmost gets extra due to tie-break)
     expect(pixels).toEqual([34, 33, 33]);
@@ -81,7 +81,7 @@ describe('Largest Remainder Method', () => {
     // Assert
     expect(result.totalPixels).toBe(100);
     expect(result.isExact).toBe(true);
-    expect(result.dimensions.map(d => d.pixels)).toEqual([25, 25, 25, 25]);
+    expect(result.dimensions.map((d: { pixels: number }) => d.pixels)).toEqual([25, 25, 25, 25]);
   });
 
   it('distributes multiple extra pixels by remainder priority', () => {
@@ -108,7 +108,7 @@ describe('Largest Remainder Method', () => {
     // Assert
     expect(result.totalPixels).toBe(100);
     expect(result.isExact).toBe(true);
-    expect(result.dimensions.map(d => d.pixels)).toEqual([41, 31, 28]);
+    expect(result.dimensions.map((d: { pixels: number }) => d.pixels)).toEqual([41, 31, 28]);
   });
 
   it('handles single child (trivial case)', () => {
@@ -164,7 +164,7 @@ describe('Largest Remainder Method', () => {
 
     // Assert: shortfall is 1, so first element (leftmost) gets it
     expect(result.totalPixels).toBe(7);
-    expect(result.dimensions.map(d => d.pixels)).toEqual([4, 3]);
+    expect(result.dimensions.map((d: { pixels: number }) => d.pixels)).toEqual([4, 3]);
   });
 
   it('handles vertical axis', () => {
@@ -302,8 +302,8 @@ describe('Edge Cases', () => {
 
     // 7 * 14 = 98, shortfall = 2
     // Two elements get 15px, five get 14px
-    const fifteens = result.dimensions.filter(d => d.pixels === 15).length;
-    const fourteens = result.dimensions.filter(d => d.pixels === 14).length;
+    const fifteens = result.dimensions.filter((d: { pixels: number }) => d.pixels === 15).length;
+    const fourteens = result.dimensions.filter((d: { pixels: number }) => d.pixels === 14).length;
     expect(fifteens).toBe(2);
     expect(fourteens).toBe(5);
   });

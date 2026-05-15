@@ -29,7 +29,7 @@
  * 3. **Fill Rule Semantics**: SVG fill-rule (nonzero/evenodd) is preserved
  */
 
-import type { EntityId, Rational, PathCommand, FillStyle, StrokeStyle } from '../ast/types';
+import type { EntityId, Rational, PathCommand, FillStyle, StrokeStyle } from '../ast/types.js';
 
 // =============================================================================
 // Input Types (from P-Dimension Solver)
