@@ -3156,8 +3156,7 @@ impl FontRegistry {
                 .any(|c| matches!(c, PathCommand::CubicTo { .. }))
         }
         fn has_quad(cmds: &[PathCommand]) -> bool {
-            cmds.iter()
-                .any(|c| matches!(c, PathCommand::QuadTo { .. }))
+            cmds.iter().any(|c| matches!(c, PathCommand::QuadTo { .. }))
         }
 
         // Get font data from cache
@@ -3355,8 +3354,7 @@ impl FontRegistry {
                 .any(|c| matches!(c, PathCommand::CubicTo { .. }))
         }
         fn has_quad(cmds: &[PathCommand]) -> bool {
-            cmds.iter()
-                .any(|c| matches!(c, PathCommand::QuadTo { .. }))
+            cmds.iter().any(|c| matches!(c, PathCommand::QuadTo { .. }))
         }
 
         // Tessellate based on curve type
@@ -3581,7 +3579,9 @@ fn build_quad_curves_json(output: &vsc_gpu::loop_blinn::LoopBlinnOutput) -> serd
 /// Note: Cubic curves use (k, l, m) texture coordinates instead of (u, v).
 /// The JSON format uses "curve_uvs" for compatibility, but stores [k, l, m, 0]
 /// per vertex (padded to maintain consistent stride with quadratic).
-fn build_cubic_curves_json(output: &vsc_gpu::loop_blinn::CubicLoopBlinnOutput) -> serde_json::Value {
+fn build_cubic_curves_json(
+    output: &vsc_gpu::loop_blinn::CubicLoopBlinnOutput,
+) -> serde_json::Value {
     if output.vertices.is_empty() {
         return serde_json::json!({
             "positions": [],
@@ -3669,10 +3669,7 @@ fn json_to_path_command(v: &serde_json::Value) -> Result<PathCommand, String> {
             Ok(PathCommand::ArcTo {
                 rx: get_f64("rx")?,
                 ry: get_f64("ry")?,
-                rotation: v
-                    .get("rotation")
-                    .and_then(|n| n.as_f64())
-                    .unwrap_or(0.0),
+                rotation: v.get("rotation").and_then(|n| n.as_f64()).unwrap_or(0.0),
                 large_arc,
                 sweep,
                 x: get_f64("x")?,
