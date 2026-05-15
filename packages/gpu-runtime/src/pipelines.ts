@@ -5,14 +5,14 @@
 // Creates and manages WebGPU render pipelines for ViewScript rendering.
 // Mirrors vsc-gpu/src/pipeline.rs bind group layout structure.
 
-import { SOLID_WGSL, LOOP_BLINN_WGSL, LOOP_BLINN_CUBIC_WGSL } from './shaders';
+import { SOLID_WGSL, LOOP_BLINN_WGSL, LOOP_BLINN_CUBIC_WGSL, TEXTURE_WGSL } from './shaders';
 
 // =============================================================================
 // Types
 // =============================================================================
 
 /** Pipeline type identifier */
-export type PipelineKey = 'solid' | 'loopBlinn' | 'loopBlinnCubic';
+export type PipelineKey = 'solid' | 'loopBlinn' | 'loopBlinnCubic' | 'texture';
 
 /** Complete pipeline set for a specific rendering type */
 export interface PipelineSet {
@@ -26,6 +26,7 @@ export interface Pipelines {
   solid: PipelineSet;
   loopBlinn: PipelineSet;
   loopBlinnCubic: PipelineSet;
+  texture: PipelineSet;
 }
 
 // =============================================================================
@@ -278,6 +279,83 @@ function createLoopBlinnCubicPipeline(device: GPUDevice, format: GPUTextureForma
 }
 
 /**
+ * Create texture bind group layout (Group 1)
+ * Used for texture sampling (images, videos, canvas)
+ */
+function createTextureBindGroupLayout(device: GPUDevice, label: string): GPUBindGroupLayout {
+  return device.createBindGroupLayout({
+    label,
+    entries: [
+      {
+        binding: 0,
+        visibility: GPUShaderStage.FRAGMENT,
+        texture: { sampleType: 'float' },
+      },
+      {
+        binding: 1,
+        visibility: GPUShaderStage.FRAGMENT,
+        sampler: { type: 'filtering' },
+      },
+    ],
+  });
+}
+
+/**
+ * Create texture sampling pipeline
+ */
+function createTexturePipeline(device: GPUDevice, format: GPUTextureFormat): PipelineSet {
+  const transformBindGroupLayout = createTransformBindGroupLayout(device, 'Transform Layout (Texture)');
+  const styleBindGroupLayout = createTextureBindGroupLayout(device, 'Texture Layout');
+
+  const pipelineLayout = device.createPipelineLayout({
+    label: 'Texture Pipeline Layout',
+    bindGroupLayouts: [transformBindGroupLayout, styleBindGroupLayout],
+  });
+
+  const shaderModule = device.createShaderModule({
+    label: 'Texture Shader',
+    code: TEXTURE_WGSL,
+  });
+
+  const pipeline = device.createRenderPipeline({
+    label: 'Texture Render Pipeline',
+    layout: pipelineLayout,
+    vertex: {
+      module: shaderModule,
+      entryPoint: 'vs_main',
+      buffers: [GPU_VERTEX_LAYOUT],
+    },
+    fragment: {
+      module: shaderModule,
+      entryPoint: 'fs_main',
+      targets: [{
+        format,
+        blend: {
+          color: {
+            srcFactor: 'src-alpha',
+            dstFactor: 'one-minus-src-alpha',
+            operation: 'add',
+          },
+          alpha: {
+            srcFactor: 'one',
+            dstFactor: 'one-minus-src-alpha',
+            operation: 'add',
+          },
+        },
+        writeMask: GPUColorWrite.ALL,
+      }],
+    },
+    primitive: {
+      topology: 'triangle-list',
+      frontFace: 'ccw',
+      cullMode: 'none',
+    },
+  });
+
+  return { pipeline, transformBindGroupLayout, styleBindGroupLayout };
+}
+
+/**
  * Create all pipelines for the runtime
  */
 export function createPipelines(device: GPUDevice, format: GPUTextureFormat): Pipelines {
@@ -285,6 +363,7 @@ export function createPipelines(device: GPUDevice, format: GPUTextureFormat): Pi
     solid: createSolidPipeline(device, format),
     loopBlinn: createLoopBlinnPipeline(device, format),
     loopBlinnCubic: createLoopBlinnCubicPipeline(device, format),
+    texture: createTexturePipeline(device, format),
   };
 }
 

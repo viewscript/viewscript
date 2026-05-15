@@ -25,11 +25,19 @@
 // ```
 
 // Re-export types and utilities
-export { SOLID_WGSL, LOOP_BLINN_WGSL, LOOP_BLINN_CUBIC_WGSL } from './shaders';
+export { SOLID_WGSL, LOOP_BLINN_WGSL, LOOP_BLINN_CUBIC_WGSL, TEXTURE_WGSL } from './shaders';
 export { createPipelines, selectPipeline } from './pipelines';
 export type { PipelineKey, PipelineSet, Pipelines } from './pipelines';
-export { MeshRegistry } from './mesh';
-export type { MeshId, MeshData, GpuMesh } from './mesh';
+export { MeshRegistry, TextureRegistry } from './mesh';
+export type {
+  MeshId,
+  MeshData,
+  GpuMesh,
+  TextureId,
+  GpuTexture,
+  TexturedMeshData,
+  GpuTexturedMesh,
+} from './mesh';
 export {
   createTransformBuffer,
   createTransformBindGroups,
@@ -39,7 +47,17 @@ export {
 export type { TransformData, FrameContext } from './frame';
 
 import { createPipelines, type Pipelines } from './pipelines';
-import { MeshRegistry, type MeshId, type MeshData, type GpuMesh } from './mesh';
+import {
+  MeshRegistry,
+  TextureRegistry,
+  type MeshId,
+  type MeshData,
+  type GpuMesh,
+  type TextureId,
+  type GpuTexture,
+  type TexturedMeshData,
+  type GpuTexturedMesh,
+} from './mesh';
 import {
   createTransformBuffer,
   createTransformBindGroups,
@@ -131,12 +149,24 @@ export interface VsRuntime {
   pipelines: Pipelines;
   /** Mesh registry */
   meshes: MeshRegistry;
+  /** Texture registry */
+  textures: TextureRegistry;
   /** Register a mesh from compiled output */
   registerMesh(id: MeshId, data: MeshData): GpuMesh;
+  /** Remove a mesh and release its GPU resources */
+  removeMesh(id: MeshId): boolean;
   /** Update mesh positions (Q-dimension reactive) */
   updatePositions(id: MeshId, positions: Float32Array): void;
   /** Update mesh color */
   updateColor(id: MeshId, color: [number, number, number, number]): void;
+  /** Register a texture from ImageBitmap */
+  registerTexture(id: TextureId, source: ImageBitmap): GpuTexture;
+  /** Remove a texture */
+  removeTexture(id: TextureId): boolean;
+  /** Register a textured mesh */
+  registerTexturedMesh(id: MeshId, data: TexturedMeshData): GpuTexturedMesh;
+  /** Remove a textured mesh */
+  removeTexturedMesh(id: MeshId): boolean;
   /** Update transform (viewport, opacity) */
   setTransform(transform: Partial<TransformData>): void;
   /** Render a frame */
@@ -156,6 +186,9 @@ export function createRuntime(gpu: GpuContext): VsRuntime {
 
   // Create mesh registry (use solid pipeline's style layout as default)
   const meshes = new MeshRegistry(device, pipelines.solid.styleBindGroupLayout);
+
+  // Create texture registry (use texture pipeline's style layout for texture bind groups)
+  const textures = new TextureRegistry(device, pipelines.texture.styleBindGroupLayout);
 
   // Create transform resources
   const transformBuffer = createTransformBuffer(device);
@@ -177,6 +210,7 @@ export function createRuntime(gpu: GpuContext): VsRuntime {
     device,
     pipelines,
     meshRegistry: meshes,
+    textureRegistry: textures,
     transformBuffer,
     transformBindGroups,
   };
@@ -185,9 +219,14 @@ export function createRuntime(gpu: GpuContext): VsRuntime {
     gpu,
     pipelines,
     meshes,
+    textures,
 
     registerMesh(id: MeshId, data: MeshData): GpuMesh {
       return meshes.registerMesh(id, data);
+    },
+
+    removeMesh(id: MeshId): boolean {
+      return meshes.removeMesh(id);
     },
 
     updatePositions(id: MeshId, positions: Float32Array): void {
@@ -196,6 +235,22 @@ export function createRuntime(gpu: GpuContext): VsRuntime {
 
     updateColor(id: MeshId, color: [number, number, number, number]): void {
       meshes.updateColor(id, color);
+    },
+
+    registerTexture(id: TextureId, source: ImageBitmap): GpuTexture {
+      return textures.registerTexture(id, source);
+    },
+
+    removeTexture(id: TextureId): boolean {
+      return textures.removeTexture(id);
+    },
+
+    registerTexturedMesh(id: MeshId, data: TexturedMeshData): GpuTexturedMesh {
+      return textures.registerTexturedMesh(id, data);
+    },
+
+    removeTexturedMesh(id: MeshId): boolean {
+      return textures.removeTexturedMesh(id);
     },
 
     setTransform(transform: Partial<TransformData>): void {
@@ -218,6 +273,7 @@ export function createRuntime(gpu: GpuContext): VsRuntime {
 
     destroy(): void {
       meshes.destroy();
+      textures.destroy();
       transformBuffer.destroy();
     },
   };

@@ -546,8 +546,8 @@ pub fn tessellate_path(
     // Create fill tessellator
     let mut tessellator = FillTessellator::new();
 
-    // Fill options (default: nonzero winding)
-    let options = FillOptions::default();
+    // Fill options: NonZero winding for overlapping contours (like + sign)
+    let options = FillOptions::non_zero();
 
     // Tessellate the path with UV-aware vertex builder
     tessellator

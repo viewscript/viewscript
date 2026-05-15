@@ -5,7 +5,7 @@
 // Executes the render loop, encoding draw commands for all registered meshes.
 
 import type { Pipelines, PipelineKey } from './pipelines';
-import type { MeshRegistry } from './mesh';
+import type { MeshRegistry, TextureRegistry } from './mesh';
 
 // =============================================================================
 // Types
@@ -32,6 +32,7 @@ export interface FrameContext {
   device: GPUDevice;
   pipelines: Pipelines;
   meshRegistry: MeshRegistry;
+  textureRegistry: TextureRegistry;
   transformBuffer: GPUBuffer;
   transformBindGroups: Map<PipelineKey, GPUBindGroup>;
 }
@@ -64,7 +65,7 @@ export function createTransformBindGroups(
 ): Map<PipelineKey, GPUBindGroup> {
   const groups = new Map<PipelineKey, GPUBindGroup>();
 
-  const keys: PipelineKey[] = ['solid', 'loopBlinn', 'loopBlinnCubic'];
+  const keys: PipelineKey[] = ['solid', 'loopBlinn', 'loopBlinnCubic', 'texture'];
   for (const key of keys) {
     const pipelineSet = pipelines[key];
     groups.set(key, device.createBindGroup({
@@ -112,13 +113,16 @@ export function updateTransform(
  *
  * Draws meshes in registration order (Z-order).
  * Compiler emits registerMesh() calls in Z-order, so registration order = draw order.
+ *
+ * Note: Currently renders solid meshes first, then textured meshes.
+ * For interleaved Z-order, a unified draw list would be needed.
  */
 export function renderFrame(
   ctx: FrameContext,
   textureView: GPUTextureView,
   clearColor: GPUColor = { r: 0, g: 0, b: 0, a: 1 }
 ): void {
-  const { device, pipelines, meshRegistry, transformBindGroups } = ctx;
+  const { device, pipelines, meshRegistry, textureRegistry, transformBindGroups } = ctx;
 
   const commandEncoder = device.createCommandEncoder({
     label: 'Frame Command Encoder',
@@ -134,7 +138,7 @@ export function renderFrame(
     }],
   });
 
-  // Render in registration order (Z-order from compiler)
+  // Render solid meshes in registration order (Z-order from compiler)
   let currentPipeline: PipelineKey | null = null;
 
   for (const mesh of meshRegistry.getAllInOrder()) {
@@ -152,6 +156,24 @@ export function renderFrame(
     renderPass.setVertexBuffer(0, mesh.vertexBuffer);
     renderPass.setIndexBuffer(mesh.indexBuffer, mesh.indexFormat);
     renderPass.drawIndexed(mesh.indexCount);
+  }
+
+  // Render textured meshes
+  const texturedMeshes = textureRegistry.getAllTexturedMeshes();
+  if (texturedMeshes.length > 0) {
+    // Switch to texture pipeline
+    const texturePipelineSet = pipelines.texture;
+    const textureTransformBindGroup = transformBindGroups.get('texture')!;
+
+    renderPass.setPipeline(texturePipelineSet.pipeline);
+    renderPass.setBindGroup(0, textureTransformBindGroup);
+
+    for (const mesh of texturedMeshes) {
+      renderPass.setBindGroup(1, mesh.textureBindGroup);
+      renderPass.setVertexBuffer(0, mesh.vertexBuffer);
+      renderPass.setIndexBuffer(mesh.indexBuffer, mesh.indexFormat);
+      renderPass.drawIndexed(mesh.indexCount);
+    }
   }
 
   renderPass.end();

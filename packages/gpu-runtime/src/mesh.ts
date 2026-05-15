@@ -46,6 +46,50 @@ export interface GpuMesh {
   vertexStride: number;
 }
 
+// =============================================================================
+// Texture Types
+// =============================================================================
+
+/** Texture identifier */
+export type TextureId = string;
+
+/** Registered GPU texture */
+export interface GpuTexture {
+  id: TextureId;
+  texture: GPUTexture;
+  sampler: GPUSampler;
+  width: number;
+  height: number;
+}
+
+/** Textured mesh data */
+export interface TexturedMeshData {
+  /** Must be 'texture' */
+  pipelineKey: 'texture';
+  /** Vertex data: [x, y, u, v] per vertex */
+  vertices: Float32Array;
+  /** Index data */
+  indices: Uint16Array | Uint32Array;
+  /** Reference to registered texture */
+  textureId: TextureId;
+  /** Number of vertices */
+  vertexCount: number;
+}
+
+/** GPU-uploaded textured mesh */
+export interface GpuTexturedMesh {
+  id: MeshId;
+  pipelineKey: 'texture';
+  vertexBuffer: GPUBuffer;
+  indexBuffer: GPUBuffer;
+  indexCount: number;
+  indexFormat: GPUIndexFormat;
+  textureBindGroup: GPUBindGroup;
+  textureId: TextureId;
+  vertexCount: number;
+  vertexStride: number;
+}
+
 /** Mesh registry for the runtime */
 export class MeshRegistry {
   private meshes: Map<MeshId, GpuMesh> = new Map();
@@ -61,10 +105,13 @@ export class MeshRegistry {
    * Register a pre-tessellated mesh
    */
   registerMesh(id: MeshId, data: MeshData): GpuMesh {
+    // Helper: pad size to multiple of 4 (WebGPU requirement for mappedAtCreation)
+    const align4 = (n: number) => Math.ceil(n / 4) * 4;
+
     // Create vertex buffer
     const vertexBuffer = this.device.createBuffer({
       label: `Vertex Buffer: ${id}`,
-      size: data.vertices.byteLength,
+      size: align4(data.vertices.byteLength),
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
       mappedAtCreation: true,
     });
@@ -75,7 +122,7 @@ export class MeshRegistry {
     const indexFormat: GPUIndexFormat = data.indices instanceof Uint32Array ? 'uint32' : 'uint16';
     const indexBuffer = this.device.createBuffer({
       label: `Index Buffer: ${id}`,
-      size: data.indices.byteLength,
+      size: align4(data.indices.byteLength),
       usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
       mappedAtCreation: true,
     });
@@ -216,5 +263,199 @@ export class MeshRegistry {
       mesh.colorUniform.destroy();
     }
     this.meshes.clear();
+  }
+}
+
+// =============================================================================
+// Texture Registry
+// =============================================================================
+
+/** Texture registry for the runtime */
+export class TextureRegistry {
+  private textures: Map<TextureId, GpuTexture> = new Map();
+  private texturedMeshes: Map<MeshId, GpuTexturedMesh> = new Map();
+  private device: GPUDevice;
+  private textureBindGroupLayout: GPUBindGroupLayout;
+  private sampler: GPUSampler;
+
+  constructor(device: GPUDevice, textureBindGroupLayout: GPUBindGroupLayout) {
+    this.device = device;
+    this.textureBindGroupLayout = textureBindGroupLayout;
+
+    // Create shared sampler for all textures
+    this.sampler = device.createSampler({
+      label: 'Texture Sampler',
+      magFilter: 'linear',
+      minFilter: 'linear',
+      mipmapFilter: 'linear',
+      addressModeU: 'clamp-to-edge',
+      addressModeV: 'clamp-to-edge',
+    });
+  }
+
+  /**
+   * Register a texture from ImageBitmap
+   *
+   * @param id - Texture identifier
+   * @param source - ImageBitmap from createImageBitmap()
+   */
+  registerTexture(id: TextureId, source: ImageBitmap): GpuTexture {
+    const { width, height } = source;
+
+    // Create GPU texture
+    const texture = this.device.createTexture({
+      label: `Texture: ${id}`,
+      size: { width, height },
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.TEXTURE_BINDING |
+             GPUTextureUsage.COPY_DST |
+             GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+
+    // Copy ImageBitmap to texture
+    this.device.queue.copyExternalImageToTexture(
+      { source, flipY: false },
+      { texture },
+      { width, height }
+    );
+
+    const gpuTexture: GpuTexture = {
+      id,
+      texture,
+      sampler: this.sampler,
+      width,
+      height,
+    };
+
+    this.textures.set(id, gpuTexture);
+    return gpuTexture;
+  }
+
+  /**
+   * Get a registered texture by ID
+   */
+  getTexture(id: TextureId): GpuTexture | undefined {
+    return this.textures.get(id);
+  }
+
+  /**
+   * Register a textured mesh
+   *
+   * @param id - Mesh identifier
+   * @param data - Textured mesh data (must reference a registered texture)
+   */
+  registerTexturedMesh(id: MeshId, data: TexturedMeshData): GpuTexturedMesh {
+    const texture = this.textures.get(data.textureId);
+    if (!texture) {
+      throw new Error(`Texture '${data.textureId}' not registered. Call registerTexture first.`);
+    }
+
+    const align4 = (n: number) => Math.ceil(n / 4) * 4;
+
+    // Create vertex buffer
+    const vertexBuffer = this.device.createBuffer({
+      label: `Vertex Buffer (Textured): ${id}`,
+      size: align4(data.vertices.byteLength),
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: true,
+    });
+    new Float32Array(vertexBuffer.getMappedRange()).set(data.vertices);
+    vertexBuffer.unmap();
+
+    // Create index buffer
+    const indexFormat: GPUIndexFormat = data.indices instanceof Uint32Array ? 'uint32' : 'uint16';
+    const indexBuffer = this.device.createBuffer({
+      label: `Index Buffer (Textured): ${id}`,
+      size: align4(data.indices.byteLength),
+      usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: true,
+    });
+    if (data.indices instanceof Uint32Array) {
+      new Uint32Array(indexBuffer.getMappedRange()).set(data.indices);
+    } else {
+      new Uint16Array(indexBuffer.getMappedRange()).set(data.indices);
+    }
+    indexBuffer.unmap();
+
+    // Create bind group with texture and sampler
+    const textureBindGroup = this.device.createBindGroup({
+      label: `Texture Bind Group: ${id}`,
+      layout: this.textureBindGroupLayout,
+      entries: [
+        { binding: 0, resource: texture.texture.createView() },
+        { binding: 1, resource: this.sampler },
+      ],
+    });
+
+    const mesh: GpuTexturedMesh = {
+      id,
+      pipelineKey: 'texture',
+      vertexBuffer,
+      indexBuffer,
+      indexCount: data.indices.length,
+      indexFormat,
+      textureBindGroup,
+      textureId: data.textureId,
+      vertexCount: data.vertexCount,
+      vertexStride: 4, // [x, y, u, v]
+    };
+
+    this.texturedMeshes.set(id, mesh);
+    return mesh;
+  }
+
+  /**
+   * Get a textured mesh by ID
+   */
+  getTexturedMesh(id: MeshId): GpuTexturedMesh | undefined {
+    return this.texturedMeshes.get(id);
+  }
+
+  /**
+   * Get all textured meshes in registration order
+   */
+  getAllTexturedMeshes(): GpuTexturedMesh[] {
+    return Array.from(this.texturedMeshes.values());
+  }
+
+  /**
+   * Remove a textured mesh
+   */
+  removeTexturedMesh(id: MeshId): boolean {
+    const mesh = this.texturedMeshes.get(id);
+    if (!mesh) return false;
+
+    mesh.vertexBuffer.destroy();
+    mesh.indexBuffer.destroy();
+    this.texturedMeshes.delete(id);
+    return true;
+  }
+
+  /**
+   * Remove a texture (does not remove meshes using it)
+   */
+  removeTexture(id: TextureId): boolean {
+    const texture = this.textures.get(id);
+    if (!texture) return false;
+
+    texture.texture.destroy();
+    this.textures.delete(id);
+    return true;
+  }
+
+  /**
+   * Release all GPU resources
+   */
+  destroy(): void {
+    for (const mesh of this.texturedMeshes.values()) {
+      mesh.vertexBuffer.destroy();
+      mesh.indexBuffer.destroy();
+    }
+    this.texturedMeshes.clear();
+
+    for (const texture of this.textures.values()) {
+      texture.texture.destroy();
+    }
+    this.textures.clear();
   }
 }

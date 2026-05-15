@@ -272,6 +272,99 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
  * - Curve classification: serpentine (D>0), cusp (D=0), loop (D<0)
  * - Anti-aliasing via smoothstep with fwidth()
  */
+/**
+ * Texture Sampling Shader
+ *
+ * Renders textured quads for external images (WebP, PNG, etc.):
+ * - Vertex: same as solid (position + uv)
+ * - Fragment: samples texture at UV, applies opacity
+ *
+ * Bind Group Layout:
+ *   Group 0: Transform uniform (shared)
+ *   Group 1: Texture + Sampler
+ */
+export const TEXTURE_WGSL = /* wgsl */ `
+// =============================================================================
+// texture.wgsl - External Texture Sampling Shader
+// =============================================================================
+//
+// Renders shapes with external texture fills (images, videos, canvas).
+// Uses the same vertex format as solid.wgsl (GpuVertex with position + uv).
+
+// =============================================================================
+// Uniform Buffers
+// =============================================================================
+
+struct Transform {
+    a: f32,
+    b: f32,
+    c: f32,
+    d: f32,
+    tx: f32,
+    ty: f32,
+    viewport_width: f32,
+    viewport_height: f32,
+    opacity: f32,
+    _pad1: f32,
+    _pad2: f32,
+    _pad3: f32,
+}
+
+@group(0) @binding(0)
+var<uniform> transform: Transform;
+
+// Texture and sampler (binding group 1)
+@group(1) @binding(0)
+var t_texture: texture_2d<f32>;
+
+@group(1) @binding(1)
+var t_sampler: sampler;
+
+// =============================================================================
+// Vertex Shader
+// =============================================================================
+
+struct VertexInput {
+    @location(0) position: vec2<f32>,
+    @location(1) uv: vec2<f32>,
+}
+
+struct VertexOutput {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+    var out: VertexOutput;
+
+    let transformed = vec2<f32>(
+        transform.a * in.position.x + transform.b * in.position.y + transform.tx,
+        transform.c * in.position.x + transform.d * in.position.y + transform.ty
+    );
+
+    let ndc = vec2<f32>(
+        (transformed.x / transform.viewport_width) * 2.0 - 1.0,
+        1.0 - (transformed.y / transform.viewport_height) * 2.0
+    );
+
+    out.clip_position = vec4<f32>(ndc, 0.0, 1.0);
+    out.uv = in.uv;
+
+    return out;
+}
+
+// =============================================================================
+// Fragment Shader
+// =============================================================================
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let color = textureSample(t_texture, t_sampler, in.uv);
+    return vec4<f32>(color.rgb, color.a * transform.opacity);
+}
+`;
+
 export const LOOP_BLINN_CUBIC_WGSL = /* wgsl */ `
 // =============================================================================
 // loop_blinn_cubic.wgsl - Loop-Blinn Cubic Bezier Curve Shader

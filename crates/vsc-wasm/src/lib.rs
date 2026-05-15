@@ -28,4 +28,6 @@ pub use gpu::WasmGpuRenderer;
 
 #[cfg(feature = "gpu")]
 pub use gpu::WasmViewScriptEngine;
-// ViewScript WASM bindings for constraint-based graphics
+
+#[cfg(feature = "gpu")]
+pub use gpu::FontRegistry;

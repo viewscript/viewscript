@@ -945,6 +945,197 @@ impl WasmViewScriptEngine {
         Ok(())
     }
 
+    /// Shape text and return glyph outlines as JSON.
+    ///
+    /// This is a pure transformation function (Q→P oracle) that:
+    /// 1. Looks up font from cache
+    /// 2. Shapes text using rustybuzz
+    /// 3. Extracts glyph outlines using ttf-parser
+    /// 4. Scales coordinates by font_size
+    /// 5. Returns JSON with path commands
+    ///
+    /// **No solver is invoked.** This is the font shaping oracle for the bilayer
+    /// architecture where gpu-runtime handles rendering.
+    ///
+    /// # Arguments
+    ///
+    /// * `family` - Font family name (must be registered via `register_font`)
+    /// * `content` - Text string to shape
+    /// * `font_size` - Font size in pixels (coordinates are pre-scaled)
+    ///
+    /// # Returns
+    ///
+    /// JSON string:
+    /// ```json
+    /// {
+    ///   "glyphs": [
+    ///     {
+    ///       "char": "A",
+    ///       "advance": 12.5,
+    ///       "commands": [
+    ///         {"type": "M", "x": 0.0, "y": 0.0},
+    ///         {"type": "L", "x": 10.0, "y": 20.0},
+    ///         {"type": "Z"}
+    ///       ]
+    ///     }
+    ///   ],
+    ///   "total_advance": 12.5
+    /// }
+    /// ```
+    #[wasm_bindgen]
+    pub fn shape_text(
+        &self,
+        family: &str,
+        content: &str,
+        font_size: f64,
+    ) -> Result<String, JsValue> {
+        // Measure parse time for performance verification
+        let start = web_sys::window()
+            .and_then(|w| w.performance())
+            .map(|p| p.now());
+
+        // Get font data from cache
+        let font_data = self.font_cache.get(family).ok_or_else(|| {
+            JsValue::from_str(&format!(
+                "Font '{}' not registered. Call register_font first.",
+                family
+            ))
+        })?;
+
+        // Create shaper (this is the operation we're measuring)
+        let shaper = TextShaper::new(font_data).map_err(|e| {
+            JsValue::from_str(&format!("Failed to parse font '{}': {:?}", family, e))
+        })?;
+
+        // Log parse time for performance verification
+        if let (Some(start_time), Some(perf)) =
+            (start, web_sys::window().and_then(|w| w.performance()))
+        {
+            let elapsed = perf.now() - start_time;
+            web_sys::console::log_1(
+                &format!(
+                    "[ViewScript] TextShaper::new('{}') took {:.3}ms",
+                    family, elapsed
+                )
+                .into(),
+            );
+        }
+
+        // Calculate scale factor
+        let units_per_em = shaper.units_per_em() as f64;
+        let scale = font_size / units_per_em;
+
+        // Shape text to get glyph sequence
+        let shaped_glyphs = shaper
+            .shape(content)
+            .map_err(|e| JsValue::from_str(&format!("Text shaping failed: {:?}", e)))?;
+
+        // Build output JSON
+        let mut glyphs_json = Vec::with_capacity(shaped_glyphs.len());
+        let mut total_advance = 0.0_f64;
+
+        // Track which character we're processing
+        let chars: Vec<char> = content.chars().collect();
+        let mut char_idx = 0;
+
+        for glyph in &shaped_glyphs {
+            // Get the character for this glyph (using cluster mapping)
+            let ch = if char_idx < chars.len() {
+                chars[char_idx]
+            } else {
+                '?'
+            };
+            char_idx += 1;
+
+            // Get glyph outline
+            let outline = shaper.glyph_outline(glyph.glyph_id).unwrap_or_default();
+
+            // Convert PathCommands to JSON, scaling coordinates
+            let commands_json: Vec<serde_json::Value> = outline
+                .iter()
+                .map(|cmd| self.path_command_to_json(cmd, scale))
+                .collect();
+
+            // Calculate scaled advance
+            let advance = glyph.x_advance.to_f64_for_rasterization() * scale;
+            total_advance += advance;
+
+            glyphs_json.push(serde_json::json!({
+                "char": ch.to_string(),
+                "advance": advance,
+                "commands": commands_json
+            }));
+        }
+
+        let result = serde_json::json!({
+            "glyphs": glyphs_json,
+            "total_advance": total_advance
+        });
+
+        serde_json::to_string(&result)
+            .map_err(|e| JsValue::from_str(&format!("JSON serialization failed: {}", e)))
+    }
+
+    /// Convert a PathCommand to JSON with scaled coordinates.
+    fn path_command_to_json(&self, cmd: &PathCommand, scale: f64) -> serde_json::Value {
+        match cmd {
+            PathCommand::MoveTo { x, y } => serde_json::json!({
+                "type": "M",
+                "x": x.to_f64_for_rasterization() * scale,
+                "y": y.to_f64_for_rasterization() * scale
+            }),
+            PathCommand::LineTo { x, y } => serde_json::json!({
+                "type": "L",
+                "x": x.to_f64_for_rasterization() * scale,
+                "y": y.to_f64_for_rasterization() * scale
+            }),
+            PathCommand::QuadTo { x1, y1, x, y } => serde_json::json!({
+                "type": "Q",
+                "x1": x1.to_f64_for_rasterization() * scale,
+                "y1": y1.to_f64_for_rasterization() * scale,
+                "x": x.to_f64_for_rasterization() * scale,
+                "y": y.to_f64_for_rasterization() * scale
+            }),
+            PathCommand::CubicTo {
+                x1,
+                y1,
+                x2,
+                y2,
+                x,
+                y,
+            } => serde_json::json!({
+                "type": "C",
+                "x1": x1.to_f64_for_rasterization() * scale,
+                "y1": y1.to_f64_for_rasterization() * scale,
+                "x2": x2.to_f64_for_rasterization() * scale,
+                "y2": y2.to_f64_for_rasterization() * scale,
+                "x": x.to_f64_for_rasterization() * scale,
+                "y": y.to_f64_for_rasterization() * scale
+            }),
+            PathCommand::ArcTo {
+                rx,
+                ry,
+                rotation,
+                large_arc,
+                sweep,
+                x,
+                y,
+            } => serde_json::json!({
+                "type": "A",
+                "rx": rx.to_f64_for_rasterization() * scale,
+                "ry": ry.to_f64_for_rasterization() * scale,
+                "rotation": rotation,
+                "large_arc": large_arc,
+                "sweep": sweep,
+                "x": x.to_f64_for_rasterization() * scale,
+                "y": y.to_f64_for_rasterization() * scale
+            }),
+            PathCommand::Close => serde_json::json!({
+                "type": "Z"
+            }),
+        }
+    }
+
     /// Build FFI call requests from triggered condition IDs.
     fn build_ffi_requests(
         &self,
@@ -2722,5 +2913,773 @@ mod wasm_tests {
         // Removing again should return false
         let removed_again = registry.remove(id);
         assert!(!removed_again);
+    }
+}
+
+// =============================================================================
+// FontRegistry: Standalone Text Shaping (No Canvas/WebGPU Required)
+// =============================================================================
+//
+// This struct provides font loading and text shaping functionality without
+// requiring a canvas or WebGPU context. It's designed for the bilayer
+// architecture where:
+// - FontRegistry: Q→P transformation (font shaping)
+// - gpu-runtime: P→screen rendering (WebGPU)
+
+/// Standalone font registry for text shaping.
+///
+/// This is a lightweight alternative to `WasmViewScriptEngine` when you only
+/// need text shaping without the full constraint solver and WebGPU rendering.
+///
+/// ## Usage
+///
+/// ```typescript
+/// import init, { FontRegistry } from '@viewscript/wasm';
+///
+/// await init();
+///
+/// const fonts = new FontRegistry();
+///
+/// // Load font from Google Fonts
+/// const fontData = await fetch('https://fonts.gstatic.com/...').then(r => r.arrayBuffer());
+/// fonts.register('Inter', new Uint8Array(fontData));
+///
+/// // Shape text
+/// const result = fonts.shape_text('Inter', 'Hello', 48);
+/// const { glyphs, total_advance } = JSON.parse(result);
+/// ```
+#[wasm_bindgen]
+pub struct FontRegistry {
+    cache: HashMap<String, Vec<u8>>,
+}
+
+#[wasm_bindgen]
+impl FontRegistry {
+    /// Create a new empty font registry.
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self {
+            cache: HashMap::new(),
+        }
+    }
+
+    /// Register a font family with binary font data.
+    ///
+    /// # Arguments
+    ///
+    /// * `family` - Font family name (e.g., "Inter", "Roboto")
+    /// * `data` - Raw font file bytes (TTF, OTF, or WOFF2)
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if the font was registered successfully, `Err` if parsing failed.
+    #[wasm_bindgen]
+    pub fn register(&mut self, family: &str, data: &[u8]) -> Result<(), JsValue> {
+        // Validate font by attempting to parse it
+        let _shaper = TextShaper::new(data).map_err(|e| {
+            JsValue::from_str(&format!("Failed to parse font '{}': {:?}", family, e))
+        })?;
+
+        // Store the font data (owned copy)
+        self.cache.insert(family.to_string(), data.to_vec());
+
+        web_sys::console::log_1(
+            &format!(
+                "[FontRegistry] Font '{}' registered ({} bytes)",
+                family,
+                data.len()
+            )
+            .into(),
+        );
+
+        Ok(())
+    }
+
+    /// Shape text and return glyph outlines as JSON.
+    ///
+    /// This is a pure transformation function (Q→P oracle) that:
+    /// 1. Looks up font from cache
+    /// 2. Shapes text using rustybuzz
+    /// 3. Extracts glyph outlines using ttf-parser
+    /// 4. Scales coordinates by font_size
+    /// 5. Returns JSON with path commands
+    ///
+    /// # Arguments
+    ///
+    /// * `family` - Font family name (must be registered via `register`)
+    /// * `content` - Text string to shape
+    /// * `font_size` - Font size in pixels (coordinates are pre-scaled)
+    ///
+    /// # Returns
+    ///
+    /// JSON string:
+    /// ```json
+    /// {
+    ///   "glyphs": [
+    ///     {
+    ///       "char": "A",
+    ///       "advance": 12.5,
+    ///       "commands": [
+    ///         {"type": "M", "x": 0.0, "y": 0.0},
+    ///         {"type": "L", "x": 10.0, "y": 20.0},
+    ///         {"type": "Z"}
+    ///       ]
+    ///     }
+    ///   ],
+    ///   "total_advance": 12.5
+    /// }
+    /// ```
+    #[wasm_bindgen]
+    pub fn shape_text(
+        &self,
+        family: &str,
+        content: &str,
+        font_size: f64,
+    ) -> Result<String, JsValue> {
+        // Get font data from cache
+        let font_data = self.cache.get(family).ok_or_else(|| {
+            JsValue::from_str(&format!(
+                "Font '{}' not registered. Call register() first.",
+                family
+            ))
+        })?;
+
+        // Create shaper
+        let shaper = TextShaper::new(font_data).map_err(|e| {
+            JsValue::from_str(&format!("Failed to parse font '{}': {:?}", family, e))
+        })?;
+
+        // Calculate scale factor
+        let units_per_em = shaper.units_per_em() as f64;
+        let scale = font_size / units_per_em;
+
+        // Shape text to get glyph sequence
+        let shaped_glyphs = shaper
+            .shape(content)
+            .map_err(|e| JsValue::from_str(&format!("Text shaping failed: {:?}", e)))?;
+
+        // Build output JSON
+        let mut glyphs_json = Vec::with_capacity(shaped_glyphs.len());
+        let mut total_advance = 0.0_f64;
+
+        // Track which character we're processing
+        let chars: Vec<char> = content.chars().collect();
+        let mut char_idx = 0;
+
+        for glyph in &shaped_glyphs {
+            // Get the character for this glyph
+            let ch = if char_idx < chars.len() {
+                chars[char_idx]
+            } else {
+                '?'
+            };
+            char_idx += 1;
+
+            // Get glyph outline
+            let outline = shaper.glyph_outline(glyph.glyph_id).unwrap_or_default();
+
+            // Convert PathCommands to JSON, scaling coordinates
+            let commands_json: Vec<serde_json::Value> = outline
+                .iter()
+                .map(|cmd| path_command_to_json(cmd, scale))
+                .collect();
+
+            // Calculate scaled advance
+            let advance = glyph.x_advance.to_f64_for_rasterization() * scale;
+            total_advance += advance;
+
+            glyphs_json.push(serde_json::json!({
+                "char": ch.to_string(),
+                "advance": advance,
+                "commands": commands_json
+            }));
+        }
+
+        let result = serde_json::json!({
+            "glyphs": glyphs_json,
+            "total_advance": total_advance
+        });
+
+        serde_json::to_string(&result)
+            .map_err(|e| JsValue::from_str(&format!("JSON serialization failed: {}", e)))
+    }
+
+    /// Shape text and tessellate glyph outlines for GPU rendering.
+    ///
+    /// This combines text shaping with Loop-Blinn curve tessellation and
+    /// lyon interior tessellation, returning GPU-ready vertex data.
+    ///
+    /// # Arguments
+    ///
+    /// * `family` - Font family name (must be registered via `register`)
+    /// * `content` - Text string to shape
+    /// * `font_size` - Font size in pixels (coordinates are pre-scaled)
+    ///
+    /// # Returns
+    ///
+    /// JSON string with tessellated vertex data:
+    /// ```json
+    /// {
+    ///   "glyphs": [
+    ///     {
+    ///       "char": "0",
+    ///       "advance": 36.5,
+    ///       "curves": {
+    ///         "positions": [x0, y0, x1, y1, ...],
+    ///         "curve_uvs": [u0, v0, u1, v1, ...],
+    ///         "curve_signs": [s0, s1, ...],
+    ///         "indices": [0, 1, 2, ...]
+    ///       },
+    ///       "interior": {
+    ///         "positions": [x0, y0, x1, y1, ...],
+    ///         "indices": [0, 1, 2, ...]
+    ///       }
+    ///     }
+    ///   ],
+    ///   "total_advance": 36.5
+    /// }
+    /// ```
+    #[wasm_bindgen]
+    pub fn shape_and_tessellate(
+        &self,
+        family: &str,
+        content: &str,
+        font_size: f64,
+    ) -> Result<String, JsValue> {
+        use vsc_gpu::loop_blinn::{tessellate_cubic_beziers, tessellate_quadratic_beziers};
+        use vsc_gpu::tessellation::tessellate_path;
+        use vsc_gpu::FillStyle;
+
+        // Helper functions to detect curve types (matches batcher.rs logic)
+        fn has_cubic(cmds: &[PathCommand]) -> bool {
+            cmds.iter()
+                .any(|c| matches!(c, PathCommand::CubicTo { .. }))
+        }
+        fn has_quad(cmds: &[PathCommand]) -> bool {
+            cmds.iter()
+                .any(|c| matches!(c, PathCommand::QuadTo { .. }))
+        }
+
+        // Get font data from cache
+        let font_data = self.cache.get(family).ok_or_else(|| {
+            JsValue::from_str(&format!(
+                "Font '{}' not registered. Call register() first.",
+                family
+            ))
+        })?;
+
+        // Create shaper
+        let shaper = TextShaper::new(font_data).map_err(|e| {
+            JsValue::from_str(&format!("Failed to parse font '{}': {:?}", family, e))
+        })?;
+
+        // Calculate scale factor
+        let units_per_em = shaper.units_per_em() as f64;
+        let scale = font_size / units_per_em;
+
+        // Shape text to get glyph sequence
+        let shaped_glyphs = shaper
+            .shape(content)
+            .map_err(|e| JsValue::from_str(&format!("Text shaping failed: {:?}", e)))?;
+
+        // Build output JSON
+        let mut glyphs_json = Vec::with_capacity(shaped_glyphs.len());
+        let mut total_advance = 0.0_f64;
+
+        // Track which character we're processing
+        let chars: Vec<char> = content.chars().collect();
+        let mut char_idx = 0;
+
+        // Dummy fill style for interior tessellation
+        let fill = FillStyle::Solid {
+            rgba: [255, 255, 255, 255],
+        };
+
+        for glyph in &shaped_glyphs {
+            // Get the character for this glyph
+            let ch = if char_idx < chars.len() {
+                chars[char_idx]
+            } else {
+                '?'
+            };
+            char_idx += 1;
+
+            // Get glyph outline
+            let outline = shaper.glyph_outline(glyph.glyph_id).unwrap_or_default();
+
+            // Scale the path commands
+            let scaled_commands: Vec<PathCommand> = outline
+                .iter()
+                .map(|cmd| scale_path_command(cmd, scale))
+                .collect();
+
+            // Tessellate based on curve type (matches batcher.rs:1090-1161 logic)
+            // - CubicTo present → use cubic tessellator
+            // - QuadTo present → use quadratic tessellator
+            // - Lines only → use lyon directly
+            let (curves_json, interior_commands) = if has_cubic(&scaled_commands) {
+                // CFF fonts (OpenType/CFF) use CubicTo
+                let cubic_output = tessellate_cubic_beziers(&scaled_commands);
+                let json = build_cubic_curves_json(&cubic_output);
+                (json, cubic_output.interior_commands)
+            } else if has_quad(&scaled_commands) {
+                // TrueType fonts use QuadTo
+                let quad_output = tessellate_quadratic_beziers(&scaled_commands);
+                let json = build_quad_curves_json(&quad_output);
+                (json, quad_output.interior_commands)
+            } else {
+                // Lines only (rare for glyphs)
+                let empty_json = serde_json::json!({
+                    "positions": [],
+                    "curve_uvs": [],
+                    "curve_signs": [],
+                    "indices": []
+                });
+                (empty_json, scaled_commands.clone())
+            };
+
+            // Tessellate interior using lyon
+            let interior_output = tessellate_path(&interior_commands, Some(&fill))
+                .unwrap_or_else(|_| vsc_gpu::TessellationOutput::empty());
+
+            // Build interior JSON
+            let interior_json = if !interior_output.vertices.is_empty() {
+                let mut positions = Vec::with_capacity(interior_output.vertices.len() * 2);
+
+                for v in &interior_output.vertices {
+                    positions.push(v.position[0] as f64);
+                    positions.push(v.position[1] as f64);
+                }
+
+                serde_json::json!({
+                    "positions": positions,
+                    "indices": interior_output.indices
+                })
+            } else {
+                serde_json::json!({
+                    "positions": [],
+                    "indices": []
+                })
+            };
+
+            // Calculate scaled advance
+            let advance = glyph.x_advance.to_f64_for_rasterization() * scale;
+            total_advance += advance;
+
+            glyphs_json.push(serde_json::json!({
+                "char": ch.to_string(),
+                "advance": advance,
+                "curves": curves_json,
+                "interior": interior_json
+            }));
+        }
+
+        let result = serde_json::json!({
+            "glyphs": glyphs_json,
+            "total_advance": total_advance
+        });
+
+        serde_json::to_string(&result)
+            .map_err(|e| JsValue::from_str(&format!("JSON serialization failed: {}", e)))
+    }
+
+    /// Check if a font family is registered.
+    #[wasm_bindgen]
+    pub fn has_font(&self, family: &str) -> bool {
+        self.cache.contains_key(family)
+    }
+
+    /// Get the number of registered fonts.
+    #[wasm_bindgen]
+    pub fn font_count(&self) -> usize {
+        self.cache.len()
+    }
+
+    /// Tessellate an SVG path from JSON path commands.
+    ///
+    /// This is used for rendering SVG vector art via the existing Loop-Blinn
+    /// and lyon tessellation pipelines. The path commands are parsed from JSON
+    /// (produced by a JS-side SVG parser) and tessellated into GPU-ready vertex data.
+    ///
+    /// # Arguments
+    ///
+    /// * `commands_json` - JSON array of path commands:
+    ///   ```json
+    ///   [
+    ///     {"type": "M", "x": 0.0, "y": 0.0},
+    ///     {"type": "L", "x": 10.0, "y": 20.0},
+    ///     {"type": "Q", "x1": 5.0, "y1": 10.0, "x": 10.0, "y": 20.0},
+    ///     {"type": "C", "x1": 5.0, "y1": 10.0, "x2": 15.0, "y2": 10.0, "x": 20.0, "y": 20.0},
+    ///     {"type": "Z"}
+    ///   ]
+    ///   ```
+    ///
+    /// # Returns
+    ///
+    /// JSON string with tessellated vertex data (same format as shape_and_tessellate glyphs):
+    /// ```json
+    /// {
+    ///   "curves": {
+    ///     "positions": [x0, y0, x1, y1, ...],
+    ///     "curve_uvs": [u0, v0, u1, v1, ...],  // for quadratic
+    ///     "curve_klm": [k0, l0, m0, ...],      // for cubic
+    ///     "curve_signs": [s0, s1, ...],
+    ///     "indices": [0, 1, 2, ...]
+    ///   },
+    ///   "interior": {
+    ///     "positions": [x0, y0, x1, y1, ...],
+    ///     "indices": [0, 1, 2, ...]
+    ///   }
+    /// }
+    /// ```
+    #[wasm_bindgen]
+    pub fn tessellate_svg_path(&self, commands_json: &str) -> Result<String, JsValue> {
+        use vsc_gpu::loop_blinn::{tessellate_cubic_beziers, tessellate_quadratic_beziers};
+        use vsc_gpu::tessellation::tessellate_path;
+        use vsc_gpu::FillStyle;
+
+        // Parse JSON array of path commands
+        let json_commands: Vec<serde_json::Value> = serde_json::from_str(commands_json)
+            .map_err(|e| JsValue::from_str(&format!("Failed to parse commands JSON: {}", e)))?;
+
+        // Convert JSON to PathCommand objects
+        let commands: Vec<PathCommand> = json_commands
+            .iter()
+            .map(|v| json_to_path_command(v))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| JsValue::from_str(&format!("Invalid path command: {}", e)))?;
+
+        // Helper functions to detect curve types
+        fn has_cubic(cmds: &[PathCommand]) -> bool {
+            cmds.iter()
+                .any(|c| matches!(c, PathCommand::CubicTo { .. }))
+        }
+        fn has_quad(cmds: &[PathCommand]) -> bool {
+            cmds.iter()
+                .any(|c| matches!(c, PathCommand::QuadTo { .. }))
+        }
+
+        // Tessellate based on curve type
+        let (curves_json, interior_commands) = if has_cubic(&commands) {
+            let cubic_output = tessellate_cubic_beziers(&commands);
+            let json = build_cubic_curves_json(&cubic_output);
+            (json, cubic_output.interior_commands)
+        } else if has_quad(&commands) {
+            let quad_output = tessellate_quadratic_beziers(&commands);
+            let json = build_quad_curves_json(&quad_output);
+            (json, quad_output.interior_commands)
+        } else {
+            // Lines only
+            let empty_json = serde_json::json!({
+                "positions": [],
+                "curve_uvs": [],
+                "curve_signs": [],
+                "indices": []
+            });
+            (empty_json, commands.clone())
+        };
+
+        // Dummy fill style for interior tessellation
+        let fill = FillStyle::Solid {
+            rgba: [255, 255, 255, 255],
+        };
+
+        // Tessellate interior using lyon
+        let interior_output = tessellate_path(&interior_commands, Some(&fill))
+            .unwrap_or_else(|_| vsc_gpu::TessellationOutput::empty());
+
+        // Build interior JSON
+        let interior_json = if !interior_output.vertices.is_empty() {
+            let mut positions = Vec::with_capacity(interior_output.vertices.len() * 2);
+            for v in &interior_output.vertices {
+                positions.push(v.position[0] as f64);
+                positions.push(v.position[1] as f64);
+            }
+            serde_json::json!({
+                "positions": positions,
+                "indices": interior_output.indices
+            })
+        } else {
+            serde_json::json!({
+                "positions": [],
+                "indices": []
+            })
+        };
+
+        let result = serde_json::json!({
+            "curves": curves_json,
+            "interior": interior_json
+        });
+
+        serde_json::to_string(&result)
+            .map_err(|e| JsValue::from_str(&format!("JSON serialization failed: {}", e)))
+    }
+}
+
+impl Default for FontRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Convert a PathCommand to JSON with scaled coordinates (standalone function).
+fn path_command_to_json(cmd: &PathCommand, scale: f64) -> serde_json::Value {
+    match cmd {
+        PathCommand::MoveTo { x, y } => serde_json::json!({
+            "type": "M",
+            "x": x.to_f64_for_rasterization() * scale,
+            "y": y.to_f64_for_rasterization() * scale
+        }),
+        PathCommand::LineTo { x, y } => serde_json::json!({
+            "type": "L",
+            "x": x.to_f64_for_rasterization() * scale,
+            "y": y.to_f64_for_rasterization() * scale
+        }),
+        PathCommand::QuadTo { x1, y1, x, y } => serde_json::json!({
+            "type": "Q",
+            "x1": x1.to_f64_for_rasterization() * scale,
+            "y1": y1.to_f64_for_rasterization() * scale,
+            "x": x.to_f64_for_rasterization() * scale,
+            "y": y.to_f64_for_rasterization() * scale
+        }),
+        PathCommand::CubicTo {
+            x1,
+            y1,
+            x2,
+            y2,
+            x,
+            y,
+        } => serde_json::json!({
+            "type": "C",
+            "x1": x1.to_f64_for_rasterization() * scale,
+            "y1": y1.to_f64_for_rasterization() * scale,
+            "x2": x2.to_f64_for_rasterization() * scale,
+            "y2": y2.to_f64_for_rasterization() * scale,
+            "x": x.to_f64_for_rasterization() * scale,
+            "y": y.to_f64_for_rasterization() * scale
+        }),
+        PathCommand::ArcTo {
+            rx,
+            ry,
+            rotation,
+            large_arc,
+            sweep,
+            x,
+            y,
+        } => serde_json::json!({
+            "type": "A",
+            "rx": rx.to_f64_for_rasterization() * scale,
+            "ry": ry.to_f64_for_rasterization() * scale,
+            "rotation": rotation,
+            "large_arc": large_arc,
+            "sweep": sweep,
+            "x": x.to_f64_for_rasterization() * scale,
+            "y": y.to_f64_for_rasterization() * scale
+        }),
+        PathCommand::Close => serde_json::json!({
+            "type": "Z"
+        }),
+    }
+}
+
+/// Scale a PathCommand by a given factor, converting Rational to scaled Rational.
+///
+/// This is used for font glyph scaling before tessellation.
+fn scale_path_command(cmd: &PathCommand, scale: f64) -> PathCommand {
+    // Helper to scale a Rational value
+    let scale_r = |r: &Rational| -> Rational {
+        // Convert to f64, scale, then convert back to Rational
+        // Use f32_to_rational_exact for precision
+        let scaled = r.to_f64_for_rasterization() * scale;
+        f32_to_rational_exact(scaled as f32)
+    };
+
+    match cmd {
+        PathCommand::MoveTo { x, y } => PathCommand::MoveTo {
+            x: scale_r(x),
+            y: scale_r(y),
+        },
+        PathCommand::LineTo { x, y } => PathCommand::LineTo {
+            x: scale_r(x),
+            y: scale_r(y),
+        },
+        PathCommand::QuadTo { x1, y1, x, y } => PathCommand::QuadTo {
+            x1: scale_r(x1),
+            y1: scale_r(y1),
+            x: scale_r(x),
+            y: scale_r(y),
+        },
+        PathCommand::CubicTo {
+            x1,
+            y1,
+            x2,
+            y2,
+            x,
+            y,
+        } => PathCommand::CubicTo {
+            x1: scale_r(x1),
+            y1: scale_r(y1),
+            x2: scale_r(x2),
+            y2: scale_r(y2),
+            x: scale_r(x),
+            y: scale_r(y),
+        },
+        PathCommand::ArcTo {
+            rx,
+            ry,
+            rotation,
+            large_arc,
+            sweep,
+            x,
+            y,
+        } => PathCommand::ArcTo {
+            rx: scale_r(rx),
+            ry: scale_r(ry),
+            rotation: *rotation,
+            large_arc: *large_arc,
+            sweep: *sweep,
+            x: scale_r(x),
+            y: scale_r(y),
+        },
+        PathCommand::Close => PathCommand::Close,
+    }
+}
+
+/// Build JSON for quadratic Loop-Blinn curves.
+fn build_quad_curves_json(output: &vsc_gpu::loop_blinn::LoopBlinnOutput) -> serde_json::Value {
+    if output.vertices.is_empty() {
+        return serde_json::json!({
+            "positions": [],
+            "curve_uvs": [],
+            "curve_signs": [],
+            "indices": []
+        });
+    }
+
+    let mut positions = Vec::with_capacity(output.vertices.len() * 2);
+    let mut curve_uvs = Vec::with_capacity(output.vertices.len() * 2);
+    let mut curve_signs = Vec::with_capacity(output.vertices.len());
+
+    for v in &output.vertices {
+        positions.push(v.position[0] as f64);
+        positions.push(v.position[1] as f64);
+        curve_uvs.push(v.curve_uv[0] as f64);
+        curve_uvs.push(v.curve_uv[1] as f64);
+        curve_signs.push(v.curve_sign as f64);
+    }
+
+    serde_json::json!({
+        "positions": positions,
+        "curve_uvs": curve_uvs,
+        "curve_signs": curve_signs,
+        "indices": output.indices
+    })
+}
+
+/// Build JSON for cubic Loop-Blinn curves.
+///
+/// Note: Cubic curves use (k, l, m) texture coordinates instead of (u, v).
+/// The JSON format uses "curve_uvs" for compatibility, but stores [k, l, m, 0]
+/// per vertex (padded to maintain consistent stride with quadratic).
+fn build_cubic_curves_json(output: &vsc_gpu::loop_blinn::CubicLoopBlinnOutput) -> serde_json::Value {
+    if output.vertices.is_empty() {
+        return serde_json::json!({
+            "positions": [],
+            "curve_uvs": [],
+            "curve_signs": [],
+            "indices": []
+        });
+    }
+
+    let mut positions = Vec::with_capacity(output.vertices.len() * 2);
+    // For cubic, we store (k, l, m) in curve_uvs - JS side needs loopBlinnCubic pipeline
+    let mut curve_klm = Vec::with_capacity(output.vertices.len() * 3);
+    let mut curve_signs = Vec::with_capacity(output.vertices.len());
+
+    for v in &output.vertices {
+        positions.push(v.position[0] as f64);
+        positions.push(v.position[1] as f64);
+        curve_klm.push(v.curve_klm[0] as f64);
+        curve_klm.push(v.curve_klm[1] as f64);
+        curve_klm.push(v.curve_klm[2] as f64);
+        curve_signs.push(v.curve_sign as f64);
+    }
+
+    serde_json::json!({
+        "positions": positions,
+        "curve_klm": curve_klm,  // Different field name for cubic
+        "curve_signs": curve_signs,
+        "indices": output.indices
+    })
+}
+
+/// Convert a JSON value to a PathCommand.
+///
+/// Expected format (from JS SVG parser):
+/// - `{"type": "M", "x": 0.0, "y": 0.0}` → MoveTo
+/// - `{"type": "L", "x": 10.0, "y": 20.0}` → LineTo
+/// - `{"type": "Q", "x1": 5.0, "y1": 10.0, "x": 10.0, "y": 20.0}` → QuadTo
+/// - `{"type": "C", "x1": ..., "y1": ..., "x2": ..., "y2": ..., "x": ..., "y": ...}` → CubicTo
+/// - `{"type": "A", "rx": ..., "ry": ..., "rotation": ..., "large_arc": bool, "sweep": bool, "x": ..., "y": ...}` → ArcTo
+/// - `{"type": "Z"}` → Close
+fn json_to_path_command(v: &serde_json::Value) -> Result<PathCommand, String> {
+    let cmd_type = v
+        .get("type")
+        .and_then(|t| t.as_str())
+        .ok_or("Missing 'type' field")?;
+
+    // Helper to get f64 and convert to Rational
+    let get_f64 = |key: &str| -> Result<Rational, String> {
+        v.get(key)
+            .and_then(|n| n.as_f64())
+            .map(|f| f32_to_rational_exact(f as f32))
+            .ok_or_else(|| format!("Missing or invalid '{}' field", key))
+    };
+
+    match cmd_type {
+        "M" => Ok(PathCommand::MoveTo {
+            x: get_f64("x")?,
+            y: get_f64("y")?,
+        }),
+        "L" => Ok(PathCommand::LineTo {
+            x: get_f64("x")?,
+            y: get_f64("y")?,
+        }),
+        "Q" => Ok(PathCommand::QuadTo {
+            x1: get_f64("x1")?,
+            y1: get_f64("y1")?,
+            x: get_f64("x")?,
+            y: get_f64("y")?,
+        }),
+        "C" => Ok(PathCommand::CubicTo {
+            x1: get_f64("x1")?,
+            y1: get_f64("y1")?,
+            x2: get_f64("x2")?,
+            y2: get_f64("y2")?,
+            x: get_f64("x")?,
+            y: get_f64("y")?,
+        }),
+        "A" => {
+            let large_arc = v
+                .get("large_arc")
+                .and_then(|b| b.as_bool())
+                .unwrap_or(false);
+            let sweep = v.get("sweep").and_then(|b| b.as_bool()).unwrap_or(false);
+
+            Ok(PathCommand::ArcTo {
+                rx: get_f64("rx")?,
+                ry: get_f64("ry")?,
+                rotation: v
+                    .get("rotation")
+                    .and_then(|n| n.as_f64())
+                    .unwrap_or(0.0),
+                large_arc,
+                sweep,
+                x: get_f64("x")?,
+                y: get_f64("y")?,
+            })
+        }
+        "Z" => Ok(PathCommand::Close),
+        other => Err(format!("Unknown command type: {}", other)),
     }
 }

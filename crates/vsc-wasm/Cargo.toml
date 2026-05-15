@@ -43,6 +43,7 @@ features = [
     "HtmlCanvasElement",
     "console",
     "Navigator",
+    "Performance",
     "Gpu",
     "GpuAdapter",
     "GpuDevice",
